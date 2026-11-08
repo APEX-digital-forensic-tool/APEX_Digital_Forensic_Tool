@@ -50,7 +50,7 @@ APEX lets an analyst create a local case, register evidence (disk images such as
 ## Evidence on Hand
 
 - Synthetic demo data: 3 cases, 5 evidence items, about 800 files, 130 artifacts, 130 timeline events, 20 candidates and 3 reports (`frontend/src/demoData.ts`, fixtures in `frontend/src/__fixtures__/`).
-- Release v0.1.2 Preview (Windows x64 and macOS installers, SHA256SUMS, build provenance).
+- Release v0.1.3 Preview (Windows x64 and macOS installers, SHA256SUMS, build provenance). The engine is unchanged since v0.1.2.
 - There are no real case data, customers, benchmarks or performance comparisons. Do not fabricate them, and do not claim superiority over X-Ways or Autopsy.
 
 ## Product Principles
