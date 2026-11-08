@@ -11,10 +11,10 @@
     }
   },
   "media_windows_x64": {
-    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-18-13-01/ffmpeg-n8.1.3-18-g46d899d7a0-win64-lgpl-shared-8.1.zip",
-    "size": 80993114,
-    "sha256": "eb9346bdb3312d51ce5bfcf78041fd17e3db91f9fff9446d0d758406b85d2a51",
-    "source": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-10-18-13-01",
-    "ffmpeg_source": "https://github.com/FFmpeg/FFmpeg/commit/46d899d7a0"
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-08-12-35/ffmpeg-n8.1.3-34-ga35157abb9-win64-lgpl-shared-8.1.zip",
+    "size": 80313140,
+    "sha256": "f2ff0b5756af156ca291da018c3cc1985fc43041388e09a5b0bd9901faa511b3",
+    "source": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-08-12-35",
+    "ffmpeg_source": "https://github.com/FFmpeg/FFmpeg/commit/a35157abb9"
   }
 }
