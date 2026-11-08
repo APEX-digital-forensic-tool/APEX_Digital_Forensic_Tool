@@ -312,8 +312,12 @@ export function createDemoBridge(): DesktopBridge {
         ]);
       return fail("DEMO_READ_ONLY");
     },
-    async pick() {
-      return ok(null);
+    async pick(kind) {
+      // Lets the preview show the intake sheet; registering stays read-only.
+      return ok({
+        reference: "demo-pick",
+        name: kind === "directory" ? "외장 USB 수집본" : "업무용PC_디스크.E01",
+      });
     },
     async openExports() {
       return ok(null);

@@ -317,7 +317,7 @@ it("preserves review reason and shows the conflict after a delayed refresh", asy
   fireEvent.change(screen.getByLabelText("검토·결정 사유"), {
     target: { value: "Preserve my review reason" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "기록" }));
+  fireEvent.click(screen.getByRole("button", { name: "제출" }));
   await waitFor(() => expect(attempts).toBe(1));
   expect(
     (screen.getByLabelText("검토·결정 사유") as HTMLTextAreaElement).value,
@@ -356,6 +356,14 @@ async function openRoute(label: string) {
       (screen.getByLabelText("현재 증거") as HTMLSelectElement).value,
     ).toBe(core.evidence[0].id),
   );
+  const group = (
+    {
+      "증거 보관 이력": "사건",
+      "통합 검색": "분석",
+      "추출 후보 검토": "분석",
+    } as Record<string, string>
+  )[label];
+  if (group) fireEvent.click(screen.getByRole("button", { name: group }));
   fireEvent.click(screen.getByRole("button", { name: label }));
 }
 

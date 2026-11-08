@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { ErrorState, Fields, Loading, Section } from "./ui";
+import { X } from "./icons";
 
 export function ForensicTools({
   caseId,
@@ -74,22 +75,31 @@ export function ForensicTools({
   const node = { node_id: selected?.id };
   return (
     <>
-      <button disabled={!caseId || !evidenceId} onClick={() => setOpen(true)}>
-        복구·카빙·OCR·ADS
-      </button>
+      <div className="tools-strip">
+        <span>추가 분석</span>
+        <button
+          disabled={!caseId || !evidenceId}
+          onClick={() => setOpen(true)}
+          title="삭제 파일 복구, 시그니처 카빙, OCR, 대체 데이터 스트림(ADS)"
+        >
+          복구·카빙·OCR·ADS
+        </button>
+      </div>
       <dialog
         ref={dialog}
         className="modal forensic-tools"
         onCancel={() => setOpen(false)}
       >
-        <h2>추가 포렌식 분석</h2>
+        <header className="forensic-tools-header">
+          <h2>추가 포렌식 분석</h2>
+          <button onClick={() => setOpen(false)} aria-label="추가 분석 닫기">
+            <X size={18} />
+          </button>
+        </header>
         <p>
           {selected?.original_name ?? "선택한 증거"} · 원본은 읽기 전용으로
           유지됩니다.
         </p>
-        <button onClick={() => setOpen(false)} aria-label="추가 분석 닫기">
-          닫기
-        </button>
         <Section title="삭제 파일 복구">
           <p>
             기록된 데이터 위치로 파생 파일을 만듭니다. 덮어쓴 데이터와 누락

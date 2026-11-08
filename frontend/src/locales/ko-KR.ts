@@ -51,6 +51,16 @@ export const errorMessages: Record<string, string> = {
   REPORT_NOT_APPROVED: "보고서 승인 후 내보낼 수 있습니다.",
   REPORT_REVIEW_REVISION_CONFLICT:
     "검토 상태가 변경되었습니다. 내용을 보존하고 최신 상태를 불러왔습니다.",
+  REPORT_REVIEW_REQUIRED:
+    "필수 섹션을 모두 채택해야 검토를 완료할 수 있습니다. 채택하지 않은 섹션을 확인해주세요.",
+  REPORT_REVIEW_TRANSITION_INVALID:
+    "현재 검토 단계에서는 이 작업을 할 수 없습니다. 최신 상태에서 다음 단계를 확인해주세요.",
+  REPORT_APPROVAL_REVIEW_INCOMPLETE:
+    "검토 완료와 증거 보관 이력 검증이 모두 끝나야 승인할 수 있습니다. 증거의 보관 이력이 비어 있거나 끊기지 않았는지 확인해주세요.",
+  REPORT_APPROVAL_TRANSITION_INVALID:
+    "승인 상태가 변경되었거나 이 단계에서 허용되지 않는 작업입니다. 최신 상태를 확인해주세요.",
+  REPORT_APPROVAL_FINGERPRINT_MISMATCH:
+    "승인 이후 보고서 내용이 달라졌습니다. 승인된 내용과 일치하는 버전만 내보낼 수 있습니다.",
   WORK_QUEUE_FULL:
     "작업 대기열이 가득 찼습니다. 진행 중인 작업이 끝난 후 다시 시도해주세요.",
   PROFILE_REVISION_CONFLICT:
@@ -60,6 +70,8 @@ export const errorMessages: Record<string, string> = {
     "보관 이력이 변경되었습니다. 최신 이력을 확인한 후 다시 시도해주세요.",
   RESOURCE_LIMIT_EXCEEDED:
     "처리할 범위가 제한을 초과했습니다. 범위나 결과 수를 줄여주세요.",
+  TIMEZONE_INVALID:
+    "알 수 없는 시간대 이름입니다. 목록에서 고르거나 Asia/Seoul, UTC처럼 IANA 이름으로 입력해주세요.",
   TIMEZONE_AMBIGUOUS:
     "시각의 시간대를 확정할 수 없습니다. 원본 시각과 시간대 정보를 확인해주세요.",
   DEMO_READ_ONLY:

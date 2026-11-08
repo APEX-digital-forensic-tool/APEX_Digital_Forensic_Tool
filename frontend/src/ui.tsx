@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlertCircle,
   ChevronDown,
@@ -16,6 +24,8 @@ export const labels: Record<string, string> = {
   EVIDENCE: "증거",
   TIMELINE_EVENT: "타임라인 이벤트",
   SEARCH_RESULT: "검색 결과",
+  MACHINE_CANDIDATE: "자동 추출 후보",
+  CUSTODY_EVENT: "보관 이력 이벤트",
   SIMPLE: "간단히",
   DETAILED: "상세히",
   RAW: "원본",
@@ -32,6 +42,9 @@ export const labels: Record<string, string> = {
   AI_INFERENCE: "AI 추론",
   AI_RECOMMENDATION: "AI 권고",
   NOT_CHECKED: "미검증",
+  HASHING: "해시 계산 중",
+  DEPENDENCY_NOT_INSTALLED: "필요한 구성요소가 설치되지 않음",
+  EXECUTABLE_NOT_FOUND: "실행 파일을 찾을 수 없음",
   MATCH: "일치",
   MISMATCH: "불일치",
   AVAILABLE: "사용 가능",
@@ -65,19 +78,183 @@ export const labels: Record<string, string> = {
   DERIVED_ANALYSIS: "파생 분석 · 해석 검토 필요",
   REVIEW_REQUIRED: "검토 필요",
   REJECTED: "반려",
+  CHANGES_REQUESTED: "수정 요청",
+  REVOKED: "승인 철회됨",
   UNREVIEWED: "미검토",
   ACCEPTED: "채택",
-  CORRECTED: "수정 검토",
+  CORRECTED: "정정",
   ALLOW: "허용",
   DENY: "차단",
   ALLOW_WITH_REDACTION: "민감정보 제거 후 재평가",
   ALLOW_PROJECTION_ONLY: "안전한 투영 생성 후 재평가",
+  // Chain-of-custody event types (schemas/v1/chain-of-custody).
+  ACQUISITION: "획득",
+  RECEIVED: "인수",
+  TRANSFERRED: "이관",
+  STORED: "보관",
+  OPENED: "개봉",
+  MOUNTED: "마운트",
+  ANALYZED: "분석",
+  ANALYSIS: "분석",
+  REVIEW: "검토",
+  HASH_VERIFIED: "해시 검증",
+  COPIED: "복제",
+  RETURNED: "반환",
+  RELEASED: "인도",
+  DISPOSED: "폐기",
+  CORRECTION: "정정",
+  // Search modes and source types.
+  TERM: "단어 일치",
+  PHRASE: "구문 일치",
+  PREFIX: "앞부분 일치",
+  EXACT: "정확히 일치",
+  REGEX_METADATA: "정규식 (메타데이터)",
+  WINDOWS_ARTIFACT: "Windows 아티팩트",
+  // Timezone confidence.
+  CONFIRMED: "확정",
+  HIGH: "높음",
+  MEDIUM: "보통",
+  LOW: "낮음",
+  UNKNOWN: "알 수 없음",
+  // Machine-extraction sources.
+  IMAGE: "이미지",
+  IMAGE_FILE: "이미지 파일",
+  VIDEO_FRAME: "영상 프레임",
+  AUDIO: "음성",
+  AUDIO_FILE: "음성 파일",
+  DOCUMENT: "문서",
+  OTHER: "기타",
+  // Artifact types.
+  REGISTRY_KEY: "레지스트리 키",
+  REGISTRY_VALUE: "레지스트리 값",
+  REGISTRY_AUTORUN: "자동 실행",
+  REGISTRY_USB_DEVICE: "USB 장치",
+  REGISTRY_TIMEZONE: "시간대 설정",
+  REGISTRY_USERASSIST: "UserAssist",
+  EVENT_LOG_RECORD: "이벤트 로그",
+  PREFETCH_EXECUTION: "프리패치 실행 기록",
+  BROWSER_PROFILE: "브라우저 프로필",
+  BROWSER_VISIT: "방문 기록",
+  BROWSER_SEARCH: "검색 기록",
+  BROWSER_DOWNLOAD: "다운로드",
+  BROWSER_COOKIE: "쿠키",
+  BROWSER_CREDENTIAL: "저장된 자격 증명",
+  BROWSER_CACHE_ENTRY: "캐시",
+  BROWSER_DELETED_SQLITE_ROW: "삭제 후보 (SQLite)",
+  BROWSER_PRIVATE_MODE_CANDIDATE: "비공개 모드 후보",
+  MEDIA_IMAGE: "이미지",
+  MEDIA_VIDEO: "동영상",
+  MEDIA_AUDIO: "오디오",
+  COMMUNICATION_PROFILE: "통신 프로필",
+  COMMUNICATION_ACCOUNT: "통신 계정",
+  COMMUNICATION_CONVERSATION: "대화",
+  COMMUNICATION_MESSAGE: "메시지",
+  COMMUNICATION_ATTACHMENT: "첨부파일",
+  COMMUNICATION_UNSUPPORTED_STORE: "미지원 저장소",
+  // Timeline event and source types (schemas/v1/timeline-event).
+  FILE_CREATED: "파일 생성",
+  FILE_MODIFIED: "파일 수정",
+  FILE_ACCESSED: "파일 접근",
+  FILE_METADATA_CHANGED: "파일 메타데이터 변경",
+  REGISTRY_KEY_LAST_WRITE: "레지스트리 키 마지막 기록",
+  REGISTRY_VALUE_OBSERVED: "레지스트리 값 확인",
+  PROCESS_EXECUTION: "프로그램 실행",
+  LOGON: "로그온",
+  LOGOFF: "로그오프",
+  PROCESS_CREATED: "프로세스 생성",
+  NETWORK_CONNECTION: "네트워크 연결",
+  FILE_CREATED_BY_PROCESS: "프로세스가 만든 파일",
+  REGISTRY_MODIFIED: "레지스트리 변경",
+  DNS_QUERY: "DNS 조회",
+  SERVICE_INSTALLED: "서비스 설치",
+  EVENT_LOG_CLEARED: "이벤트 로그 삭제",
+  PREFETCH_LAST_RUN: "마지막 실행 (프리패치)",
+  MEDIA_CREATED: "미디어 생성",
+  MEDIA_MODIFIED: "미디어 수정",
+  MEDIA_CAPTURED: "촬영",
+  MEDIA_METADATA_TIMESTAMP: "미디어 메타데이터 시각",
+  MEDIA_CAPTURED_CANDIDATE: "촬영 시각 후보",
+  BROWSER_PROFILE_OBSERVED: "브라우저 프로필 확인",
+  BROWSER_DOWNLOAD_STARTED: "다운로드 시작",
+  BROWSER_DOWNLOAD_COMPLETED: "다운로드 완료",
+  BROWSER_DOWNLOAD_OBSERVED: "다운로드 확인",
+  BROWSER_COOKIE_OBSERVED: "쿠키 확인",
+  BROWSER_CREDENTIAL_OBSERVED: "자격 증명 확인",
+  BROWSER_CACHE_ENTRY_OBSERVED: "캐시 확인",
+  BROWSER_DELETED_SQLITE_ROW_CANDIDATE: "삭제 후보 (SQLite)",
+  COMMUNICATION_PROFILE_OBSERVED: "통신 프로필 확인",
+  COMMUNICATION_ACCOUNT_OBSERVED: "통신 계정 확인",
+  COMMUNICATION_CONVERSATION_OBSERVED: "대화 확인",
+  REGISTRY_ARTIFACT: "레지스트리",
+  EVENT_LOG_ARTIFACT: "이벤트 로그",
+  PREFETCH_ARTIFACT: "프리패치",
+  MEDIA_ARTIFACT: "미디어",
+  BROWSER_ARTIFACT: "브라우저",
+  COMMUNICATION_ARTIFACT: "통신",
 };
+/** Case display timezone; App provides the current case's IANA zone. */
+export const DisplayZone = createContext("Asia/Seoul");
+const ISO_INSTANT =
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/;
+/** "UTC+9" style offset of `zone` at `at`. */
+export function zoneOffset(zone: string, at: Date = new Date()) {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(at)
+      .find((p) => p.type === "timeZoneName")?.value;
+    if (!name) return zone;
+    return name.replace(/^GMT/, "UTC").replace(/^UTC(?:[+-]0)?$/, "UTC");
+  } catch {
+    return zone;
+  }
+}
+/** Column-header label: a fixed offset, or the IANA name for DST zones. */
+export function zoneLabel(zone: string) {
+  const winter = zoneOffset(zone, new Date(Date.UTC(2026, 0, 15)));
+  const summer = zoneOffset(zone, new Date(Date.UTC(2026, 6, 15)));
+  return winter === summer ? winter : zone;
+}
+/** Plain-language value for a table cell or field. */
+export function displayValue(value: unknown, zone: string): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value))
+    return value.length
+      ? value.map((v) => displayValue(v, zone)).join(", ")
+      : "—";
+  if (typeof value === "boolean") return value ? "예" : "아니요";
+  if (typeof value === "string")
+    return ISO_INSTANT.test(value)
+      ? time(value, zone)
+      : (labels[value] ?? value);
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+/** Custody wording where the shared label means a report or case status. */
+const custodyOverrides: Record<string, string> = {
+  EXPORTED: "반출",
+  ARCHIVED: "보존 처리",
+};
+export const custodyEvent = (type: unknown) =>
+  typeof type === "string"
+    ? (custodyOverrides[type] ?? labels[type] ?? type)
+    : "—";
+/** Image formats (RAW, E01, …) are proper names; only a folder is translated. */
+export const evidenceFormat = (format: unknown) =>
+  format === "DIRECTORY" ? "폴더" : typeof format === "string" ? format : "—";
+/** 0–1 confidence as a percentage; categorical confidence as its label. */
+export function confidence(value: unknown) {
+  if (typeof value === "number" && value >= 0 && value <= 1)
+    return `${Math.round(value * 100)}%`;
+  return displayValue(value, "UTC");
+}
 export function Badge({ value }: { value: unknown }) {
   const text = String(value ?? "UNKNOWN");
   return (
     <span
-      className={`badge ${/FAIL|DENY|MISMATCH|REJECT|CORRUPT/.test(text) ? "red" : /PARTIAL|STALE|LIMIT|REQUIRED|UNAVAILABLE|UNKNOWN|INTERRUPTED|CANDIDATE|UNSUPPORTED|AI_/.test(text) ? "amber" : /AVAILABLE|COMPLETE|SUCCEEDED|APPROVED|READY|MATCH|ALLOW$/.test(text) ? "green" : ""}`}
+      className={`badge ${/FAIL|DENY|MISMATCH|REJECT|CORRUPT/.test(text) ? "red" : /PARTIAL|STALE|LIMIT|REQUIRED|UNAVAILABLE|UNKNOWN|INTERRUPTED|CANDIDATE|UNSUPPORTED|CHANGES_REQUESTED|AI_/.test(text) ? "amber" : /AVAILABLE|COMPLETE|SUCCEEDED|APPROVED|ACCEPTED|READY|MATCH|ALLOW$/.test(text) ? "green" : ""}`}
     >
       {labels[text] ?? text}
     </span>
@@ -93,7 +270,7 @@ export function Empty({
   return (
     <div className="empty">
       <SearchX size={30} />
-      <h3>{title}</h3>
+      <h2>{title}</h2>
       <p>{children ?? "선택한 범위에서 확인된 항목이 없습니다."}</p>
     </div>
   );
@@ -166,6 +343,7 @@ export function ResultState({ data }: { data: Row | null | undefined }) {
   );
 }
 const names: Record<string, string> = {
+  id: "ID",
   case_id: "사건 ID",
   evidence_id: "증거 ID",
   source_id: "소스 ID",
@@ -238,8 +416,42 @@ const names: Record<string, string> = {
   reason_codes: "사유 코드",
   redaction_applied: "민감정보 제거 적용",
   projection_applied: "안전한 투영 적용",
+  limitations: "한계",
+  created_by: "작성자",
+  timestamp_meanings: "시각의 의미",
+  utc_timestamps: "UTC 시각",
+  created: "생성",
+  modified: "수정",
+  accessed: "접근",
+  changed: "변경",
+  mime_candidate: "MIME 후보",
+  extension: "확장자",
+  rank: "관련도 점수 (BM25 · 낮을수록 관련)",
+  matched_terms: "일치 검색어",
+  matched_fields: "일치 필드",
+  snippet: "일치 내용",
+  source_type: "소스 유형",
+  extraction_type: "추출 방식",
+  language: "언어",
+  event_type: "이벤트 유형",
+  occurred_at_utc: "발생 시각",
+  observed_at_utc: "관찰 시각",
+  event_hash: "이벤트 해시",
+  previous_event_hash: "이전 이벤트 해시",
+  timezone_confidence: "시간대 신뢰도",
+  timezone_source: "시간대 출처",
+  artifact_type: "아티팩트 유형",
+  description: "설명",
+  synthetic: "합성 데이터",
 };
+/** Single-value timestamp with its offset, e.g. "2026-09-14 09:00:00 (UTC+9)". */
+export function timeWithZone(value: unknown, zone: string) {
+  const text = time(value, zone);
+  if (typeof value !== "string" || !ISO_INSTANT.test(value)) return text;
+  return `${text} (${zoneOffset(zone, new Date(value))})`;
+}
 export function Fields({ value }: { value: unknown }) {
+  const zone = useContext(DisplayZone);
   if (value === null || value === undefined)
     return <span className="muted">—</span>;
   if (Array.isArray(value))
@@ -279,7 +491,13 @@ export function Fields({ value }: { value: unknown }) {
                     "아니요"
                   )
                 ) : typeof v === "string" ? (
-                  (labels[v] ?? v)
+                  ISO_INSTANT.test(v) ? (
+                    <span title={`UTC 원문: ${v}`}>
+                      {timeWithZone(v, zone)}
+                    </span>
+                  ) : (
+                    (labels[v] ?? v)
+                  )
                 ) : (
                   String(v ?? "—")
                 )}
@@ -492,6 +710,7 @@ export function Table({
   onSort?: (sort: { key: string; asc: boolean }) => void;
 }) {
   const [sort, setSort] = useState<{ key: string; asc: boolean } | null>(null);
+  const zone = useContext(DisplayZone);
   const display = useMemo(
     () =>
       sort
@@ -635,7 +854,7 @@ export function Table({
             >
               {columns.map((c) => (
                 <td key={c.key}>
-                  {c.render ? c.render(r) : textValue(r[c.key])}
+                  {c.render ? c.render(r) : displayValue(r[c.key], zone)}
                 </td>
               ))}
             </tr>

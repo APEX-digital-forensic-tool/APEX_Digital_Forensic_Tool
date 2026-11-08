@@ -1,9 +1,28 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { X, ShieldCheck, LogIn, LogOut, Save, FolderOpen, Plus } from "./icons";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  X,
+  ShieldCheck,
+  LogIn,
+  LogOut,
+  Save,
+  FolderOpen,
+  Plus,
+  Check,
+} from "./icons";
 import { gateway, unwrap, errorText, type Row } from "./gateway";
 import { ReportCompare, ReportVersionDialog } from "./ReportTools";
 import {
+  REVIEW_STEPS,
+  actionCopy,
+  isRequiredSection,
+  reviewFlow,
+  sectionStatus,
+  type ReviewAction,
+  type ReviewFlow,
+} from "./reportWorkflow";
+import {
   Badge,
+  labels,
   Fields,
   Loading,
   ErrorState,
@@ -19,10 +38,15 @@ export type FieldSpec = {
   max?: number;
   default?: string;
   options?: string[];
+  /** Free text with these offered as completions (rendered as a datalist). */
+  suggestions?: string[];
+  /** Display names for options; falls back to the shared label map. */
+  optionLabel?: (option: string) => string;
 };
 export function FormDialog({
   title,
   description,
+  context,
   fields,
   onSubmit,
   onClose,
@@ -30,6 +54,8 @@ export function FormDialog({
 }: {
   title: string;
   description?: string;
+  /** What the decision is about, shown above the fields. */
+  context?: ReactNode;
   fields: FieldSpec[];
   onSubmit: (data: Row) => Promise<void>;
   onClose: () => void;
@@ -102,9 +128,10 @@ export function FormDialog({
           </button>
         </header>
         {description && <p className="muted">{description}</p>}
+        {context}
         {fields.map((f) => (
           <label key={f.key}>
-            {f.label}
+            <span className="field-label">{f.label}</span>
             {f.type === "textarea" ? (
               <textarea
                 name={f.key}
@@ -114,19 +141,41 @@ export function FormDialog({
                 rows={5}
               />
             ) : f.options ? (
-              <select name={f.key} defaultValue={f.default}>
+              <select
+                name={f.key}
+                defaultValue={f.default ?? (f.required ? "" : undefined)}
+                required={f.required}
+              >
+                {f.required && f.default === undefined && (
+                  <option value="" disabled>
+                    선택하세요
+                  </option>
+                )}
                 {f.options.map((o) => (
-                  <option key={o}>{o}</option>
+                  <option key={o} value={o}>
+                    {f.optionLabel?.(o) ?? labels[o] ?? o}
+                  </option>
                 ))}
               </select>
             ) : (
-              <input
-                type={f.type ?? "text"}
-                name={f.key}
-                defaultValue={f.default}
-                required={f.required}
-                maxLength={f.max}
-              />
+              <>
+                <input
+                  type={f.type ?? "text"}
+                  name={f.key}
+                  defaultValue={f.default}
+                  required={f.required}
+                  maxLength={f.max}
+                  list={f.suggestions ? `${f.key}-suggestions` : undefined}
+                  autoComplete={f.suggestions ? "off" : undefined}
+                />
+                {f.suggestions && (
+                  <datalist id={`${f.key}-suggestions`}>
+                    {f.suggestions.map((o) => (
+                      <option key={o} value={o} />
+                    ))}
+                  </datalist>
+                )}
+              </>
             )}
           </label>
         ))}
@@ -415,6 +464,67 @@ export function PolicyPanel({ caseId }: { caseId: string }) {
     </div>
   );
 }
+function ReviewFlowBar({
+  flow,
+  busy,
+  olderThan,
+  onAction,
+}: {
+  flow: ReviewFlow;
+  busy: boolean;
+  olderThan?: number;
+  onAction: (action: ReviewAction | "export") => void;
+}) {
+  const hintId = useId();
+  return (
+    <section className="review-flow" aria-label="검토 진행">
+      <ol className="review-steps">
+        {REVIEW_STEPS.map((label, i) => {
+          const current = i === flow.step;
+          const state =
+            i < flow.step ? "done" : current ? "current" : "upcoming";
+          return (
+            <li
+              key={label}
+              className={`${state} ${current && flow.tone ? flow.tone : ""}`}
+              aria-current={current ? "step" : undefined}
+            >
+              <span className="review-step-mark" aria-hidden="true">
+                {state === "done" ? <Check size={12} /> : i + 1}
+              </span>
+              {current && flow.stepLabel ? flow.stepLabel : label}
+            </li>
+          );
+        })}
+      </ol>
+      <div className="review-next">
+        <div className="review-guide">
+          {olderThan !== undefined && (
+            <p className="review-older">
+              이전 버전을 보고 있습니다. 최신은 버전 {olderThan}입니다.
+            </p>
+          )}
+          <p id={hintId}>{flow.blocked ?? flow.hint}</p>
+        </div>
+        <div className="review-buttons">
+          {flow.secondary.map((a) => (
+            <button key={a} disabled={busy} onClick={() => onAction(a)}>
+              {actionCopy[a].label}
+            </button>
+          ))}
+          <button
+            className="primary"
+            disabled={busy || flow.blocked !== undefined}
+            aria-describedby={hintId}
+            onClick={() => onAction(flow.primary)}
+          >
+            {actionCopy[flow.primary].label}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 export function Reports({
   caseId,
   evidenceId,
@@ -435,7 +545,7 @@ export function Reports({
     [dialog, setDialog] = useState<
       "new" | "version" | "review" | "export" | null
     >(null),
-    [action, setAction] = useState("submit"),
+    [action, setAction] = useState<ReviewAction>("submit"),
     [sectionId, setSectionId] = useState<string | null>(null),
     [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false);
@@ -503,14 +613,26 @@ export function Reports({
   };
   const version =
     versions.find((v) => v.report_version_id === versionId) ?? versions.at(-1);
-  const approved =
+  const latest = versions.at(-1);
+  const flow =
     version &&
-    data?.approvals?.[version.report_version_id]?.decision === "APPROVED";
-  const review = (kind: string, id: string | null = null) => {
+    reviewFlow({
+      version,
+      decision:
+        data?.approvals?.[version.report_version_id]?.decision ??
+        version.approval_state?.decision,
+      exported:
+        data?.report?.status === "EXPORTED" &&
+        data.report.active_version_id === version.report_version_id,
+    });
+  const review = (kind: ReviewAction, id: string | null = null) => {
     setAction(kind);
     setSectionId(id);
     setDialog("review");
   };
+  const reviewSection = sectionId
+    ? version?.sections.find((s: Row) => s.section_id === sectionId)
+    : null;
   return (
     <div className="reports-layout">
       <aside className="report-list">
@@ -586,47 +708,72 @@ export function Reports({
                       key={v.report_version_id}
                       value={v.report_version_id}
                     >
-                      버전 {v.version_number} · {v.source_kind}
+                      버전 {v.version_number} ·{" "}
+                      {labels[v.source_kind] ?? v.source_kind}
                     </option>
                   ))}
                 </select>
-                <Badge value={version?.review_state?.status} />
-                <Badge
-                  value={
-                    data?.approvals?.[version?.report_version_id]?.decision ??
-                    "DRAFT"
-                  }
-                />
               </div>
             )}
-            {version && (
+            {version && flow && (
               <>
+                <ReviewFlowBar
+                  flow={flow}
+                  busy={busy}
+                  olderThan={
+                    latest && latest !== version
+                      ? latest.version_number
+                      : undefined
+                  }
+                  onAction={(a) =>
+                    a === "export" ? setDialog("export") : review(a)
+                  }
+                />
                 <ResultState data={version} />
                 <p className="report-summary">{version.executive_summary}</p>
-                {version.sections.map((s: Row) => (
-                  <article key={s.section_id} className="report-section">
-                    <header>
-                      <h3>{s.title}</h3>
-                      <Badge value={s.source_kind} />
-                    </header>
-                    <p>{s.content}</p>
-                    <div className="toolbar">
-                      <button
-                        onClick={() => review("accept_section", s.section_id)}
-                      >
-                        이 섹션 채택
-                      </button>
-                      <button
-                        onClick={() => review("request_changes", s.section_id)}
-                      >
-                        수정 요청
-                      </button>
-                    </div>
-                    <Section title="인용 근거">
-                      <Fields value={s.citations} />
-                    </Section>
-                  </article>
-                ))}
+                {version.sections.map((s: Row) => {
+                  const status = sectionStatus(version, s.section_id);
+                  return (
+                    <article key={s.section_id} className="report-section">
+                      <header>
+                        <h3>{s.title}</h3>
+                        <div className="toolbar">
+                          {!isRequiredSection(s) && (
+                            <span className="muted small">선택 검토</span>
+                          )}
+                          {flow.stage !== "DRAFT" && <Badge value={status} />}
+                          <Badge value={s.source_kind} />
+                        </div>
+                      </header>
+                      <p>{s.content}</p>
+                      {flow.sectionReview && (
+                        <div className="toolbar">
+                          {status !== "ACCEPTED" && (
+                            <button
+                              disabled={busy}
+                              onClick={() =>
+                                review("accept_section", s.section_id)
+                              }
+                            >
+                              {actionCopy.accept_section.label}
+                            </button>
+                          )}
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              review("request_changes", s.section_id)
+                            }
+                          >
+                            {actionCopy.request_changes.label}
+                          </button>
+                        </div>
+                      )}
+                      <Section title="인용 근거">
+                        <Fields value={s.citations} />
+                      </Section>
+                    </article>
+                  );
+                })}
                 <Section title="한계 및 출처" initial>
                   <Fields
                     value={{
@@ -637,25 +784,6 @@ export function Reports({
                   />
                 </Section>
                 <ReportCompare versions={versions} />
-                <div className="review-actions">
-                  <button onClick={() => review("submit")}>검토 제출</button>
-                  <button onClick={() => review("complete")}>검토 완료</button>
-                  <button onClick={() => review("approve")}>
-                    보관이력 포함 승인
-                  </button>
-                  <button onClick={() => review("reject")}>반려</button>
-                  <button onClick={() => review("reopen")}>검토 재개</button>
-                  <button disabled={!approved} onClick={() => review("revoke")}>
-                    승인 철회
-                  </button>
-                  <button
-                    className="primary"
-                    disabled={!approved}
-                    onClick={() => setDialog("export")}
-                  >
-                    내보내기
-                  </button>
-                </div>
                 <Section title="검토 이력">
                   <Fields value={data?.reviews?.[version.report_version_id]} />
                 </Section>
@@ -711,13 +839,17 @@ export function Reports({
       )}
       {dialog === "review" && version && (
         <FormDialog
-          title="보고서 검토 기록"
-          description="현재 버전에 분석자의 결정과 사유를 기록합니다."
-          submit="기록"
+          title={
+            reviewSection
+              ? `${actionCopy[action].title} · ${reviewSection.title}`
+              : actionCopy[action].title
+          }
+          description={actionCopy[action].description}
+          submit={actionCopy[action].submit}
           fields={[
             {
               key: "reason",
-              label: "검토·결정 사유",
+              label: actionCopy[action].field ?? "검토·결정 사유",
               type: "textarea",
               required: true,
               max: 4096,

@@ -7,8 +7,8 @@ under `runtime/assets/media`. Build scripts and exact source references are reco
 `runtime/assets/asset-manifest.json`; this manifest pins the archive SHA-256 and size.
 
 - FFmpeg: https://ffmpeg.org/ ; upstream license and build flags are included in the archive.
-- Build scripts: https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-10-18-13-01
-- FFmpeg source: https://github.com/FFmpeg/FFmpeg/commit/46d899d7a0
+- Build scripts: https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-08-12-35
+- FFmpeg source: https://github.com/FFmpeg/FFmpeg/commit/a35157abb9
 - Source/dependency retrieval recipes: the pinned BtbN build scripts.
 
 The bundled multilingual Whisper base model is the MIT-licensed OpenAI Whisper model
