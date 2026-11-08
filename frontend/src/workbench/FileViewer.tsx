@@ -287,10 +287,14 @@ export function FileViewer({
             <ResultState data={projection} />
             {kind === "metadata" ? (
               <>
-                <Fields value={projection?.primary_fields} />
-                <Fields value={projection?.secondary_fields} />
-                <Fields value={projection?.technical_fields} />
-                <Fields value={projection?.timestamps} />
+                <FieldGroups
+                  groups={[
+                    ["기본 정보", projection?.primary_fields],
+                    ["추가 정보", projection?.secondary_fields],
+                    ["기술 정보", projection?.technical_fields],
+                    ["시각", projection?.timestamps],
+                  ]}
+                />
                 <Section title="원본 위치 및 인용 근거">
                   <Fields value={projection?.raw_locator} />
                   <Fields value={projection?.citations} />
@@ -402,5 +406,35 @@ export function FileViewer({
         </footer>
       )}
     </section>
+  );
+}
+/**
+ * Projection groups often repeat the same field (the engine may echo a value in
+ * several groups). Show each key/value once, under the first group that has it.
+ */
+function FieldGroups({ groups }: { groups: [string, unknown][] }) {
+  const seen = new Set<string>();
+  return (
+    <>
+      {groups.map(([title, value]) => {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          return value == null ? null : <Fields key={title} value={value} />;
+        const fresh = Object.fromEntries(
+          Object.entries(value as Row).filter(([key, v]) => {
+            const signature = `${key}:${JSON.stringify(v)}`;
+            if (seen.has(signature)) return false;
+            seen.add(signature);
+            return true;
+          }),
+        );
+        if (!Object.keys(fresh).length) return null;
+        return (
+          <section key={title} className="field-group">
+            <h3>{title}</h3>
+            <Fields value={fresh} />
+          </section>
+        );
+      })}
+    </>
   );
 }

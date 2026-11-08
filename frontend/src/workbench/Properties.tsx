@@ -1,5 +1,14 @@
 import { type Row } from "../gateway";
-import { FileIcon, labels, size, textValue, time } from "../ui";
+import { integritySummary, shortDigest } from "../EvidenceIntake";
+import {
+  Badge,
+  FileIcon,
+  evidenceFormat,
+  labels,
+  size,
+  textValue,
+  timeWithZone,
+} from "../ui";
 
 export function Properties({
   row,
@@ -24,14 +33,19 @@ export function Properties({
         ["파일 ID", row.id],
         ["MIME", row.mime_candidate],
         ["삭제 상태", row.is_deleted ? "삭제됨" : "삭제되지 않음"],
-        ["생성 시간", time(row.utc_timestamps?.created, zone)],
-        ["수정 시간", time(row.utc_timestamps?.modified, zone)],
-        ["접근 시간", time(row.utc_timestamps?.accessed, zone)],
+        ["생성 시간", timeWithZone(row.utc_timestamps?.created, zone)],
+        ["수정 시간", timeWithZone(row.utc_timestamps?.modified, zone)],
+        ["접근 시간", timeWithZone(row.utc_timestamps?.accessed, zone)],
         ["결과 범위", row.is_partial ? "부분 결과" : "관찰됨"],
       ]
     : [
         ["이름", item.display_name ?? item.title],
-        ["유형", item.format ?? item.artifact_type],
+        [
+          "유형",
+          item.format
+            ? evidenceFormat(item.format)
+            : (labels[item.artifact_type] ?? item.artifact_type),
+        ],
         ["크기", size(item.size_bytes)],
         ["상태", labels[item.status] ?? item.status],
         ["증거 ID", item.id],
@@ -64,6 +78,7 @@ export function Properties({
               <dt>접근 모드</dt>
               <dd>읽기 전용</dd>
             </div>
+            <IntegrityRow evidence={evidence} />
           </>
         )}
         {evidence?.fingerprint?.value && (
@@ -73,6 +88,25 @@ export function Properties({
           </div>
         )}
       </dl>
+      {evidence && integritySummary(evidence).status === "MISMATCH" && (
+        <div className="notice error" role="alert">
+          무결성 검증 결과가 이전 기준 해시와 일치하지 않습니다. 원인 확인이
+          필요합니다.
+        </div>
+      )}
+    </div>
+  );
+}
+function IntegrityRow({ evidence }: { evidence: Row }) {
+  const h = integritySummary(evidence);
+  return (
+    <div>
+      <dt>무결성 해시</dt>
+      <dd className="integrity-cell" title={h.digest ?? undefined}>
+        <span>{h.label}</span>
+        {h.digest && <code>{shortDigest(h.digest)}</code>}
+        {h.status && <Badge value={h.status} />}
+      </dd>
     </div>
   );
 }

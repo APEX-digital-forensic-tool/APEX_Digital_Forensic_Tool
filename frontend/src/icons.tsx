@@ -38,6 +38,7 @@ export const Activity = glyph("arrowsUpDown");
 export const AlertCircle = glyph("warning");
 export const Archive = glyph(ArchiveBoxIcon);
 export const ArrowDownToLine = glyph(ArrowDownTrayIcon);
+export const Check = glyph("check");
 export const ChevronDown = glyph("chevronDown");
 export const ChevronRight = glyph("chevronRight");
 export const Clock3 = glyph("clock");

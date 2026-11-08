@@ -221,6 +221,21 @@ export function createDemoData() {
         status: "READY",
         size_bytes: 534773760 + ci * 123456789,
         acquired_at: date(),
+        hashes: [
+          {
+            algorithm: "SHA256",
+            digest_hex: (ci * 7 + ei + 1)
+              .toString(16)
+              .padStart(2, "0")
+              .repeat(32),
+            scope: "FULL_SOURCE",
+            bytes_hashed: 534773760 + ci * 123456789,
+            completed_at: date(30),
+            // One synthetic mismatch shows the integrity warning state.
+            verification_status:
+              ci === 2 ? "MISMATCH" : ei === 0 ? "MATCH" : "NOT_CHECKED",
+          },
+        ],
         metadata: {
           synthetic: true,
           source_path: `/synthetic/${ci + 1}/${ei + 1}`,
@@ -434,6 +449,7 @@ export function createDemoData() {
           audio_end_ms: null,
           raw_locator: {
             source_node_id: sources["미디어"].id,
+            source_path: sources["미디어"].display_path,
             locator_type: "SYNTHETIC",
           },
           citations: [],
