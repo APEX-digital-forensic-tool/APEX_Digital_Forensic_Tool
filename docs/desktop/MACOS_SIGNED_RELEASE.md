@@ -2,9 +2,9 @@
 
 ## 현재 상태와 범위
 
-v0.1.3 설치 파일은 서명·공증이 없는 프리뷰다. 이미 내려받은 파일은 이 코드 변경만으로 인증된 파일이 되지 않는다. 이 변경은 v0.1.4용 배포 절차를 추가한다. **Apple 인증서를 등록하고 `Signed desktop release`가 성공하기 전에는 서명 배포가 완료된 것이 아니다.**
+v0.1.4는 명시적 ad-hoc 서명과 DMG·ZIP 실기동 검사를 적용한 인증서 없는 프리뷰다. Developer ID 서명이나 Apple 공증을 받은 버전은 아니다. 이 문서는 향후 Apple 인증서를 준비한 뒤 수행할 별도 배포 절차다. **Apple 인증서를 등록하고 `Signed desktop release`가 성공하기 전에는 Developer ID·공증 배포가 완료된 것이 아니다.**
 
-기존 `Desktop Windows and macOS` PR CI는 인증서 없이 계속 실행된다. 공개 배포는 별도 `.github/workflows/desktop-release.yml`을 main에서 수동 실행한다. fork/PR 코드에는 Apple 비밀값을 제공하지 않는다.
+`Desktop Windows and macOS` PR CI와 `.github/workflows/desktop-preview-release.yml`은 Apple 자격 증명 없이 ad-hoc 프리뷰를 검증·배포한다. Developer ID·공증 배포는 별도 `.github/workflows/desktop-release.yml`을 main에서 수동 실행한다. fork/PR 코드에는 Apple 비밀값을 제공하지 않는다.
 
 분석 엔진·로컬 API·사용자 데이터 형식과 앱 ID `org.apex.forensic`은 유지한다. Windows 설치 파일은 기존과 같은 **서명 없는 프리뷰**다. Windows 인증서와 자동 업데이트는 이 변경에 포함되지 않는다.
 
@@ -35,7 +35,7 @@ base64 -i /path/to/AuthKey_KEYID.p8 | tr -d '\n' | pbcopy
 ## 빌드와 게시 과정
 
 1. PR의 일반 Windows/macOS CI가 통과하면 main에 병합한다.
-2. `frontend/package.json`과 lockfile 버전이 같고 해당 태그가 아직 없는지 확인한다. 현재 준비 버전은 `0.1.4`다.
+2. `frontend/package.json`과 lockfile 버전이 같고 해당 태그가 아직 없는지 확인한다. 공개한 프리뷰의 `v0.1.4` 태그는 재사용하지 않고, 다음 미사용 버전을 준비한다.
 3. Actions → **Signed desktop release** → Run workflow → **main**을 선택한다.
 4. 사전 검사에서 Secret 존재와 버전·중복 태그를 검사한다. 값은 출력하지 않는다. 누락되면 빌드를 중단한다.
 5. Windows x64, macOS arm64, macOS x64에서 각각 테스트·정적 검사·PyInstaller 런타임 기동 검사를 진행한다.
@@ -62,7 +62,7 @@ cd ..
 uv run --no-sync python tools/verify_macos_release.py
 ```
 
-`CSC_IDENTITY_AUTO_DISCOVERY=false` 또는 `CSC_NAME=-`인 release 빌드는 거절한다. 서명 없는 로컬 개발용 패키지는 기존 `CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac`을 사용한다. Gatekeeper 비활성화나 quarantine 속성 삭제로 릴리스 검증을 대체하지 않는다.
+`CSC_IDENTITY_AUTO_DISCOVERY=false` 또는 `CSC_NAME=-`인 release 빌드는 거절한다. Developer ID 인증서 없는 ad-hoc 프리뷰 패키지는 `CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac`을 사용한다. Gatekeeper 비활성화나 quarantine 속성 삭제로 릴리스 검증을 대체하지 않는다.
 
 ## 실패 시 처리
 
