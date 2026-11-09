@@ -17,12 +17,23 @@ from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[1]
 MACHO = {
-    b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
-    b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
+    b"\xfe\xed\xfa\xce",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xcf\xfa\xed\xfe",
+    b"\xca\xfe\xba\xbe",
+    b"\xbe\xba\xfe\xca",
+    b"\xca\xfe\xba\xbf",
+    b"\xbf\xba\xfe\xca",
 }
 CHECKS = [
-    "zip-bundle-signature", "zip-native-signatures", "zip-runtime-smoke", "zip-electron-smoke",
-    "dmg-bundle-signature", "dmg-native-signatures", "dmg-electron-smoke",
+    "zip-bundle-signature",
+    "zip-native-signatures",
+    "zip-runtime-smoke",
+    "zip-electron-smoke",
+    "dmg-bundle-signature",
+    "dmg-native-signatures",
+    "dmg-electron-smoke",
 ]
 
 
@@ -82,10 +93,16 @@ def electron_smoke(app: Path, data: Path) -> None:
     result = subprocess.run(
         [str(app / "Contents/MacOS/APEX"), "--apex-smoke-test"],
         env={
-            **os.environ, "APEX_SMOKE_DATA_DIR": str(data),
-            "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "ORT_DISABLE_TELEMETRY": "1",
+            **os.environ,
+            "APEX_SMOKE_DATA_DIR": str(data),
+            "HF_HUB_OFFLINE": "1",
+            "HF_HUB_DISABLE_TELEMETRY": "1",
+            "ORT_DISABLE_TELEMETRY": "1",
         },
-        capture_output=True, text=True, timeout=180, check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
     )
     messages = []
     for line in result.stdout.splitlines():
@@ -117,8 +134,12 @@ def main() -> None:
         run("ditto", "-x", "-k", str(archive), str(unpacked))
         zip_app = unpacked / "APEX.app"
         zip_count = verify_app(zip_app, version, native_arch)
-        run(sys.executable, str(ROOT / "tools/verify_desktop_runtime.py"),
-            str(zip_app / "Contents/Resources/runtime/apex-local-api"), timeout=900)
+        run(
+            sys.executable,
+            str(ROOT / "tools/verify_desktop_runtime.py"),
+            str(zip_app / "Contents/Resources/runtime/apex-local-api"),
+            timeout=900,
+        )
         electron_smoke(zip_app, root / "zip-user-data")
         mount = root / "dmg"
         mount.mkdir()
@@ -129,13 +150,25 @@ def main() -> None:
             electron_smoke(dmg_app, root / "dmg-user-data")
         finally:
             run("hdiutil", "detach", str(mount))
-    report.write_text(json.dumps({
-        "status": "verified", "signing_mode": "adhoc", "notarized": False,
-        "version": version, "arch": arch,
-        "source_commit": os.environ.get("GITHUB_SHA"), "run_id": os.environ.get("GITHUB_RUN_ID"),
-        "checks": CHECKS, "native_files": {"zip": zip_count, "dmg": dmg_count},
-        "sha256": {dmg.name: sha256(dmg), archive.name: sha256(archive)},
-    }, indent=2) + "\n", encoding="utf-8")
+    report.write_text(
+        json.dumps(
+            {
+                "status": "verified",
+                "signing_mode": "adhoc",
+                "notarized": False,
+                "version": version,
+                "arch": arch,
+                "source_commit": os.environ.get("GITHUB_SHA"),
+                "run_id": os.environ.get("GITHUB_RUN_ID"),
+                "checks": CHECKS,
+                "native_files": {"zip": zip_count, "dmg": dmg_count},
+                "sha256": {dmg.name: sha256(dmg), archive.name: sha256(archive)},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     print(f"Verified {arch} preview DMG/ZIP signatures, renderer IPC and native runtime.")
 
 
