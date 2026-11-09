@@ -1,10 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { assertMacReleaseCredentials } from "./release-policy.mjs";
 
 const platform = process.argv[2];
+const release = process.argv[3] === "--release";
+if (process.argv.length > 4 || (process.argv[3] && !release))
+  throw new Error("Usage: dist.mjs win32|darwin [--release]");
 if (!["darwin", "win32"].includes(platform) || process.platform !== platform)
   throw new Error("Build on the target OS with its native Python runtime.");
+if (release && platform === "darwin") assertMacReleaseCredentials(process.env);
 const runtime = JSON.parse(
   await readFile(
     new URL("../../desktop-runtime/runtime-info.json", import.meta.url),
@@ -22,6 +27,7 @@ const result = spawnSync(
     require.resolve("electron-builder/cli.js"),
     platform === "darwin" ? "--mac" : "--win",
     `--${process.arch}`,
+    ...(release ? ["--config", "electron-builder.release.cjs"] : []),
     "--publish",
     "never",
   ],
