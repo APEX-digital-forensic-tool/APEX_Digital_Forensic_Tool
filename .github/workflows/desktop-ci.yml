@@ -47,10 +47,26 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
-      - run: uv run --no-sync python tools/build_desktop_runtime.py
+      - name: Build runtime with bounded download retries
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            uv run --no-sync python tools/build_desktop_runtime.py && exit 0
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "Build attempt $attempt failed; retrying after a short delay."
+            sleep 5
+          done
       - run: uv run --no-sync python tools/verify_desktop_runtime.py
-      - run: npm run ${{ matrix.package }}
+      - name: Package with bounded download retries
+        shell: bash
         working-directory: frontend
+        run: |
+          for attempt in 1 2 3; do
+            npm run ${{ matrix.package }} && exit 0
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "Build attempt $attempt failed; retrying after a short delay."
+            sleep 5
+          done
       - name: Verify actual macOS preview DMG and ZIP
         if: runner.os == 'macOS'
         run: uv run --no-sync python tools/verify_macos_preview.py

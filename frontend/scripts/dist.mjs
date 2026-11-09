@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { assertMacReleaseCredentials } from "./release-policy.mjs";
+import { assertMacReleaseCredentials, macPreviewEnvironment } from "./release-policy.mjs";
 
 const platform = process.argv[2];
 const release = process.argv[3] === "--release";
@@ -32,7 +32,10 @@ const result = spawnSync(
     "--publish",
     "never",
   ],
-  { stdio: "inherit" },
+  {
+    stdio: "inherit",
+    env: !release && platform === "darwin" ? macPreviewEnvironment(process.env) : process.env,
+  },
 );
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);

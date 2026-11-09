@@ -1,5 +1,18 @@
 import { existsSync } from "node:fs";
 
+// PR signing is safe here only because the preview config forces identity '-'
+// and the child process receives no Apple signing/notarization credentials.
+export function macPreviewEnvironment(env) {
+  const preview = { ...env };
+  for (const key of Object.keys(preview)) {
+    if (key.startsWith("CSC_") || key.startsWith("MAC_CSC_") || key.startsWith("APPLE_"))
+      delete preview[key];
+  }
+  preview.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+  preview.CSC_FOR_PULL_REQUEST = "true";
+  return preview;
+}
+
 // electron-builder 26 can skip notarization with only a warning. Fail closed.
 export function assertMacReleaseCredentials(env, exists = existsSync) {
   const required = [
@@ -39,3 +52,4 @@ export function releaseVersion(pkg, lock) {
     );
   return version;
 }
+

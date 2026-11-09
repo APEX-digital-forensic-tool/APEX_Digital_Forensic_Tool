@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   assertMacReleaseCredentials,
   releaseVersion,
+  macPreviewEnvironment,
 } from "./release-policy.mjs";
 import { checksum, prepareAssets } from "./release-assets.mjs";
 
@@ -17,6 +18,16 @@ const env = {
   APPLE_API_ISSUER: "test-issuer",
   APPLE_TEAM_ID: "TESTTEAM12",
 };
+test("PR previews sign ad-hoc without forwarding any Apple credentials", () => {
+  const input = { ...env, PATH: "/test/bin", CSC_NAME: "Developer ID", APPLE_ID: "private@example.invalid" };
+  const preview = macPreviewEnvironment(input);
+  assert.equal(preview.CSC_FOR_PULL_REQUEST, "true");
+  assert.equal(preview.CSC_IDENTITY_AUTO_DISCOVERY, "false");
+  assert.equal(preview.PATH, input.PATH);
+  assert.equal(input.CSC_NAME, "Developer ID");
+  for (const key of ["CSC_LINK", "CSC_KEY_PASSWORD", "CSC_NAME", "APPLE_ID", "APPLE_API_KEY", "APPLE_TEAM_ID"])
+    assert.equal(preview[key], undefined);
+});
 test("release rejects each missing credential without disclosing other values", () => {
   for (const key of Object.keys(env)) {
     assert.throws(
