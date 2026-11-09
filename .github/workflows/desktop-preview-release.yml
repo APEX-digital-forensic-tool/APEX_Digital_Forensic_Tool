@@ -1,0 +1,143 @@
+name: Desktop preview release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/desktop-preview-release.yml']
+permissions:
+  contents: read
+concurrency:
+  group: desktop-preview-release
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Require main and an unused preview version
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.ref !== 'refs/heads/main') throw new Error('Release from main only.');
+            const fs = require('node:fs');
+            const { pathToFileURL } = require('node:url');
+            const { releaseVersion } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/frontend/scripts/release-policy.mjs`));
+            const pkg = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
+            const lock = JSON.parse(fs.readFileSync('frontend/package-lock.json', 'utf8'));
+            const tag = `v${releaseVersion(pkg, lock)}`;
+            if (!fs.existsSync(`docs/releases/${tag}-preview.md`)) throw new Error('Preview release notes required.');
+            for (const request of [
+              () => github.rest.repos.getReleaseByTag({...context.repo, tag}),
+              () => github.rest.git.getRef({...context.repo, ref: `tags/${tag}`}),
+            ]) {
+              let exists = true;
+              try { await request(); } catch (error) {
+                if (error.status !== 404) throw error;
+                exists = false;
+              }
+              if (exists) throw new Error(`${tag} already exists; never overwrite a release.`);
+            }
+            core.setOutput('tag', tag);
+            core.setOutput('sha', context.sha);
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows-x64
+            package: dist:win
+          - os: macos-15
+            label: macOS-arm64
+            package: dist:mac
+          - os: macos-15-intel
+            label: macOS-x64
+            package: dist:mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      ORT_DISABLE_TELEMETRY: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.11'
+      - run: uv python install 3.12
+      - run: uv python pin 3.12
+      - run: uv sync --locked --extra desktop --extra desktop-build --extra report-renderer --extra browser-media --extra windows-artifacts --extra machine-extraction --extra advanced-secrets --extra dev
+      - run: uv run --no-sync pytest tests/desktop tests/unit/test_container_workflows.py tests/unit/test_advanced_runtime_decryption.py tests/unit/test_logical_content_integrity.py tests/unit/test_image_source_identity.py
+      - run: uv run --no-sync ruff check src/apex_desktop tests/desktop tools/build_desktop_runtime.py tools/prepare_desktop_assets.py tools/verify_desktop_runtime.py tools/verify_macos_release.py tools/verify_macos_preview.py
+      - run: uv run --no-sync mypy --strict src/apex_desktop
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: uv run --no-sync python tools/build_desktop_runtime.py
+      - run: uv run --no-sync python tools/verify_desktop_runtime.py
+      - run: npm run ${{ matrix.package }}
+        working-directory: frontend
+      - name: Verify actual macOS preview DMG and ZIP
+        if: runner.os == 'macOS'
+        run: uv run --no-sync python tools/verify_macos_preview.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ matrix.label }}
+          path: |
+            frontend/release/APEX-*.exe
+            frontend/release/APEX-*.dmg
+            frontend/release/APEX-*.zip
+            frontend/release/verification-macOS-*.json
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+      RELEASE_SHA: ${{ needs.preflight.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: preview-*
+          path: release-assets
+          merge-multiple: true
+      - name: Validate matching preview reports and artifact hashes
+        run: node frontend/scripts/release-assets.mjs release-assets --preview
+      - name: Publish verified certificate-free preview
+        shell: bash
+        run: |
+          gh release create "$RELEASE_TAG" --target "$RELEASE_SHA" --draft --prerelease \
+            --title "APEX $RELEASE_TAG Preview" \
+            --notes-file "docs/releases/$RELEASE_TAG-preview.md" release-assets/*
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

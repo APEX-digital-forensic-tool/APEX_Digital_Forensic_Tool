@@ -11,7 +11,8 @@ export async function checksum(path) {
   return hash.digest("hex");
 }
 
-export async function prepareAssets(directory, version, env) {
+export async function prepareAssets(directory, version, env, mode = "signed") {
+  if (!["signed", "preview"].includes(mode)) throw new Error("Unknown release mode.");
   if (
     !/^[0-9a-f]{40}$/.test(env.GITHUB_SHA ?? "") ||
     !/^\d+$/.test(env.GITHUB_RUN_ID ?? "") ||
@@ -55,6 +56,17 @@ export async function prepareAssets(directory, version, env) {
       throw new Error(
         `Missing matching macOS ${arch} verification provenance.`,
       );
+    if (mode === "preview") {
+      const required = [
+        "zip-bundle-signature", "zip-native-signatures", "zip-runtime-smoke", "zip-electron-smoke",
+        "dmg-bundle-signature", "dmg-native-signatures", "dmg-electron-smoke",
+      ];
+      if (report.signing_mode !== "adhoc" || report.notarized !== false ||
+          !required.every(check => report.checks?.includes(check)))
+        throw new Error(`Missing actual macOS ${arch} preview signature/launch checks.`);
+    } else if (report.signing_mode === "adhoc") {
+      throw new Error("Ad-hoc previews cannot be published as notarized releases.");
+    }
     for (const extension of ["dmg", "zip"]) {
       const name = `APEX-${version}-macOS-${arch}.${extension}`;
       if (report.sha256?.[name] !== sums[name])
@@ -65,8 +77,9 @@ export async function prepareAssets(directory, version, env) {
     version,
     source_commit: env.GITHUB_SHA,
     workflow_run: `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`,
-    macos:
-      "Developer ID signed, notarized, stapled and verified on both native architectures",
+    macos: mode === "preview"
+      ? "Ad-hoc signed preview; NOT Apple notarized; first launch may require Open Anyway"
+      : "Developer ID signed, notarized, stapled and verified on both native architectures",
     windows: "Unsigned preview; SmartScreen warnings may appear",
     artifacts: sums,
   };
@@ -98,5 +111,7 @@ if (
     resolve(process.argv[2]),
     releaseVersion(pkg, lock),
     process.env,
+    process.argv[3] === "--preview" ? "preview" : "signed",
   );
 }
+

@@ -27,7 +27,8 @@ const result = spawnSync(
     require.resolve("electron-builder/cli.js"),
     platform === "darwin" ? "--mac" : "--win",
     `--${process.arch}`,
-    ...(release ? ["--config", "electron-builder.release.cjs"] : []),
+    "--config",
+    release ? "electron-builder.release.cjs" : "electron-builder.preview.cjs",
     "--publish",
     "never",
   ],
@@ -35,3 +36,4 @@ const result = spawnSync(
 );
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);
+

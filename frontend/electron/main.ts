@@ -14,6 +14,15 @@ import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { runtimeExecutable } from "./runtime";
 
+// Used by native packaging CI to exercise the shipped Electron/preload/API path.
+// An explicit CLI flag and isolated data directory keep normal user data untouched.
+const smokeTest = process.argv.includes("--apex-smoke-test");
+if (smokeTest) {
+  const directory = process.env.APEX_SMOKE_DATA_DIR;
+  if (!directory) throw new Error("APEX_SMOKE_DATA_DIR is required for smoke testing");
+  app.setPath("userData", resolve(directory));
+}
+
 const operations = new Set([
   "runtime",
   "cases.list",
@@ -380,6 +389,33 @@ else {
       (_wc, _permission, callback) => callback(false),
     );
     await window.loadURL(pageURL);
+    if (smokeTest) {
+      try {
+        const deadline = Date.now() + 90000;
+        while (!backendURL && Date.now() < deadline) {
+          if (["BACKEND_START_FAILED", "BACKEND_STOPPED", "PYTHON_RUNTIME_MISSING"].includes(backendError))
+            throw new Error("Backend startup failed");
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        if (!backendURL) throw new Error("Backend readiness timed out");
+        const renderer = await window.webContents.executeJavaScript(`
+          (async () => {
+            if (!document.querySelector('#root')?.textContent ||
+                typeof window.apex?.invoke !== 'function') return false;
+            const result = await window.apex.invoke('runtime', {});
+            return result?.ok === true;
+          })()
+        `);
+        if (renderer !== true) throw new Error("Renderer or preload IPC failed");
+        console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: true, renderer: true, backend: true }));
+        app.quit();
+      } catch {
+        // Never emit backend stderr, tokens, evidence paths, or account details.
+        console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: false }));
+        backend?.kill();
+        app.exit(1);
+      }
+    }
   });
 }
 app.on("window-all-closed", () => app.quit());
@@ -387,3 +423,4 @@ app.on("before-quit", () => {
   account = undefined;
   backend?.kill();
 });
+

@@ -47,7 +47,7 @@ test("release refuses mismatched package versions and malformed tags", () => {
     assert.throws(() => releaseVersion({ version }, lock));
 });
 
-async function fixture() {
+async function fixture(mode = "signed") {
   const directory = await mkdtemp(join(tmpdir(), "apex-release-test-"));
   const provenance = {
     GITHUB_SHA: "a".repeat(40),
@@ -70,11 +70,47 @@ async function fixture() {
         arch,
         source_commit: provenance.GITHUB_SHA,
         run_id: provenance.GITHUB_RUN_ID,
+        ...(mode === "preview" ? {
+          signing_mode: "adhoc", notarized: false,
+          checks: [
+            "zip-bundle-signature", "zip-native-signatures", "zip-runtime-smoke", "zip-electron-smoke",
+            "dmg-bundle-signature", "dmg-native-signatures", "dmg-electron-smoke",
+          ],
+        } : {}),
         sha256,
       }),
     );
   }
   return { directory, provenance };
+}
+test("preview provenance never claims Developer ID or notarization", async () => {
+  const { directory, provenance } = await fixture("preview");
+  try {
+    await prepareAssets(directory, "0.1.4", provenance, "preview");
+    const record = JSON.parse(await readFile(join(directory, "build-provenance.json")));
+    assert.match(record.macos, /Ad-hoc signed preview; NOT Apple notarized/);
+    assert.doesNotMatch(record.macos, /Developer ID signed/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+test("ad-hoc preview cannot pass the signed release gate", async () => {
+  const { directory, provenance } = await fixture("preview");
+  try { await assert.rejects(prepareAssets(directory, "0.1.4", provenance)); }
+  finally { await rm(directory, { recursive: true, force: true }); }
+});
+for (const change of ["missing-launch-check", "claims-notarized", "foreign-run", "tampered"]) {
+  test(`preview blocks ${change} artifacts`, async () => {
+    const { directory, provenance } = await fixture("preview");
+    try {
+      const path = join(directory, "verification-macOS-arm64.json");
+      const report = JSON.parse(await readFile(path));
+      if (change === "missing-launch-check") report.checks.pop();
+      if (change === "claims-notarized") report.notarized = true;
+      if (change === "foreign-run") report.run_id = "999";
+      await writeFile(path, JSON.stringify(report));
+      if (change === "tampered") await writeFile(join(directory, "APEX-0.1.4-macOS-arm64.zip"), "changed");
+      await assert.rejects(prepareAssets(directory, "0.1.4", provenance, "preview"));
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
 }
 test("release includes hashes and immutable source/run provenance", async () => {
   const { directory, provenance } = await fixture();
@@ -107,3 +143,4 @@ for (const change of ["tampered", "missing", "foreign-run", "extra"]) {
     }
   });
 }
+
