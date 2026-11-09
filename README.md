@@ -15,6 +15,8 @@ APEX는 **Electron + React + TypeScript 데스크톱 앱**, **Python·Native 하
 - 설치 파일에는 Electron 앱과 로컬 Python 분석 런타임이 포함되어 **별도 Python·Node.js 설치가 필요하지 않습니다**. GitHub의 `Source code` 압축 파일은 개발용 소스입니다.
 - 파일 무결성은 [SHA256SUMS.txt](https://github.com/APEX-digtal-forensic-tool/APEX_Digtal_Forensic_Tool/releases/download/v0.1.3/SHA256SUMS.txt), 빌드 소스와 CI 출처는 [build-provenance.json](https://github.com/APEX-digtal-forensic-tool/APEX_Digtal_Forensic_Tool/releases/download/v0.1.3/build-provenance.json)에서 확인할 수 있습니다.
 - **배포 인증서 서명·Apple 공증을 받지 않은 프리뷰**입니다. SmartScreen/Gatekeeper의 확인 또는 실행 제한이 나타날 수 있습니다. 체크섬은 코드 서명을 대신하지 않습니다.
+
+다음 배포용으로 [macOS Developer ID 서명·Apple 공증 절차](docs/desktop/MACOS_SIGNED_RELEASE.md)를 추가했습니다. Apple 인증 정보를 설정하고 `Signed desktop release`가 성공하기 전까지 위 v0.1.3 다운로드는 그대로 미서명 상태입니다. 새 릴리스 공개 후 다운로드 링크를 갱신합니다.
 - 자동 업데이트는 제공하지 않습니다. 새 버전의 설치 파일로 직접 업데이트하세요.
 
 앱 실행 후 **사건 만들기 → 증거 파일/폴더 등록 → 분석 실행 → 파일·아티팩트 조회 → 보고서 검토·내보내기** 순으로 사용할 수 있습니다. 검색·타임라인은 해당 분석 작업을 실행한 뒤 조회합니다. 외부 AI는 제공자 설정과 사건 정책의 허용이 필요한 선택 기능입니다.

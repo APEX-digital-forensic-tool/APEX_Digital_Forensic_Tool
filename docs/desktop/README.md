@@ -89,7 +89,7 @@ Windows에서는 `npm run dist:win`, Mac에서는 `npm run dist:mac`을 실행�
 
 빌드 시 고정 버전·SHA-256을 확인한 다국어 STT 모델과 Windows용 FFmpeg/ffprobe를 내려받습니다. 설치 후에는 모델 다운로드가 필요하지 않습니다. PyInstaller가 Core·로컬 API·파일시스템·보고서·OCR/STT 실행기·고급 DPAPI 의존성을 `desktop-runtime/`에 묶습니다. electron-builder는 Windows NSIS `.exe`, macOS `.dmg` 및 `.zip`을 `frontend/release/`에 만듭니다. Mac은 현재 호스트 아키텍처로 빌드하며, Intel과 Apple Silicon 패키지는 각각 해당 환경에서 생성합니다. Universal 바이너리나 다른 OS로의 교차 빌드는 제공하지 않습니다.
 
-개인 Mac에서 서명 인증서를 사용하지 않고 로컬 빌드를 확인하려면 `CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac`을 사용합니다. 공개 배포를 위한 Developer ID 서명·공증, 자동 업데이트는 별도 설정이 필요합니다. 로컬 빌드 성공은 배포용 서명 검증을 뜻하지 않습니다.
+개인 Mac에서 서명 인증서를 사용하지 않고 로컬 빌드를 확인하려면 `CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac`을 사용합니다. 공개 배포는 [Developer ID 서명·Apple 공증 절차](MACOS_SIGNED_RELEASE.md)에 따라 별도 release workflow로 진행합니다. 인증 정보 등록과 실제 공증 검증이 필요하며, 로컬 빌드 성공은 배포용 서명 검증을 뜻하지 않습니다. 자동 업데이트는 제공하지 않습니다.
 
 `.github/workflows/desktop-ci.yml`은 Windows x64·macOS arm64·macOS x64에서 테스트, 타입 검사, 런타임 빌드·실행 확인 및 패키징을 수행하도록 구성했습니다. CI 결과물은 서명하지 않은 검증용입니다. Mac runner 선택은 [GitHub 공식 runner 목록](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)을 기준으로 합니다.
 
