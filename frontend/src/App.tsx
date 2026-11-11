@@ -2,6 +2,8 @@ import { ForensicTools } from "./ForensicTools";
 import { MachineSettings } from "./MachineSettings";
 import { LanguageSettings } from "./LanguageSettings";
 import { AiConnectionForm } from "./setup/AiConnectionForm";
+import { ProfileSettings } from "./setup/ProfileSettings";
+import { readExaminerName } from "./setup/profile";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup } from "./i18n/catalog";
 import {
@@ -813,7 +815,12 @@ export function App() {
       submitLabel: m.shell.newCase.submit,
       fields: [
         { key: "name", label: m.shell.newCase.name, required: true, max: 255 },
-        { key: "investigator", label: m.shell.newCase.investigator, max: 255 },
+        {
+          key: "investigator",
+          label: m.shell.newCase.investigator,
+          default: readExaminerName() || undefined,
+          max: 255,
+        },
         {
           key: "description",
           label: m.shell.newCase.description,
@@ -1510,6 +1517,9 @@ export function App() {
                   />
                 </div>
               )}
+              <div className="card">
+                <ProfileSettings />
+              </div>
               <AccountPanel />
               <MachineSettings />
               {caseId && <PolicyPanel key={caseId} caseId={caseId} />}

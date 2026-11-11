@@ -23,4 +23,8 @@ export const setup: Messages["setup"] = {
     busy: "You can change this after the running analysis tasks finish.",
     policyNote: "What is sent to AI is decided by each case's AI data policy.",
   },
+  examiner: {
+    label: "Examiner name",
+    hint: "Prefilled when you create a case. You can change it for each case.",
+  },
 };

@@ -21,4 +21,8 @@ export const setup = {
     busy: "분석 작업이 끝난 뒤 변경할 수 있습니다.",
     policyNote: "무엇을 AI로 보낼지는 사건별 AI 데이터 정책이 결정합니다.",
   },
+  examiner: {
+    label: "분석자 이름",
+    hint: "새 사건을 만들 때 미리 채워집니다. 사건마다 바꿀 수 있습니다.",
+  },
 };
