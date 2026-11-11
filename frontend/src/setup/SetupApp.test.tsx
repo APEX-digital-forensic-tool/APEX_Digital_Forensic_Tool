@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderInEnglish } from "../i18n/testing";
 import { I18nProvider } from "../i18n/I18nProvider";
 import { createDemoBridge } from "../demoBridge";
@@ -300,8 +301,17 @@ it("stays on the AI step with the error and unlocks when a save fails", async ()
   const { save, settle } = pendingSave();
   await saveOnAiStep(save);
   await screen.findByRole("button", { name: "Saving…" });
+  // A browser drops focus from a button that becomes disabled; jsdom does
+  // not, so the loss is reproduced by removing a focused stand-in.
+  const sink = document.body.appendChild(document.createElement("button"));
+  sink.focus();
+  sink.remove();
+  expect(document.activeElement).toBe(document.body);
   await act(async () =>
     settle({ ok: false, error: { code: "AI_ENGINE_BUSY" } }),
+  );
+  expect(document.activeElement).toBe(
+    await screen.findByRole("button", { name: "Save and continue" }),
   );
   expect(await screen.findByText(/An analysis task is running/)).toBeTruthy();
   expect(
@@ -372,7 +382,7 @@ it("checks off the AI step when a connection is configured", async () => {
 });
 
 it("makes the rail a window drag region only on macOS", () => {
-  const css = readFileSync("src/setup/setup.css", "utf8");
+  const css = readFileSync(join(__dirname, "setup.css"), "utf8");
   const dragging = [
     ...css.matchAll(/([^{}]+)\{[^}]*-webkit-app-region:\s*drag/g),
   ].map((match) => match[1].replace(/\/\*[\s\S]*?\*\//g, "").trim());

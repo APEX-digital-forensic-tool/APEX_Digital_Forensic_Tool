@@ -30,6 +30,8 @@ export async function hasActiveTasks(call: EngineCall): Promise<boolean> {
 }
 
 export interface StoppableChild {
+  /** Undefined when the process never started (a failed spawn). */
+  pid?: number;
   exitCode: number | null;
   signalCode: NodeJS.Signals | null;
   kill(signal?: NodeJS.Signals): boolean;
@@ -37,7 +39,12 @@ export interface StoppableChild {
 }
 
 function exited(child: StoppableChild) {
-  return child.exitCode !== null || child.signalCode !== null;
+  // A child that never started has nothing to stop and never emits "exit".
+  return (
+    child.pid === undefined ||
+    child.exitCode !== null ||
+    child.signalCode !== null
+  );
 }
 
 /** Resolves true once the child exits within `ms`, false otherwise. */

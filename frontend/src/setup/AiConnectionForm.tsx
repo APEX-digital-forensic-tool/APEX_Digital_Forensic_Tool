@@ -225,11 +225,10 @@ export function AiConnectionForm({
         </div>
       </details>
       {error != null && <ErrorState error={error} />}
-      {busy && (
-        <p role="status" className="setup-note">
-          {t.saving}
-        </p>
-      )}
+      {/* Always present, so screen readers announce the text when it arrives. */}
+      <div role="status">
+        {busy && <p className="setup-note">{t.saving}</p>}
+      </div>
       {blockedReason && <p className="setup-note">{blockedReason}</p>}
       {!hideActions && (
         <div className="actions">

@@ -41,6 +41,18 @@ export function SetupApp() {
   currentStep.current = step;
   // An AI save restarts the engine (up to ~90s); nothing moves until it settles.
   const locked = ai.busy || busy;
+  const saveButton = useRef<HTMLButtonElement>(null);
+  const wasSaving = useRef(false);
+
+  // The save button is disabled while saving, which drops keyboard focus to
+  // the page. After a failed save it goes back to the button; a successful
+  // one moves to the next step's heading instead.
+  useEffect(() => {
+    const failed = wasSaving.current && !ai.busy && step === AI_STEP;
+    wasSaving.current = ai.busy;
+    if (failed && document.activeElement === document.body)
+      saveButton.current?.focus();
+  }, [ai.busy, step]);
 
   // After moving, focus lands on the new step's heading so keyboard and
   // screen-reader users start at the top of the step.
@@ -198,6 +210,7 @@ export function SetupApp() {
           )}
           {savesAi ? (
             <button
+              ref={saveButton}
               type="submit"
               form={aiFormId}
               className="primary"

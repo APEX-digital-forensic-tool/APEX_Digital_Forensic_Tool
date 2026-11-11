@@ -92,6 +92,7 @@ describe("hasActiveTasks", () => {
 });
 
 class FakeChild implements StoppableChild {
+  pid: number | undefined = 4242;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   signals: (NodeJS.Signals | undefined)[] = [];
@@ -122,6 +123,14 @@ describe("stopChild", () => {
   it("resolves true for a child that already exited", async () => {
     const child = new FakeChild([]);
     child.exitCode = 0;
+    await expect(stopChild(child, options)).resolves.toBe(true);
+    expect(child.signals).toEqual([]);
+  });
+
+  it("treats a child that never started as stopped", async () => {
+    // A failed spawn has no pid and never emits "exit".
+    const child = new FakeChild([]);
+    child.pid = undefined;
     await expect(stopChild(child, options)).resolves.toBe(true);
     expect(child.signals).toEqual([]);
   });

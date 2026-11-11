@@ -160,12 +160,15 @@ it("shows the saving label and the restart status while a save is running", asyn
     await screen.findByLabelText("Base URL"),
     "http://127.0.0.1:9/v1",
   );
+  // The live region is there before it has anything to say, so the text is
+  // announced when it arrives.
+  expect(screen.getByRole("status").textContent).toBe("");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   const saving = screen.getByRole("button", { name: "Saving…" });
   expect((saving as HTMLButtonElement).disabled).toBe(true);
-  expect(
-    screen.getByText(/Restarting the analysis engine/).getAttribute("role"),
-  ).toBe("status");
+  expect(screen.getByRole("status").textContent).toMatch(
+    /Restarting the analysis engine/,
+  );
 });
 
 it("keeps the Save label while a removal is running", async () => {
