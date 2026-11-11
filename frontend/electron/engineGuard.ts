@@ -20,7 +20,10 @@ async function data(
 /** True when any case has a queued, running or cancelling task. Throws when the engine cannot say. */
 export async function hasActiveTasks(call: EngineCall): Promise<boolean> {
   for (const record of await data(call, "cases.list", {})) {
-    const tasks = await data(call, "tasks.list", { case_id: record.case_id });
+    // The engine's case records carry `id`; tasks.list takes it as `case_id`.
+    if (typeof record.id !== "string" || !record.id)
+      throw new Error("cases.list returned a case without an id");
+    const tasks = await data(call, "tasks.list", { case_id: record.id });
     if (tasks.some((task) => ACTIVE.has(String(task.status)))) return true;
   }
   return false;

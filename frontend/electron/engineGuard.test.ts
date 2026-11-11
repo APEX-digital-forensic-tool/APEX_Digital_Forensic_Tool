@@ -12,7 +12,8 @@ function engine(tasksByCase: Record<string, { status: string }[]>) {
       if (operation === "cases.list")
         return {
           ok: true,
-          data: Object.keys(tasksByCase).map((case_id) => ({ case_id })),
+          // The engine returns case records keyed by `id` (see CaseRecord).
+          data: Object.keys(tasksByCase).map((id) => ({ id, name: id })),
         };
       if (operation === "tasks.list")
         return { ok: true, data: tasksByCase[String(payload.case_id)] ?? [] };
@@ -66,10 +67,20 @@ describe("hasActiveTasks", () => {
   it("rejects when tasks.list fails", async () => {
     const call = vi.fn(async (operation: string) =>
       operation === "cases.list"
-        ? { ok: true, data: [{ case_id: "a" }] }
+        ? { ok: true, data: [{ id: "a" }] }
         : { ok: false, error: { code: "INTERNAL_ERROR" } },
     );
     await expect(hasActiveTasks(call)).rejects.toThrow();
+  });
+
+  it("rejects when a case record has no id", async () => {
+    const call = vi.fn(async (operation: string) =>
+      operation === "cases.list"
+        ? { ok: true, data: [{ case_id: "a" }] }
+        : { ok: true, data: [] },
+    );
+    await expect(hasActiveTasks(call)).rejects.toThrow();
+    expect(call).toHaveBeenCalledTimes(1);
   });
 
   it("rejects when the call itself throws", async () => {
