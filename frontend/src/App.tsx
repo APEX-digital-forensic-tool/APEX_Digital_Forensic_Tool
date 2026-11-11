@@ -1,5 +1,11 @@
 import { ForensicTools } from "./ForensicTools";
 import { MachineSettings } from "./MachineSettings";
+import { LanguageSettings } from "./LanguageSettings";
+import { AiConnectionForm } from "./setup/AiConnectionForm";
+import { ProfileSettings } from "./setup/ProfileSettings";
+import { readExaminerName } from "./setup/profile";
+import { useI18n } from "./i18n/I18nProvider";
+import { lookup } from "./i18n/catalog";
 import {
   useCallback,
   useEffect,
@@ -44,7 +50,6 @@ import type { CaseRecord } from "./contracts/generated/case";
 import type { GuiContext } from "./contracts/generated/gui-session-context";
 import {
   Badge,
-  labels,
   ArtifactSemantics,
   RawPreview,
   Empty,
@@ -73,34 +78,16 @@ import {
   type FieldSpec,
 } from "./panels";
 type Route = GuiContext["current_route"];
-const routeNames: Partial<Record<Route, string>> = {
-  CASE_OVERVIEW: "사건 개요",
-  EVIDENCE: "증거 관리",
-  FILE_SYSTEM: "파일 시스템",
-  ARTIFACTS: "아티팩트",
-  REGISTRY: "레지스트리",
-  EVENT_LOG: "이벤트 로그",
-  PREFETCH: "프리패치",
-  BROWSER: "브라우저",
-  MEDIA: "미디어",
-  SEARCH: "통합 검색",
-  TIMELINE: "타임라인",
-  CANDIDATES: "추출 후보 검토",
-  CHAIN_OF_CUSTODY: "증거 보관 이력",
-  REPORT: "보고서",
-  SETTINGS: "설정",
-};
 type Tab = Route | "COMMUNICATION";
 /** Four task groups instead of sixteen equal tabs; settings sits apart. */
-const routeGroups: { id: string; label: string; tabs: Tab[] }[] = [
+type GroupId = "case" | "explore" | "analyze" | "report";
+const routeGroups: { id: GroupId; tabs: Tab[] }[] = [
   {
     id: "case",
-    label: "사건",
     tabs: ["CASE_OVERVIEW", "EVIDENCE", "CHAIN_OF_CUSTODY"],
   },
   {
     id: "explore",
-    label: "탐색",
     tabs: [
       "FILE_SYSTEM",
       "ARTIFACTS",
@@ -112,8 +99,8 @@ const routeGroups: { id: string; label: string; tabs: Tab[] }[] = [
       "COMMUNICATION",
     ],
   },
-  { id: "analyze", label: "분석", tabs: ["SEARCH", "TIMELINE", "CANDIDATES"] },
-  { id: "report", label: "보고서", tabs: ["REPORT"] },
+  { id: "analyze", tabs: ["SEARCH", "TIMELINE", "CANDIDATES"] },
+  { id: "report", tabs: ["REPORT"] },
 ];
 /** Viewer/properties height that leaves the list usable on short windows. */
 const defaultInspectorHeight = () =>
@@ -161,34 +148,6 @@ const communicationTypes = [
   "COMMUNICATION_ATTACHMENT",
   "COMMUNICATION_UNSUPPORTED_STORE",
 ];
-const typeLabels: Record<string, string> = {
-  REGISTRY_KEY: "키",
-  REGISTRY_VALUE: "값",
-  REGISTRY_AUTORUN: "자동 실행",
-  REGISTRY_USB_DEVICE: "USB",
-  REGISTRY_TIMEZONE: "시간대",
-  REGISTRY_USERASSIST: "UserAssist",
-  EVENT_LOG_RECORD: "이벤트",
-  PREFETCH_EXECUTION: "실행 기록",
-  BROWSER_PROFILE: "프로필",
-  BROWSER_VISIT: "방문 기록",
-  BROWSER_SEARCH: "검색 기록",
-  BROWSER_DOWNLOAD: "다운로드",
-  BROWSER_COOKIE: "쿠키",
-  BROWSER_CREDENTIAL: "자격 증명",
-  BROWSER_CACHE_ENTRY: "캐시",
-  BROWSER_DELETED_SQLITE_ROW: "삭제 후보",
-  BROWSER_PRIVATE_MODE_CANDIDATE: "비공개 모드 후보",
-  MEDIA_IMAGE: "이미지",
-  MEDIA_VIDEO: "동영상",
-  MEDIA_AUDIO: "오디오",
-  COMMUNICATION_PROFILE: "통신 프로필",
-  COMMUNICATION_ACCOUNT: "계정",
-  COMMUNICATION_CONVERSATION: "대화",
-  COMMUNICATION_MESSAGE: "메시지",
-  COMMUNICATION_ATTACHMENT: "첨부파일",
-  COMMUNICATION_UNSUPPORTED_STORE: "미지원 저장소",
-};
 const activeTask = (t: Row) =>
   ["QUEUED", "RUNNING", "CANCELLING"].includes(t.status);
 // HASH_VERIFIED and CORRECTION are recorded by the engine, not typed by analysts.
@@ -208,52 +167,37 @@ const CUSTODY_EVENTS = [
   "DISPOSED",
 ];
 
-const candidateDecisions = {
-  ACCEPTED: {
-    button: "채택",
-    title: "후보 채택",
-    description: "원본과 대조해 이 추출 텍스트를 채택합니다.",
-    reason: "채택 근거",
-    submit: "채택 기록",
-  },
-  REJECTED: {
-    button: "반려",
-    title: "후보 반려",
-    description:
-      "이 추출 텍스트가 원본과 맞지 않거나 분석에 쓸 수 없다고 기록합니다.",
-    reason: "반려 사유",
-    submit: "반려 기록",
-  },
-  CORRECTED: {
-    button: "정정",
-    title: "후보 정정",
-    description:
-      "원본과 다른 부분을 고친 텍스트를 기록합니다. 원래 추출 텍스트는 그대로 보존됩니다.",
-    reason: "정정 사유",
-    submit: "정정 기록",
-  },
-} as const;
+const CANDIDATE_DECISIONS = ["ACCEPTED", "REJECTED", "CORRECTED"] as const;
 /** Quotes the candidate being decided on so the analyst confirms the target. */
 function CandidateSubject({ candidate }: { candidate: Row }) {
+  const { m } = useI18n();
   const path = candidate.raw_locator?.source_path;
   return (
     <figure className="decision-subject">
       <blockquote>{candidate.text}</blockquote>
       <figcaption>
-        {labels[candidate.extraction_type] ?? candidate.extraction_type} ·
-        신뢰도 {confidence(candidate.confidence)} ·{" "}
+        {m.shell.candidate.summary(
+          lookup(m.labels, candidate.extraction_type),
+          confidence(candidate.confidence, m),
+        )}
         {path ?? (
-          <span title={candidate.source_node_id}>원본 경로 정보 없음</span>
+          <span title={candidate.source_node_id}>
+            {m.shell.candidate.noSourcePath}
+          </span>
         )}
       </figcaption>
       {candidate.correction_text && (
-        <p>현재 정정 텍스트: {candidate.correction_text}</p>
+        <p>{m.shell.candidate.currentCorrection(candidate.correction_text)}</p>
       )}
     </figure>
   );
 }
 
 export function App() {
+  const { locale, m } = useI18n();
+  // Callbacks with stable identity read the current catalog through this ref.
+  const messages = useRef(m);
+  messages.current = m;
   const [runtime, setRuntime] = useState<Row | null>(null),
     [startupError, setStartupError] = useState<unknown>(null),
     [cases, setCases] = useState<CaseRecord[]>([]),
@@ -317,6 +261,9 @@ export function App() {
   const pendingHashes = useRef(new Map<string, string>());
   /** Appended to time column headers so every cell's zone is explicit. */
   const inZone = (label: string) => `${label} (${zoneLabel(zone)})`;
+  /** Screen name; routes without their own screen have none. */
+  const routeName = (tab: Tab) =>
+    (m.shell.routes as Partial<Record<Tab, string>>)[tab];
   const refresh = () => setRevision((r) => r + 1);
   const bootstrap = useCallback(async () => {
     try {
@@ -479,7 +426,7 @@ export function App() {
             setContext(next);
             conflictRef.current = patch;
             setConflict({ ...patch });
-            setNotice("세션을 갱신했습니다. 선택 상태를 다시 적용해주세요.");
+            setNotice(messages.current.shell.notices.sessionRefreshed);
           } else setError(err);
         }
       })
@@ -493,7 +440,7 @@ export function App() {
   const currentGroup = routeGroups.find((g) => g.tabs.includes(currentTab));
   if (currentGroup) lastTab.current[currentGroup.id] = currentTab;
   // Global keys: Esc closes the side drawers (dialogs handle their own Esc),
-  // Ctrl/⌘+F jumps to 통합 검색 and focuses the query.
+  // Ctrl/⌘+F jumps to Search and focuses the query.
   const keyActions = useRef({
     caseId,
     aiOpen,
@@ -522,7 +469,7 @@ export function App() {
         k.navigate("SEARCH");
         requestAnimationFrame(() =>
           document
-            .querySelector<HTMLInputElement>('input[aria-label="검색어"]')
+            .querySelector<HTMLInputElement>("input[data-search-query]")
             ?.focus(),
         );
       }
@@ -790,7 +737,7 @@ export function App() {
         items.set(JSON.stringify(citation), citation);
       return [...items.values()];
     });
-    setNotice("선택한 인용을 새 보고서 버전의 근거로 추가했습니다.");
+    setNotice(m.shell.notices.citationsAdded);
   }
   useEffect(() => {
     setProjection(null);
@@ -837,11 +784,12 @@ export function App() {
   async function addEvidence(kind: "file" | "directory") {
     try {
       if (!window.apex) throw new GatewayError("DESKTOP_REQUIRED");
-      const picked = unwrap(await window.apex.pick(kind));
+      const picked = unwrap(await window.apex.pick(kind, locale));
       if (!picked) return;
       const owner = caseId;
       setDialog(
         intakeDialog({
+          m,
           picked,
           kind,
           capabilities: runtime?.capabilities?.capabilities ?? [],
@@ -863,15 +811,25 @@ export function App() {
   }
   function newCase() {
     setDialog({
-      title: "새 사건 만들기",
-      submitLabel: "사건 만들기",
+      title: m.shell.newCase.title,
+      submitLabel: m.shell.newCase.submit,
       fields: [
-        { key: "name", label: "사건 이름", required: true, max: 255 },
-        { key: "investigator", label: "분석자 이름", max: 255 },
-        { key: "description", label: "사건 설명", type: "textarea", max: 8192 },
+        { key: "name", label: m.shell.newCase.name, required: true, max: 255 },
+        {
+          key: "investigator",
+          label: m.shell.newCase.investigator,
+          default: readExaminerName() || undefined,
+          max: 255,
+        },
+        {
+          key: "description",
+          label: m.shell.newCase.description,
+          type: "textarea",
+          max: 8192,
+        },
         {
           key: "timezone",
-          label: "시간대 (IANA)",
+          label: m.shell.newCase.timezone,
           default: "Asia/Seoul",
           required: true,
           suggestions: [
@@ -896,7 +854,7 @@ export function App() {
         }
         const c = await gateway.call<CaseRecord>("cases.create", {
           ...f,
-          locale: "ko-KR",
+          locale,
         });
         await bootstrap();
         setCaseId(c.id);
@@ -907,7 +865,7 @@ export function App() {
   const fileColumns: Column[] = [
     {
       key: "original_name",
-      label: "이름",
+      label: m.shell.columns.name,
       width: 240,
       render: (r) => (
         <span className="file-name">
@@ -918,47 +876,51 @@ export function App() {
     },
     {
       key: "extension",
-      label: "확장자 / 유형",
+      label: m.shell.columns.extension,
       width: 100,
       render: (r) =>
-        r.node_type === "DIRECTORY" ? "폴더" : (r.extension ?? r.node_type),
+        r.node_type === "DIRECTORY"
+          ? m.shell.columns.folder
+          : (r.extension ?? r.node_type),
     },
     {
       key: "file_size",
-      label: "크기",
+      label: m.shell.columns.size,
       width: 100,
       render: (r) => size(r.file_size),
     },
     {
       key: "created",
-      label: inZone("생성 시간"),
+      label: inZone(m.shell.columns.created),
       width: 165,
-      render: (r) => time(r.utc_timestamps?.created, zone),
+      render: (r) => time(r.utc_timestamps?.created, zone, m),
     },
     {
       key: "modified",
-      label: inZone("수정 시간"),
+      label: inZone(m.shell.columns.modified),
       width: 165,
-      render: (r) => time(r.utc_timestamps?.modified, zone),
+      render: (r) => time(r.utc_timestamps?.modified, zone, m),
     },
     {
       key: "is_deleted",
-      label: "삭제 상태",
+      label: m.shell.columns.deleteState,
       width: 100,
-      render: (r) => (r.is_deleted ? <Badge value="삭제됨" /> : "—"),
+      render: (r) =>
+        r.is_deleted ? <Badge value={m.shell.columns.deleted} /> : "—",
     },
     {
       key: "is_partial",
-      label: "분석 상태",
+      label: m.shell.columns.analysisState,
       width: 100,
-      render: (r) => (r.is_partial ? <Badge value="PARTIAL" /> : "관찰됨"),
+      render: (r) =>
+        r.is_partial ? <Badge value="PARTIAL" /> : m.shell.columns.observed,
     },
     { key: "mime_candidate", label: "MIME", width: 120 },
   ];
   const artifactColumns: Column[] = [
     {
       key: "title",
-      label: "제목",
+      label: m.shell.columns.title,
       width: 250,
       render: (r) => (
         <span className="file-name">
@@ -966,27 +928,27 @@ export function App() {
         </span>
       ),
     },
-    { key: "artifact_type", label: "유형", width: 150 },
+    { key: "artifact_type", label: m.shell.columns.type, width: 150 },
     {
       key: "observed_at_utc",
-      label: inZone("관찰 시간"),
+      label: inZone(m.shell.columns.observedTime),
       width: 170,
-      render: (r) => time(r.observed_at_utc, zone),
+      render: (r) => time(r.observed_at_utc, zone, m),
     },
     {
       key: "parse_status",
-      label: "파싱 상태",
+      label: m.shell.columns.parseStatus,
       render: (r) => <Badge value={r.parse_status} />,
     },
     {
       key: "confidence",
-      label: "신뢰도",
-      render: (r) => confidence(r.confidence),
+      label: m.shell.columns.confidence,
+      render: (r) => confidence(r.confidence, m),
     },
-    { key: "source_path", label: "소스", width: 220 },
+    { key: "source_path", label: m.shell.columns.source, width: 220 },
     {
       key: "is_partial",
-      label: "부분 결과",
+      label: m.shell.columns.partial,
       render: (r) => (r.is_partial ? <Badge value="PARTIAL" /> : "—"),
     },
   ];
@@ -997,12 +959,12 @@ export function App() {
         ? [
             {
               key: "result_order",
-              label: "관련도 순위",
+              label: m.shell.columns.relevanceRank,
               render: (r: Row) => (
                 <span
                   title={
                     typeof r.rank === "number"
-                      ? `BM25 점수 ${r.rank} · 낮을수록 관련도가 높습니다`
+                      ? m.shell.columns.bm25(r.rank)
                       : undefined
                   }
                 >
@@ -1010,87 +972,105 @@ export function App() {
                 </span>
               ),
             },
-            { key: "snippet", label: "일치 내용", width: 300 },
+            { key: "snippet", label: m.shell.columns.snippet, width: 300 },
             {
               key: "source",
-              label: "출처",
+              label: m.shell.columns.origin,
               width: 260,
               render: (r: Row) =>
                 r.citations?.[0]?.source_path ??
                 r.citations?.[0]?.label ??
                 r.title ?? (
                   <span className="muted" title={r.source_id}>
-                    경로 정보 없음
+                    {m.shell.columns.noPath}
                   </span>
                 ),
             },
-            { key: "source_type", label: "소스 유형" },
-            { key: "matched_terms", label: "일치 검색어" },
+            { key: "source_type", label: m.shell.columns.sourceType },
+            { key: "matched_terms", label: m.shell.columns.matchedTerms },
           ]
         : route === "TIMELINE"
           ? [
               {
                 key: "normalized_utc",
-                label: inZone("시각"),
+                label: inZone(m.shell.columns.time),
                 width: 190,
                 render: (r: Row) =>
                   r.normalized_utc
-                    ? time(r.normalized_utc, zone)
-                    : "시간대 미확정",
+                    ? time(r.normalized_utc, zone, m)
+                    : m.shell.columns.zoneUnknown,
               },
-              { key: "event_type", label: "이벤트 유형", width: 200 },
-              { key: "title", label: "제목", width: 280 },
-              { key: "source_type", label: "출처", width: 160 },
-              { key: "timezone_confidence", label: "시간대 신뢰도" },
+              {
+                key: "event_type",
+                label: m.shell.columns.eventType,
+                width: 200,
+              },
+              { key: "title", label: m.shell.columns.title, width: 280 },
+              { key: "source_type", label: m.shell.columns.origin, width: 160 },
+              {
+                key: "timezone_confidence",
+                label: m.shell.columns.zoneConfidence,
+              },
             ]
           : route === "CANDIDATES"
             ? [
-                { key: "text", label: "추출 텍스트", width: 320 },
-                { key: "extraction_type", label: "추출 방식" },
+                {
+                  key: "text",
+                  label: m.shell.columns.extractedText,
+                  width: 320,
+                },
+                {
+                  key: "extraction_type",
+                  label: m.shell.columns.extractionType,
+                },
                 {
                   key: "review_status",
-                  label: "검토 상태",
+                  label: m.shell.columns.reviewStatus,
                   render: (r: Row) => <Badge value={r.review_status} />,
                 },
                 {
                   key: "confidence",
-                  label: "신뢰도",
-                  render: (r: Row) => confidence(r.confidence),
+                  label: m.shell.columns.confidence,
+                  render: (r: Row) => confidence(r.confidence, m),
                 },
                 {
                   key: "source",
-                  label: "원본",
+                  label: m.shell.columns.rawSource,
                   width: 220,
                   render: (r: Row) =>
                     r.raw_locator?.source_path ?? (
                       <span className="muted" title={r.source_node_id}>
-                        경로 정보 없음
+                        {m.shell.columns.noPath}
                       </span>
                     ),
                 },
               ]
             : route === "CHAIN_OF_CUSTODY"
               ? [
-                  { key: "sequence", label: "순서" },
+                  { key: "sequence", label: m.shell.columns.sequence },
                   {
                     key: "event_type",
-                    label: "유형",
+                    label: m.shell.columns.type,
                     width: 130,
-                    render: (r: Row) => custodyEvent(r.event_type),
+                    render: (r: Row) => custodyEvent(r.event_type, m),
                   },
-                  { key: "action", label: "행위", width: 230 },
+                  { key: "action", label: m.shell.columns.action, width: 230 },
                   {
                     key: "actor",
-                    label: "행위자",
+                    label: m.shell.columns.actor,
                     render: (r: Row) => r.actor?.name ?? r.actor_name,
                   },
                   {
                     key: "occurred_at_utc",
-                    label: inZone("시각"),
+                    label: inZone(m.shell.columns.time),
                     width: 180,
-                    render: (r: Row) => time(r.occurred_at_utc, zone),
+                    render: (r: Row) => time(r.occurred_at_utc, zone, m),
                   },
-                  { key: "event_hash", label: "이벤트 해시", width: 240 },
+                  {
+                    key: "event_hash",
+                    label: m.shell.columns.eventHash,
+                    width: 240,
+                  },
                 ]
               : artifactColumns;
   return (
@@ -1100,24 +1080,24 @@ export function App() {
         style={{ "--evidence-width": `${sidebarWidth}px` } as CSSProperties}
       >
         <a className="skip-link" href="#main-workspace">
-          본문으로 건너뛰기
+          {m.shell.top.skip}
         </a>
         <header className="topbar">
           <button
             className="brand"
             onClick={() => navigate("CASE_OVERVIEW")}
-            aria-label="APEX 사건 개요"
+            aria-label={m.shell.top.brandLabel}
           >
             <BrandLogo />
           </button>
           <div className="top-context">
-            <span className="context-label">사건</span>
+            <span className="context-label">{m.shell.top.caseLabel}</span>
             <select
-              aria-label="현재 사건"
+              aria-label={m.shell.top.currentCase}
               value={caseId}
               onChange={(e) => setCaseId(e.target.value)}
             >
-              <option value="">사건 선택</option>
+              <option value="">{m.shell.top.selectCase}</option>
               {cases.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -1125,14 +1105,14 @@ export function App() {
               ))}
             </select>
             <span className="divider" />
-            <span className="context-label">증거</span>
+            <span className="context-label">{m.shell.top.evidenceLabel}</span>
             <select
-              aria-label="현재 증거"
+              aria-label={m.shell.top.currentEvidence}
               value={evidenceId}
               onChange={(e) => chooseEvidence(e.target.value)}
               disabled={!caseId}
             >
-              <option value="">증거 선택</option>
+              <option value="">{m.shell.top.selectEvidence}</option>
               {evidence.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.display_name}
@@ -1149,19 +1129,20 @@ export function App() {
               onClick={() => setJobsOpen(!jobsOpen)}
               className={tasks.some(activeTask) ? "live" : ""}
             >
-              <Activity size={15} /> 작업 {tasks.filter(activeTask).length}
+              <Activity size={15} />{" "}
+              {m.shell.top.jobs(tasks.filter(activeTask).length)}
             </button>
             {attention > 0 && (
               <span
                 className="badge amber job-attention"
-                title="일부 결과로 끝났거나 실패한 작업이 있습니다. 작업 목록에서 확인하세요."
+                title={m.shell.top.attentionTitle}
               >
-                확인 {attention}
+                {m.shell.top.attention(attention)}
               </span>
             )}
             <button
-              title="AI 도우미"
-              aria-label="AI 도우미"
+              title={m.shell.top.assistant}
+              aria-label={m.shell.top.assistant}
               aria-expanded={aiOpen}
               onClick={() => setAiOpen(!aiOpen)}
             >
@@ -1170,40 +1151,41 @@ export function App() {
             <span className="local-state">
               <i className={runtime ? "online" : ""} />
               {runtime?.mode === "DEMO_READ_ONLY"
-                ? "모의 데이터 · 읽기 전용"
-                : "로컬 모드"}
+                ? m.shell.top.demoMode
+                : m.shell.top.localMode}
             </span>
           </div>
         </header>
-        <div className="command-bar" aria-label="증거 작업">
+        <div className="command-bar" aria-label={m.shell.commands.label}>
           <button disabled={!runtime} onClick={newCase}>
-            <Plus size={14} />새 사건
+            <Plus size={14} />
+            {m.shell.commands.newCase}
           </button>
           <span className="command-divider" />
           <button disabled={!caseId} onClick={() => addEvidence("file")}>
             <HardDrive size={15} />
-            이미지 추가
+            {m.shell.commands.addImage}
           </button>
           <button disabled={!caseId} onClick={() => addEvidence("directory")}>
             <FolderOpen size={15} />
-            폴더 추가
+            {m.shell.commands.addFolder}
           </button>
           <span className="command-divider" />
           <button disabled={!evidenceId} onClick={() => navigate("EVIDENCE")}>
             <ShieldCheck size={15} />
-            증거 관리
+            {m.shell.commands.manageEvidence}
           </button>
           <button
             disabled={!caseId}
-            title="통합 검색 (Ctrl/⌘+F)"
+            title={m.shell.commands.searchTitle}
             onClick={() => navigate("SEARCH")}
           >
             <Search size={15} />
-            검색
+            {m.shell.commands.search}
           </button>
           <button disabled={!caseId} onClick={() => navigate("REPORT")}>
             <Files size={15} />
-            보고서
+            {m.shell.commands.report}
           </button>
           <span className="spacer" />
           <button
@@ -1213,11 +1195,11 @@ export function App() {
               setInspector(true);
             }}
           >
-            패널 배치 초기화
+            {m.shell.commands.resetLayout}
           </button>
           <button
-            aria-label="화면 새로고침"
-            title="화면 새로고침"
+            aria-label={m.shell.commands.refresh}
+            title={m.shell.commands.refresh}
             onClick={() => {
               refresh();
               void bootstrap();
@@ -1226,15 +1208,17 @@ export function App() {
             <RefreshCw size={14} />
           </button>
         </div>
-        <aside className="evidence-pane" aria-label="증거 탐색 및 속성">
+        <aside className="evidence-pane" aria-label={m.shell.pane.label}>
           <section className="tree-pane">
             <header className="pane-title">
-              <h2>증거 트리</h2>
-              <span className="pane-caption">{evidence.length}개 증거</span>
+              <h2>{m.shell.pane.tree}</h2>
+              <span className="pane-caption">
+                {m.shell.pane.evidenceCount(evidence.length)}
+              </span>
             </header>
             <div className="tree-case">
               <Archive size={14} />
-              <span>{currentCase?.name ?? "사건 미선택"}</span>
+              <span>{currentCase?.name ?? m.shell.pane.noCase}</span>
             </div>
             <EvidenceTree
               caseId={caseId}
@@ -1260,24 +1244,24 @@ export function App() {
             />
             <div className="tree-readonly">
               <ShieldCheck size={12} />
-              원본 증거 읽기 전용
+              {m.shell.pane.readOnly}
             </div>
           </section>
           <section
             className="properties-pane"
-            aria-label="선택 항목 속성"
+            aria-label={m.shell.pane.propertiesLabel}
             style={{ height: inspectorHeight }}
           >
             <Splitter
               axis="horizontal"
-              label="속성 패널 높이 조절"
+              label={m.shell.pane.propertiesResize}
               value={inspectorHeight}
               min={180}
               max={Math.max(180, Math.floor(window.innerHeight * 0.65))}
               onChange={setInspectorHeight}
             />
             <header className="pane-title">
-              <h2>속성</h2>
+              <h2>{m.shell.pane.properties}</h2>
             </header>
             <Properties
               row={selected ?? (route === "FILE_SYSTEM" ? folder : null)}
@@ -1288,14 +1272,14 @@ export function App() {
         </aside>
         <Splitter
           axis="vertical"
-          label="증거 패널 너비 조절"
+          label={m.shell.pane.sidebarResize}
           value={sidebarWidth}
           min={210}
           max={Math.max(210, Math.min(480, window.innerWidth * 0.4))}
           onChange={setSidebarWidth}
         />
         <main className="workspace" id="main-workspace" tabIndex={-1}>
-          <nav className="workspace-tabs" aria-label="분석 화면">
+          <nav className="workspace-tabs" aria-label={m.shell.nav.label}>
             <div className="tab-groups">
               {routeGroups.map((g) => (
                 <button
@@ -1304,14 +1288,16 @@ export function App() {
                   className={g === currentGroup ? "active" : ""}
                   onClick={() => openTab(lastTab.current[g.id] ?? g.tabs[0])}
                 >
-                  {g.label}
+                  {m.shell.groups[g.id]}
                 </button>
               ))}
             </div>
             {currentGroup && currentGroup.tabs.length > 1 && (
               <div
                 className="tab-sub"
-                aria-label={`${currentGroup.label} 화면`}
+                aria-label={m.shell.nav.groupScreens(
+                  m.shell.groups[currentGroup.id],
+                )}
               >
                 {currentGroup.tabs.map((t) => (
                   <button
@@ -1320,7 +1306,7 @@ export function App() {
                     className={t === currentTab ? "active" : ""}
                     onClick={() => openTab(t)}
                   >
-                    {t === "COMMUNICATION" ? "커뮤니케이션" : routeNames[t]}
+                    {routeName(t)}
                   </button>
                 ))}
               </div>
@@ -1330,27 +1316,28 @@ export function App() {
               aria-current={route === "SETTINGS" ? "page" : undefined}
               onClick={() => navigate("SETTINGS")}
             >
-              <SettingsIcon size={14} /> 설정
+              <SettingsIcon size={14} /> {m.shell.routes.SETTINGS}
             </button>
           </nav>
           <header className="workspace-header">
             <h1>
               {route === "FILE_SYSTEM"
-                ? "파일 목록"
-                : communication
-                  ? "커뮤니케이션"
-                  : routeNames[route]}
+                ? m.shell.nav.filesTitle
+                : routeName(communication ? "COMMUNICATION" : route)}
             </h1>
             <span className="workspace-scope">
               {currentEvidence?.display_name ??
                 currentCase?.name ??
-                "사건을 선택하세요"}
+                m.shell.nav.selectCasePrompt}
             </span>
           </header>
           {notice && (
             <div className="notice">
               <span>{notice}</span>
-              <button aria-label="알림 닫기" onClick={() => setNotice("")}>
+              <button
+                aria-label={m.shell.nav.closeNotice}
+                onClick={() => setNotice("")}
+              >
                 <X size={14} />
               </button>
             </div>
@@ -1361,8 +1348,7 @@ export function App() {
           {conflict && (
             <div className="notice">
               <span>
-                선택 상태가 변경되었습니다. 최신 컨텍스트 r
-                {context?.context_revision}을 불러왔습니다.
+                {m.shell.conflict.message(context?.context_revision ?? "")}
               </span>
               <button
                 onClick={() => {
@@ -1372,7 +1358,7 @@ export function App() {
                   sync(pending);
                 }}
               >
-                내 선택 다시 적용
+                {m.shell.conflict.reapply}
               </button>
               <button
                 onClick={() => {
@@ -1389,78 +1375,82 @@ export function App() {
                   refresh();
                 }}
               >
-                최신 상태 사용
+                {m.shell.conflict.useLatest}
               </button>
             </div>
           )}
           {route === "CASE_OVERVIEW" ? (
             <div className="overview scroll">
-              <section className="case-summary" aria-label="사건 상태">
+              <section
+                className="case-summary"
+                aria-label={m.views.overview.statusLabel}
+              >
                 <div className="case-intro">
-                  <h2>{currentCase?.name ?? "조사할 사건을 선택하세요"}</h2>
+                  <h2>
+                    {currentCase?.name ?? m.views.overview.selectCaseTitle}
+                  </h2>
                   <p className="muted">
                     {currentCase
                       ? currentCase.description ||
-                        "이 사건에 등록된 증거와 분석 작업을 확인합니다."
-                      : "새 사건을 만들고 디스크 이미지 또는 폴더를 등록하세요."}
+                        m.views.overview.caseDescriptionFallback
+                      : m.views.overview.createCaseHint}
                   </p>
                   {!currentCase && (
-                    <p className="muted small">
-                      로그인 없이 시작할 수 있습니다
-                    </p>
+                    <p className="muted small">{m.views.overview.noLogin}</p>
                   )}
                 </div>
                 {currentCase && (
                   <>
                     <dl className="case-metadata">
                       <div>
-                        <dt>사건 ID</dt>
+                        <dt>{m.views.overview.caseId}</dt>
                         <dd className="mono">{currentCase.id}</dd>
                       </div>
                       <div>
-                        <dt>상태</dt>
+                        <dt>{m.views.overview.status}</dt>
                         <dd>
                           <Badge value={currentCase.status} />
                         </dd>
                       </div>
                       <div>
-                        <dt>표시 시간대</dt>
+                        <dt>{m.views.overview.displayZone}</dt>
                         <dd>{zone}</dd>
                       </div>
                       <div>
-                        <dt>등록된 증거</dt>
+                        <dt>{m.views.overview.registeredEvidence}</dt>
                         <dd>
-                          {evidence.length}개{" "}
+                          {m.views.overview.count(evidence.length)}{" "}
                           <button
                             className="text-button"
                             onClick={() => navigate("EVIDENCE")}
                           >
-                            증거 관리 <ChevronRight size={12} />
+                            {m.views.overview.manageEvidence}{" "}
+                            <ChevronRight size={12} />
                           </button>
                         </dd>
                       </div>
                       <div>
-                        <dt>분석 작업</dt>
+                        <dt>{m.views.overview.analysisJobs}</dt>
                         <dd>
-                          진행 {tasks.filter(activeTask).length} · 완료{" "}
-                          {tasks.filter((t) => t.status === "SUCCEEDED").length}
+                          {m.views.overview.jobCounts(
+                            tasks.filter(activeTask).length,
+                            tasks.filter((t) => t.status === "SUCCEEDED")
+                              .length,
+                          )}
                         </dd>
                       </div>
                       <div>
-                        <dt>원본 접근</dt>
-                        <dd>읽기 전용</dd>
+                        <dt>{m.views.overview.sourceAccess}</dt>
+                        <dd>{m.views.overview.readOnly}</dd>
                       </div>
                     </dl>
                     {tasks.some((t) =>
                       ["PARTIAL", "FAILED", "INTERRUPTED"].includes(t.status),
                     ) && (
                       <div className="notice">
-                        <span>
-                          확인이 필요한 분석 작업이 있습니다. 작업 상태와 경고를
-                          확인하세요.
-                        </span>
+                        <span>{m.views.overview.attention}</span>
                         <button onClick={() => setJobsOpen(true)}>
-                          작업 보기
+                          {m.views.overview.viewJobs}
                         </button>
                       </div>
                     )}
@@ -1469,9 +1459,11 @@ export function App() {
               </section>
               <div className="section-heading">
                 <h3>
-                  사건 목록 <span>{cases.length}</span>
+                  {m.views.overview.caseList} <span>{cases.length}</span>
                 </h3>
-                <span className="muted small">이 장치에 저장된 조사</span>
+                <span className="muted small">
+                  {m.views.overview.savedHere}
+                </span>
               </div>
               {cases.length ? (
                 <Table
@@ -1479,56 +1471,95 @@ export function App() {
                   selected={caseId}
                   onSelect={(c) => setCaseId(c.id)}
                   columns={[
-                    { key: "name", label: "사건 이름", width: 260 },
+                    {
+                      key: "name",
+                      label: m.views.overview.columns.caseName,
+                      width: 260,
+                    },
                     {
                       key: "status",
-                      label: "상태",
+                      label: m.views.overview.columns.status,
                       render: (r) => <Badge value={r.status} />,
                     },
-                    { key: "created_by", label: "분석자" },
+                    {
+                      key: "created_by",
+                      label: m.views.overview.columns.examiner,
+                    },
                     {
                       key: "created_at",
-                      label: inZone("생성 시각"),
-                      render: (r) => time(r.created_at, zone),
+                      label: inZone(m.views.overview.columns.createdAt),
+                      render: (r) => time(r.created_at, zone, m),
                     },
-                    { key: "timezone", label: "시간대" },
+                    {
+                      key: "timezone",
+                      label: m.views.overview.columns.timezone,
+                    },
                   ]}
                 />
               ) : (
-                <Empty title="저장된 사건이 없습니다">
-                  상단의 ‘새 사건’에서 조사를 시작하세요.
+                <Empty title={m.views.overview.noCasesTitle}>
+                  {m.views.overview.noCasesBody}
                 </Empty>
               )}
             </div>
           ) : route === "SETTINGS" ? (
             <div className="settings scroll">
+              <LanguageSettings />
+              {window.apex && (
+                <div className="card">
+                  <h3>
+                    <AssistantIcon size={18} /> {m.setup.ai.title}
+                  </h3>
+                  <AiConnectionForm
+                    showRemove
+                    blockedReason={
+                      tasks.some(activeTask) ? m.setup.ai.busy : undefined
+                    }
+                    onChanged={() => void bootstrap()}
+                  />
+                </div>
+              )}
+              <div className="card">
+                <h3>{m.setup.examiner.title}</h3>
+                <ProfileSettings />
+              </div>
               <AccountPanel />
               <MachineSettings />
               {caseId && <PolicyPanel key={caseId} caseId={caseId} />}
               <div className="card">
-                <h3>런타임 기능</h3>
-                <p className="muted">
-                  각 기능의 실제 설치·검증 상태입니다. 기능이 없으면 결과
-                  0건으로 표시하지 않습니다.
-                </p>
+                <h3>{m.views.settings.runtimeTitle}</h3>
+                <p className="muted">{m.views.settings.runtimeBody}</p>
                 {runtime && (
                   <Table
                     rows={runtime.capabilities.capabilities}
                     columns={[
-                      { key: "id", label: "기능", width: 210 },
+                      {
+                        key: "id",
+                        label: m.views.settings.columns.capability,
+                        width: 210,
+                      },
                       {
                         key: "status",
-                        label: "상태",
+                        label: m.views.settings.columns.status,
                         render: (r) => <Badge value={r.status} />,
                       },
-                      { key: "version", label: "버전" },
-                      { key: "reason", label: "사유", width: 320 },
+                      {
+                        key: "version",
+                        label: m.views.settings.columns.version,
+                      },
+                      {
+                        key: "reason",
+                        label: m.views.settings.columns.reason,
+                        width: 320,
+                      },
                       {
                         key: "details",
-                        label: "검증 상세",
+                        label: m.views.settings.columns.probe,
                         render: (r) => (
                           <details>
-                            <summary>상세</summary>
+                            <summary>
+                              {m.views.settings.columns.details}
+                            </summary>
                             <Fields
                               value={{ probe: r.probe, details: r.details }}
                             />
@@ -1540,22 +1571,18 @@ export function App() {
                 )}
               </div>
               <div className="card">
-                <h3>파생 결과</h3>
-                <p className="muted">
-                  승인된 보고서는 원본 증거와 분리된 폴더에 저장됩니다.
-                </p>
+                <h3>{m.views.settings.derivedTitle}</h3>
+                <p className="muted">{m.views.settings.derivedBody}</p>
                 <button
                   disabled={!window.apex}
                   onClick={() => window.apex?.openExports()}
                 >
-                  <FolderOpen size={15} /> 결과 폴더 열기
+                  <FolderOpen size={15} /> {m.views.settings.openExports}
                 </button>
               </div>
             </div>
           ) : !caseId ? (
-            <Empty title="먼저 사건을 선택해주세요">
-              상단에서 사건을 선택하거나 새 사건을 만들어주세요.
-            </Empty>
+            <Empty title={m.views.noCase.title}>{m.views.noCase.body}</Empty>
           ) : route === "REPORT" ? (
             <Reports
               key={caseId}
@@ -1574,13 +1601,13 @@ export function App() {
                       className="primary"
                       onClick={() => addEvidence("file")}
                     >
-                      <Plus size={14} /> 이미지 추가
+                      <Plus size={14} /> {m.shell.commands.addImage}
                     </button>
                     <button onClick={() => addEvidence("directory")}>
-                      <FolderOpen size={14} /> 폴더 추가
+                      <FolderOpen size={14} /> {m.shell.commands.addFolder}
                     </button>
                     <span className="muted small">
-                      형식은 엔진이 판별합니다
+                      {m.views.actions.formatHint}
                     </span>
                   </>
                 ) : route === "SEARCH" ? (
@@ -1594,15 +1621,16 @@ export function App() {
                   >
                     <Search size={16} />
                     <input
-                      aria-label="검색어"
-                      placeholder="파일 이름, 경로 또는 아티팩트 검색 (Ctrl/⌘+F)"
+                      aria-label={m.views.search.queryLabel}
+                      data-search-query
+                      placeholder={m.views.search.placeholder}
                       maxLength={searchMode === "REGEX_METADATA" ? 512 : 4096}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       required
                     />
                     <select
-                      aria-label="검색 방식"
+                      aria-label={m.views.search.modeLabel}
                       value={searchMode}
                       onChange={(e) => setSearchMode(e.target.value)}
                     >
@@ -1612,9 +1640,9 @@ export function App() {
                         "PREFIX",
                         "EXACT",
                         "REGEX_METADATA",
-                      ].map((m) => (
-                        <option key={m} value={m}>
-                          {labels[m]}
+                      ].map((option) => (
+                        <option key={option} value={option}>
+                          {lookup(m.labels, option)}
                         </option>
                       ))}
                     </select>
@@ -1622,13 +1650,13 @@ export function App() {
                       {query.length}/
                       {searchMode === "REGEX_METADATA" ? 512 : 4096}
                     </span>
-                    <button className="primary">검색</button>
+                    <button className="primary">{m.views.search.submit}</button>
                   </form>
                 ) : route === "FILE_SYSTEM" ? (
                   <div className="folder-address">
                     <button
-                      aria-label="상위 폴더로 이동"
-                      title="상위 폴더로 이동"
+                      aria-label={m.views.folder.up}
+                      title={m.views.folder.up}
                       disabled={folderTrail.length < 2}
                       onClick={() =>
                         openFolder(
@@ -1639,7 +1667,7 @@ export function App() {
                     >
                       <PanelBottomOpen size={14} />
                     </button>
-                    <nav aria-label="폴더 경로">
+                    <nav aria-label={m.views.folder.pathLabel}>
                       {folderTrail.map((item, index) => (
                         <span key={item.id}>
                           {index > 0 && <ChevronRight size={11} />}
@@ -1661,7 +1689,7 @@ export function App() {
                   </div>
                 ) : (
                   <span className="path mono">
-                    {currentEvidence?.display_name ?? "사건 전체"}
+                    {currentEvidence?.display_name ?? m.views.actions.wholeCase}
                   </span>
                 )}
                 {route === "CHAIN_OF_CUSTODY" && (
@@ -1669,27 +1697,26 @@ export function App() {
                     disabled={!evidenceId}
                     onClick={() =>
                       setDialog({
-                        title: "보관 이력 이벤트 추가",
-                        description:
-                          "인수·이관·보관 등 증거 처리 사실을 기록합니다. 기존 기록은 변경되지 않습니다.",
-                        submitLabel: "이벤트 기록",
+                        title: m.views.custodyAdd.title,
+                        description: m.views.custodyAdd.description,
+                        submitLabel: m.views.custodyAdd.submit,
                         fields: [
                           {
                             key: "event_type",
-                            label: "이벤트 유형",
+                            label: m.views.custodyAdd.eventType,
                             options: CUSTODY_EVENTS,
-                            optionLabel: custodyEvent,
+                            optionLabel: (type) => custodyEvent(type, m),
                             required: true,
                           },
                           {
                             key: "action",
-                            label: "처리 내용",
+                            label: m.views.custodyAdd.action,
                             required: true,
                             max: 4096,
                           },
                           {
                             key: "reason",
-                            label: "사유",
+                            label: m.views.custodyAdd.reason,
                             required: true,
                             max: 4096,
                           },
@@ -1705,7 +1732,7 @@ export function App() {
                       })
                     }
                   >
-                    <Plus size={14} /> 보관 이력 이벤트 추가
+                    <Plus size={14} /> {m.views.custodyAdd.title}
                   </button>
                 )}
                 {[
@@ -1722,12 +1749,16 @@ export function App() {
                 ].includes(route) && (
                   <div className="analysis-controls">
                     <select
-                      aria-label="분석 범위"
+                      aria-label={m.views.analysis.scopeLabel}
                       value={profile}
                       onChange={(e) => setProfile(e.target.value)}
                     >
-                      <option value="QUICK_TRIAGE">빠른 초기 분석</option>
-                      <option value="FULL_ANALYSIS">전체 분석</option>
+                      <option value="QUICK_TRIAGE">
+                        {m.views.analysis.quick}
+                      </option>
+                      <option value="FULL_ANALYSIS">
+                        {m.views.analysis.full}
+                      </option>
                     </select>
                     <button
                       disabled={!evidenceId}
@@ -1745,10 +1776,10 @@ export function App() {
                     >
                       <Play size={13} />
                       {route === "SEARCH"
-                        ? "검색 인덱스 생성"
+                        ? m.views.analysis.buildSearchIndex
                         : route === "TIMELINE"
-                          ? "타임라인 생성"
-                          : "분석 시작"}
+                          ? m.views.analysis.buildTimeline
+                          : m.views.analysis.start}
                     </button>
                   </div>
                 )}
@@ -1779,7 +1810,7 @@ export function App() {
                         sync({ active_filters: { artifact_type: t } });
                       }}
                     >
-                      {typeLabels[t] ?? t}
+                      {lookup(m.shell.typeLabels, t)}
                     </button>
                   ))}
                 </div>
@@ -1790,12 +1821,7 @@ export function App() {
               <ResultState data={page?.execution ?? page} />
               {communication && (
                 <div className="notice">
-                  <span>
-                    KakaoTalk은 Windows Desktop 2.0.8.990 외부 키 기반의 제한
-                    경로입니다. 외부 키가 필요하며, 자동 키 획득과 Android·iOS
-                    분석은 지원하지 않습니다. 실제 실행 가능 여부는 런타임 검증
-                    상태를 확인하세요.
-                  </span>
+                  <span>{m.views.notices.kakao}</span>
                 </div>
               )}
               {route === "EVENT_LOG" &&
@@ -1807,18 +1833,11 @@ export function App() {
                     ),
                 ) && (
                   <div className="notice">
-                    <span>
-                      이 환경에서는 Windows 이벤트 메시지를 렌더링할 수
-                      없습니다. 이벤트 기록과 원본 필드는 계속 확인할 수
-                      있습니다.
-                    </span>
+                    <span>{m.views.notices.eventMessages}</span>
                   </div>
                 )}
               {route === "CANDIDATES" && (
-                <div className="notice">
-                  OCR·STT 결과는 자동 추출 후보입니다. 관찰 사실과 구분하여
-                  원본을 검토하세요.
-                </div>
+                <div className="notice">{m.views.notices.candidates}</div>
               )}
               <div className="results-area">
                 {loading ? (
@@ -1830,28 +1849,32 @@ export function App() {
                       selected={selected ? rowId(selected) : ""}
                       onSelect={select}
                       columns={[
-                        { key: "display_name", label: "증거 이름", width: 260 },
+                        {
+                          key: "display_name",
+                          label: m.views.evidence.name,
+                          width: 260,
+                        },
                         {
                           key: "format",
-                          label: "형식",
-                          render: (r) => evidenceFormat(r.format),
+                          label: m.views.evidence.format,
+                          render: (r) => evidenceFormat(r.format, m),
                         },
                         {
                           key: "size_bytes",
-                          label: "크기",
+                          label: m.views.evidence.size,
                           render: (r) => size(r.size_bytes),
                         },
                         {
                           key: "status",
-                          label: "상태",
+                          label: m.views.evidence.status,
                           render: (r) => <Badge value={r.status} />,
                         },
                         {
                           key: "integrity",
-                          label: "무결성 해시",
+                          label: m.views.evidence.integrity,
                           width: 230,
                           render: (r) => {
-                            const h = integritySummary(r);
+                            const h = integritySummary(r, m);
                             return (
                               <span className="integrity-cell">
                                 <span>{h.label}</span>
@@ -1867,19 +1890,21 @@ export function App() {
                         },
                         {
                           key: "read_only",
-                          label: "접근",
-                          render: () => <Badge value="읽기 전용" />,
+                          label: m.views.evidence.access,
+                          render: () => (
+                            <Badge value={m.views.evidence.readOnly} />
+                          ),
                         },
                         {
                           key: "reader",
-                          label: "리더",
+                          label: m.views.evidence.reader,
                           render: (r) => r.reader?.id,
                         },
                       ]}
                     />
                   ) : (
-                    <Empty title="등록된 증거가 없습니다">
-                      이미지 추가 또는 폴더 추가로 분석할 증거를 선택하세요.
+                    <Empty title={m.views.evidence.noneTitle}>
+                      {m.views.evidence.noneBody}
                     </Empty>
                   )
                 ) : error != null ? null : rows.length ? (
@@ -1903,32 +1928,37 @@ export function App() {
                   <Empty
                     title={
                       route === "SEARCH" && !searchText
-                        ? "검색어를 입력해주세요"
-                        : "조회 결과가 없습니다"
+                        ? m.views.empty.enterQuery
+                        : m.ui.empty.title
                     }
                   >
                     {route === "FILE_SYSTEM"
                       ? folder
-                        ? "이 폴더에서 확인된 항목이 없습니다. 다른 폴더 또는 분석 범위를 확인하세요."
-                        : "증거를 선택하고 파일 인덱스를 생성해주세요."
-                      : "선택한 범위의 분석·인덱스 상태를 확인해주세요."}
+                        ? m.views.empty.emptyFolder
+                        : m.views.empty.selectEvidence
+                      : m.views.empty.checkStatus}
                   </Empty>
                 )}
               </div>
               <div className="pagination">
                 <span>
-                  {route === "EVIDENCE" ? evidence.length : rows.length}개 표시
-                  · 원본 상태 유지
+                  {m.views.pagination.shownCount(
+                    route === "EVIDENCE" ? evidence.length : rows.length,
+                  )}
                 </span>
                 <div>
-                  <span className="muted">현재 페이지 정렬</span>
+                  <span className="muted">{m.views.pagination.sortScope}</span>
                   {page?.page?.has_more && (
                     <button onClick={() => loadPage(page.page.next_cursor)}>
-                      다음 결과 <ChevronRight size={13} />
+                      {m.views.pagination.next} <ChevronRight size={13} />
                     </button>
                   )}
                   <button
-                    title={inspector ? "검사기 접기" : "검사기 펼치기"}
+                    title={
+                      inspector
+                        ? m.views.pagination.collapseInspector
+                        : m.views.pagination.expandInspector
+                    }
                     onClick={() => setInspector(!inspector)}
                   >
                     {inspector ? (
@@ -1964,13 +1994,13 @@ export function App() {
               {inspector && route !== "FILE_SYSTEM" && (
                 <section
                   className="inspector"
-                  aria-label="선택 항목 검사기"
+                  aria-label={m.views.inspector.label}
                   style={{ height: inspectorHeight }}
                 >
                   <div
                     className="inspector-resizer"
                     role="separator"
-                    aria-label="검사기 높이 조절"
+                    aria-label={m.views.inspector.resize}
                     aria-orientation="horizontal"
                     aria-valuenow={inspectorHeight}
                     aria-valuemin={150}
@@ -2030,7 +2060,9 @@ export function App() {
                   />
                   <header>
                     <div>
-                      <span className="muted small">선택 항목 검사기</span>
+                      <span className="muted small">
+                        {m.views.inspector.label}
+                      </span>
                       <h2>
                         {selected
                           ? (selected.original_name ??
@@ -2038,37 +2070,39 @@ export function App() {
                             selected.display_name ??
                             selected.text ??
                             selected.action ??
-                            "선택한 항목")
-                          : "항목을 선택해주세요"}
+                            m.views.inspector.selectedItem)
+                          : m.views.inspector.selectItem}
                       </h2>
                     </div>
-                    <div className="tabs compact" aria-label="검사기 보기">
-                      {(["SIMPLE", "DETAILED", "RAW"] as const).map((m, i) => (
-                        <button
-                          key={m}
-                          className={mode === m ? "active" : ""}
-                          aria-pressed={mode === m}
-                          disabled={
-                            !selected ||
-                            (m === "RAW" &&
-                              !!projection &&
-                              !projection.available_actions?.includes(
-                                "view.raw",
-                              ))
-                          }
-                          onClick={() => setMode(m)}
-                        >
-                          {["간단히", "상세히", "원본"][i]}
-                        </button>
-                      ))}
+                    <div
+                      className="tabs compact"
+                      aria-label={m.views.inspector.viewLabel}
+                    >
+                      {(["SIMPLE", "DETAILED", "RAW"] as const).map(
+                        (viewMode) => (
+                          <button
+                            key={viewMode}
+                            className={mode === viewMode ? "active" : ""}
+                            aria-pressed={mode === viewMode}
+                            disabled={
+                              !selected ||
+                              (viewMode === "RAW" &&
+                                !!projection &&
+                                !projection.available_actions?.includes(
+                                  "view.raw",
+                                ))
+                            }
+                            onClick={() => setMode(viewMode)}
+                          >
+                            {lookup(m.labels, viewMode)}
+                          </button>
+                        ),
+                      )}
                     </div>
                   </header>
                   <div className="inspector-content">
                     {!selected ? (
-                      <p className="muted">
-                        목록에서 항목을 선택하면 요약·출처·원본을 확인할 수
-                        있습니다.
-                      </p>
+                      <p className="muted">{m.views.inspector.hint}</p>
                     ) : viewError != null ? (
                       <ErrorState error={viewError} />
                     ) : !projection ? (
@@ -2109,13 +2143,13 @@ export function App() {
                           />
                         )}
                         <p className="summary-text">
-                          {labels[projection.summary] ?? projection.summary}
+                          {lookup(m.labels, projection.summary)}
                         </p>
                         {mode === "RAW" ? (
                           <>
                             <div className="raw-controls">
                               <label>
-                                오프셋
+                                {m.views.inspector.offset}
                                 <input
                                   type="number"
                                   min={0}
@@ -2126,7 +2160,7 @@ export function App() {
                                 />
                               </label>
                               <label>
-                                길이 (최대 1 MiB)
+                                {m.views.inspector.length}
                                 <input
                                   type="number"
                                   min={1}
@@ -2172,7 +2206,7 @@ export function App() {
                                   }
                                 }}
                               >
-                                원본 범위 읽기
+                                {m.views.inspector.readRaw}
                               </button>
                             </div>
                             {raw && (
@@ -2206,7 +2240,9 @@ export function App() {
                           </>
                         )}
                         <Section
-                          title={`인용 근거 · ${projection.citations?.length ?? 0}건`}
+                          title={m.views.inspector.citations(
+                            projection.citations?.length ?? 0,
+                          )}
                           initial
                         >
                           <Fields value={projection.citations} />
@@ -2226,11 +2262,11 @@ export function App() {
                                     _resource_type: type,
                                     _resource_id: c.source_id,
                                     id: c.source_id,
-                                    title: "인용 원본",
+                                    title: m.views.inspector.citationSource,
                                   })
                                 }
                               >
-                                인용 {i + 1} 원본 보기
+                                {m.views.inspector.viewCitation(i + 1)}
                               </button>
                             ) : null;
                           })}
@@ -2240,18 +2276,18 @@ export function App() {
                                 collectCitations(projection.citations)
                               }
                             >
-                              보고서 근거로 추가
+                              {m.views.inspector.addToReport}
                             </button>
                           )}
                         </Section>
-                        <Section title="원본 위치 및 출처">
+                        <Section title={m.views.inspector.locator}>
                           <Fields value={projection.raw_locator} />
                         </Section>
                         <div className="toolbar">
                           {route === "EVIDENCE" && (
                             <>
                               <select
-                                aria-label="해시 알고리즘"
+                                aria-label={m.views.inspector.hashAlgorithm}
                                 value={hash}
                                 onChange={(e) => setHash(e.target.value)}
                               >
@@ -2275,7 +2311,7 @@ export function App() {
                                   }
                                 }}
                               >
-                                해시 계산
+                                {m.views.inspector.computeHash}
                               </button>
                               <button
                                 disabled={
@@ -2300,7 +2336,7 @@ export function App() {
                                   }
                                 }}
                               >
-                                무결성 재검증
+                                {m.views.inspector.reverify}
                               </button>
                               <button
                                 onClick={() => {
@@ -2308,17 +2344,13 @@ export function App() {
                                   navigate("CHAIN_OF_CUSTODY");
                                 }}
                               >
-                                보관 이력
+                                {m.views.inspector.custody}
                               </button>
                             </>
                           )}
                           {route === "CANDIDATES" &&
-                            (
-                              Object.keys(
-                                candidateDecisions,
-                              ) as (keyof typeof candidateDecisions)[]
-                            ).map((status) => {
-                              const copy = candidateDecisions[status];
+                            CANDIDATE_DECISIONS.map((status) => {
+                              const copy = m.shell.candidateDecisions[status];
                               return (
                                 <button
                                   key={status}
@@ -2343,7 +2375,9 @@ export function App() {
                                           ? [
                                               {
                                                 key: "correction_text",
-                                                label: "정정한 텍스트",
+                                                label:
+                                                  m.views.inspector
+                                                    .correctedText,
                                                 required: true,
                                                 type: "textarea",
                                                 default:
@@ -2376,19 +2410,19 @@ export function App() {
                             <button
                               onClick={() =>
                                 setDialog({
-                                  title: "보관 이력 정정",
+                                  title: m.views.custodyCorrection.title,
                                   description:
-                                    "기존 기록은 유지하고 정정 이벤트를 추가합니다.",
-                                  submitLabel: "정정 기록",
+                                    m.views.custodyCorrection.description,
+                                  submitLabel: m.views.custodyCorrection.submit,
                                   fields: [
                                     {
                                       key: "action",
-                                      label: "정정 내용",
+                                      label: m.views.custodyCorrection.action,
                                       required: true,
                                     },
                                     {
                                       key: "reason",
-                                      label: "정정 사유",
+                                      label: m.views.custodyCorrection.reason,
                                       required: true,
                                     },
                                   ],
@@ -2405,7 +2439,7 @@ export function App() {
                                 })
                               }
                             >
-                              정정 기록 추가
+                              {m.views.custodyCorrection.add}
                             </button>
                           )}
                         </div>
@@ -2421,17 +2455,19 @@ export function App() {
           <span>
             <i className={runtime ? "online" : ""} />{" "}
             {runtime?.mode === "DEMO_READ_ONLY"
-              ? "데모 · 합성 데이터"
+              ? m.views.status.demo
               : runtime
-                ? "분석 엔진 연결됨"
-                : "분석 엔진 연결 대기"}
+                ? m.views.status.connected
+                : m.views.status.waiting}
           </span>
-          <span>{currentEvidence?.display_name ?? "증거 미선택"}</span>
+          <span>
+            {currentEvidence?.display_name ?? m.views.status.noEvidence}
+          </span>
           <span className="spacer" />
           <span>
             {context
-              ? `컨텍스트 r${context.context_revision}`
-              : "컨텍스트 없음"}
+              ? m.views.status.context(context.context_revision)
+              : m.views.status.noContext}
           </span>
           <span>UTF-8</span>
           <span>{zone}</span>
@@ -2440,16 +2476,17 @@ export function App() {
         {jobsOpen && (
           <aside className="drawer">
             <header>
-              <h2>분석 작업</h2>
-              <button aria-label="작업 닫기" onClick={() => setJobsOpen(false)}>
+              <h2>{m.views.jobs.title}</h2>
+              <button
+                aria-label={m.views.jobs.close}
+                onClick={() => setJobsOpen(false)}
+              >
                 <X size={18} />
               </button>
             </header>
-            <p className="muted">
-              분석 중에도 확인된 결과를 탐색할 수 있습니다.
-            </p>
+            <p className="muted">{m.views.jobs.hint}</p>
             {!tasks.length ? (
-              <Empty title="실행한 작업이 없습니다" />
+              <Empty title={m.views.jobs.none} />
             ) : (
               [...tasks].reverse().map((t) => (
                 <div className="job-card" key={t.task_id}>
@@ -2460,20 +2497,9 @@ export function App() {
                           {jobEvidenceName(t)}
                         </span>
                       )}
-                      {{
-                        REGISTER: "증거 등록",
-                        FILES: "파일 인덱스",
-                        ARTIFACTS: "아티팩트 분석",
-                        SEARCH: "검색 인덱스",
-                        TIMELINE: "타임라인",
-                        HASH: "무결성 해시",
-                        VERIFY: "무결성 재검증",
-                        RECOVERY: "삭제 파일 복구",
-                        STREAM_EXPORT: "NTFS 스트림 내보내기",
-                        CARVING: "파일 시그니처 카빙",
-                        OCR: "문자 추출",
-                        STT: "음성 인식",
-                      }[t.kind as string] ?? t.kind}
+                      {t.kind == null
+                        ? null
+                        : lookup(m.views.jobs.kinds, String(t.kind))}
                     </strong>
                     <Badge value={t.status} />
                   </header>
@@ -2486,12 +2512,16 @@ export function App() {
                   <p className="muted small">
                     {activeTask(t)
                       ? t.job?.progress?.progress_percent == null
-                        ? "총량 미확정"
-                        : `${t.job.progress.progress_percent.toFixed(1)}% 진행`
+                        ? m.views.jobs.undetermined
+                        : m.views.jobs.percent(
+                            t.job.progress.progress_percent.toFixed(1),
+                          )
                       : t.status === "PARTIAL"
-                        ? "일부 결과로 끝남"
-                        : "끝남"}{" "}
-                    · 처리 {t.job?.progress?.processed_items ?? "—"}개
+                        ? m.views.jobs.endedPartial
+                        : m.views.jobs.ended}{" "}
+                    {m.views.jobs.processed(
+                      t.job?.progress?.processed_items ?? "—",
+                    )}
                   </p>
                   {t.error && (
                     <ErrorState error={new GatewayError(t.error.code)} />
@@ -2527,14 +2557,14 @@ export function App() {
                         }
                       }}
                     >
-                      작업 취소
+                      {m.views.jobs.cancel}
                     </button>
                   )}
-                  <Section title="작업 상세">
+                  <Section title={m.views.jobs.details}>
                     <Fields value={t.job} />
                   </Section>
                   {t.result && (
-                    <Section title="작업 결과">
+                    <Section title={m.views.jobs.result}>
                       <Fields value={t.result} />
                     </Section>
                   )}
@@ -2547,9 +2577,12 @@ export function App() {
           <aside className="drawer ai-drawer">
             <header>
               <h2>
-                <AssistantIcon size={20} /> AI 도우미
+                <AssistantIcon size={20} /> {m.shell.top.assistant}
               </h2>
-              <button aria-label="AI 닫기" onClick={() => setAiOpen(false)}>
+              <button
+                aria-label={m.views.ai.close}
+                onClick={() => setAiOpen(false)}
+              >
                 <X size={18} />
               </button>
             </header>

@@ -11,7 +11,7 @@ import {
   within,
 } from "@testing-library/react";
 import { App } from "./App";
-import { Reports } from "./panels";
+import { AccountPanel, Reports } from "./panels";
 import { AiAssistant } from "./AiAssistant";
 import { createDemoBridge } from "./demoBridge";
 import type { Reply, Row } from "./gateway";
@@ -528,4 +528,19 @@ it("shows optional AI configuration errors while the local file workbench remain
   expect(
     within(screen.getByRole("table")).getByText("README.txt"),
   ).toBeTruthy();
+});
+
+it("offers Retry when the account status fails to load", async () => {
+  const bridge = createDemoBridge();
+  let calls = 0;
+  bridge.account = async () =>
+    ++calls === 1
+      ? { ok: false, error: { code: "DESKTOP_CONNECTION_FAILED" } }
+      : { ok: true, data: { connected: true, origin: "https://apex.test" } };
+  window.apex = bridge;
+  render(<AccountPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "다시 시도" }));
+  await screen.findByText("https://apex.test");
+  expect(calls).toBe(2);
+  expect(screen.queryByRole("alert")).toBeNull();
 });

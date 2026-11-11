@@ -1,42 +1,56 @@
 import { useEffect, useState } from "react";
-import { gateway, unwrap, type Row } from "./gateway";
+import { gateway, GatewayError, unwrap, type Row } from "./gateway";
 import { ErrorState, Fields, Loading } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
+import { lookup } from "./i18n/catalog";
 
-const settingsErrorReasons: Record<string, string> = {
-  EMPTY: "설정 내용이 비어 있음",
-  JSON_SYNTAX: "JSON 문법 오류",
-  ENCODING: "UTF-8이 아닌 인코딩",
-  NOT_OBJECT: "설정 형식이 객체가 아님",
-  INVALID_FIELDS: "허용되지 않는 필드 또는 값",
-  UNREADABLE: "파일을 읽을 수 없음",
-};
-
-export function MachineSettings() {
+/** `compact` drops the card frame, title and intro for hosts that supply their own. */
+export function MachineSettings({ compact = false }: { compact?: boolean }) {
+  const { locale, m } = useI18n();
   const [data, setData] = useState<Row | null>(null);
   const [settings, setSettings] = useState<Row>({});
   const [error, setError] = useState<unknown>(null);
+  // Set when the initial load failed; save/reset errors leave it false.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
-    gateway
-      .call("machine.capabilities")
-      .then((r) => {
-        if (live) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      gateway
+        .call("machine.capabilities")
+        .then((r) => {
+          if (!live) return;
           setData(r);
           setSettings(r.settings);
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e);
-      });
+        })
+        .catch((e) => {
+          if (!live) return;
+          // The engine may still be starting (setup steps mount early): keep waiting.
+          if (e instanceof GatewayError && e.code === "SERVICE_NOT_READY")
+            timer = setTimeout(load, 1000);
+          else {
+            setError(e);
+            setLoadFailed(true);
+          }
+        });
+    };
+    load();
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [attempt]);
+  function retryLoad() {
+    setError(null);
+    setLoadFailed(false);
+    setAttempt((n) => n + 1);
+  }
   async function pick(key: string, kind: "file" | "directory") {
     if (!window.apex) return;
     try {
-      const picked = unwrap(await window.apex.pick(kind));
+      const picked = unwrap(await window.apex.pick(kind, locale));
       if (picked)
         setSettings((s) => ({
           ...s,
@@ -79,87 +93,85 @@ export function MachineSettings() {
     }
   }
   return (
-    <div className="card">
-      <h3>로컬 OCR·음성 인식 설정</h3>
-      <p>
-        원본을 외부로 보내지 않습니다. 설치된 분석기와 로컬 모델을 사용합니다.
-      </p>
-      <p>
-        STT는 녹음의 음성을 글자로 바꾸는 기능입니다. API 키가 아닌 음성 인식용
-        로컬 모델을 사용합니다. 설치 파일의 기본 다국어 모델로 한국어·영어를
-        오프라인에서 분석할 수 있습니다. 별도의 계정이나 다운로드는 필요하지
-        않습니다.
-      </p>
-      {error != null && <ErrorState error={error} />}
+    <div className={compact ? "machine-settings" : "card"}>
+      {!compact && (
+        <>
+          <h3>{m.machine.title}</h3>
+          <p>{m.machine.privacy}</p>
+          <p>{m.machine.sttIntro}</p>
+        </>
+      )}
+      {error != null && (
+        <ErrorState error={error} retry={loadFailed ? retryLoad : undefined} />
+      )}
       {!data ? (
         !error && <Loading />
       ) : (
         <>
-          <h4>로컬 기능 준비 상태</h4>
+          <h4>{m.machine.readiness}</h4>
           <ul>
             <li>
-              기본 STT 모델:{" "}
+              {m.machine.bundledLabel}{" "}
+              {/* The engine's model name is Korean-only; show the catalog's. */}
               {data.bundled_stt?.available
-                ? data.bundled_stt.name
-                : "내장 모델 없음 · 소스 실행 시 자산 준비 또는 모델 선택 필요"}
+                ? m.machine.bundledModelName
+                : m.machine.noBundled}
             </li>
             <li>
-              영상 프레임 FFmpeg:{" "}
-              {data.media?.ffmpeg?.is_available ? "준비됨" : "준비 필요"}
+              {m.machine.ffmpegLabel}{" "}
+              {data.media?.ffmpeg?.is_available
+                ? m.machine.ready
+                : m.machine.notReady}
             </li>
             <li>
-              영상·음성 정보 ffprobe:{" "}
-              {data.media?.ffprobe?.is_available ? "준비됨" : "준비 필요"}
+              {m.machine.ffprobeLabel}{" "}
+              {data.media?.ffprobe?.is_available
+                ? m.machine.ready
+                : m.machine.notReady}
             </li>
             <li>
-              DPAPI 복호화 엔진:{" "}
+              {m.machine.dpapiLabel}{" "}
               {data.dpapi?.runtime_status === "IMPLEMENTED_RUNTIME"
-                ? "준비됨 · 대상의 키·자격정보는 별도 필요"
-                : "라이브러리 준비 필요"}
+                ? m.machine.dpapiReady
+                : m.machine.dpapiMissing}
             </li>
           </ul>
-          {data.managed && (
-            <p>환경변수로 관리되는 설정입니다. 실행 환경에서 변경해주세요.</p>
-          )}
+          {data.managed && <p>{m.machine.managed}</p>}
           {data.settings_error && (
             <div role="alert" className="settings-error">
               <p>
-                저장된 분석기 설정을 읽지 못했습니다:{" "}
-                {settingsErrorReasons[data.settings_error.reason] ??
-                  data.settings_error.reason}
-                {data.settings_error.fields?.length
-                  ? ` (${data.settings_error.fields.join(", ")})`
-                  : ""}
-                . 설정을 복구하기 전까지 OCR·STT 실행은 거부됩니다.
+                {m.machine.settingsError(
+                  lookup(m.machine.errorReasons, data.settings_error.reason),
+                  data.settings_error.fields?.length
+                    ? ` (${data.settings_error.fields.join(", ")})`
+                    : "",
+                )}
               </p>
               {data.settings_error.resettable ? (
                 <button disabled={busy} onClick={() => void reset()}>
-                  손상된 설정 보존 후 기본값으로 복구
+                  {m.machine.resetAction}
                 </button>
               ) : (
-                <p>
-                  실행 환경의 APEX_DESKTOP_MACHINE_CONFIG 값을 수정해주세요.
-                </p>
+                <p>{m.machine.fixEnv}</p>
               )}
             </div>
           )}
           {data.preserved_settings_file && (
             <p role="status">
-              이전 설정 파일을 {data.preserved_settings_file} 이름으로
-              보존했습니다. 사건·증거 데이터는 변경되지 않았습니다.
+              {m.machine.preserved(data.preserved_settings_file)}
             </p>
           )}
           <fieldset disabled={busy || data.managed}>
-            <legend>분석기와 모델</legend>
+            <legend>{m.machine.legend}</legend>
             <label>
-              문자 인식
+              {m.machine.ocr}
               <select
                 value={settings.ocr_provider}
                 onChange={(e) =>
                   setSettings((s) => ({ ...s, ocr_provider: e.target.value }))
                 }
               >
-                <option value="auto">사용 가능한 분석기 자동 선택</option>
+                <option value="auto">{m.machine.ocrAuto}</option>
                 <option value="tesseract">Tesseract</option>
                 <option value="rapidocr">RapidOCR</option>
               </select>
@@ -168,15 +180,15 @@ export function MachineSettings() {
               disabled={busy}
               onClick={() => void pick("tessdata", "directory")}
             >
-              OCR 언어 모델 폴더 선택
+              {m.machine.pickTessdata}
             </button>
             <p>
               {settings.tessdata_label ??
                 settings.tessdata_path ??
-                "기본 언어 모델 경로"}
+                m.machine.defaultTessdata}
             </p>
             <label>
-              음성 인식
+              {m.machine.stt}
               <select
                 value={settings.stt_provider}
                 onChange={(e) =>
@@ -204,29 +216,20 @@ export function MachineSettings() {
                 )
               }
             >
-              음성 모델 선택
+              {m.machine.pickModel}
             </button>
             <p>
               {settings.model_label ??
                 settings.stt_model_path ??
                 (settings.stt_provider === "faster-whisper" &&
                 data.bundled_stt?.available
-                  ? "내장 다국어 모델 사용"
-                  : "모델 미설정")}
+                  ? m.machine.useBundled
+                  : m.machine.noModel)}
             </p>
             {settings.stt_provider === "faster-whisper" ? (
-              <p>
-                더 큰 모델을 사용하려면 Faster Whisper/CTranslate2 모델의 전체
-                폴더를 선택하세요. model.bin, config.json, tokenizer.json,
-                vocabulary 파일이 필요합니다. 한국어는 다국어 모델을 사용하세요.
-                이름이 .en으로 끝나는 모델은 영어 전용입니다.
-              </p>
+              <p>{m.machine.fasterWhisperHelp}</p>
             ) : (
-              <p>
-                whisper.cpp 모델 파일과 PATH에 설치된 whisper-cli 실행 파일이
-                필요합니다. 기본 Faster Whisper는 별도 실행 파일을 설치하지
-                않아도 됩니다.
-              </p>
+              <p>{m.machine.whisperCppHelp}</p>
             )}
             <button
               onClick={() =>
@@ -239,20 +242,20 @@ export function MachineSettings() {
               }
             >
               {settings.stt_provider === "faster-whisper"
-                ? "기본 내장 모델로 복원"
-                : "음성 모델 설정 해제"}
+                ? m.machine.restoreBundled
+                : m.machine.clearModel}
             </button>
             <button disabled={busy} onClick={() => void save()}>
-              분석기 설정 저장
+              {m.machine.save}
             </button>
           </fieldset>
           <p role="status">
             {data.stt?.is_available
-              ? "저장된 STT 설정: 분석기와 모델 파일 준비됨"
-              : "저장된 STT 설정: 모델 또는 분석기 준비 필요"}
+              ? m.machine.sttReady
+              : m.machine.sttNotReady}
           </p>
           <details>
-            <summary>실행 가능 여부</summary>
+            <summary>{m.machine.runnable}</summary>
             <Fields
               value={{
                 ocr: data.ocr,

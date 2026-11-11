@@ -14,6 +14,7 @@ import { Badge, ErrorState, Fields, ResultState, size, time } from "./ui";
 import { DesktopGateway, GatewayError, validateContract } from "./gateway";
 import { createDemoBridge } from "./demoBridge";
 import core from "./__fixtures__/core.json";
+import { koKR } from "./locales/ko-KR";
 
 afterEach(() => {
   cleanup();
@@ -84,13 +85,15 @@ describe("honest forensic result state", () => {
   it("does not turn null size into zero", () => expect(size(null)).toBe("—"));
   it("retains an actual zero byte file", () => expect(size(0)).toBe("0 B"));
   it("does not infer UTC for a naive timestamp", () =>
-    expect(time("2026-09-15T11:00:00", "Asia/Seoul")).toContain(
+    expect(time("2026-09-15T11:00:00", "Asia/Seoul", koKR)).toContain(
       "시간대 미확정",
     ));
   it("retains missing normalized time", () =>
-    expect(time(null, "Asia/Seoul")).toBe("—"));
+    expect(time(null, "Asia/Seoul", koKR)).toBe("—"));
   it("shows explicit time zone conversion", () =>
-    expect(time("2026-09-15T00:00:00Z", "Asia/Seoul")).toContain("09:00:00"));
+    expect(time("2026-09-15T00:00:00Z", "Asia/Seoul", koKR)).toContain(
+      "09:00:00",
+    ));
   it("transformation-required is not final ALLOW", () => {
     render(<Badge value="ALLOW_WITH_REDACTION" />);
     expect(screen.getByText("민감정보 제거 후 재평가")).toBeTruthy();

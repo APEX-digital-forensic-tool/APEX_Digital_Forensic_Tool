@@ -14,6 +14,7 @@ import { createDemoBridge } from "./demoBridge";
 import type { Reply, Row } from "./gateway";
 import { integritySummary, missingReaders } from "./EvidenceIntake";
 import core from "./__fixtures__/core.json";
+import { koKR } from "./locales/ko-KR";
 
 afterEach(() => {
   cleanup();
@@ -32,22 +33,25 @@ it("names the readers an image needs that this runtime lacks", () => {
 });
 
 it("surfaces a mismatch ahead of other hashes", () => {
-  const h = integritySummary({
-    hashes: [
-      {
-        algorithm: "SHA256",
-        digest_hex: "a".repeat(64),
-        verification_status: "MATCH",
-      },
-      {
-        algorithm: "MD5",
-        digest_hex: "b".repeat(32),
-        verification_status: "MISMATCH",
-      },
-    ],
-  });
+  const h = integritySummary(
+    {
+      hashes: [
+        {
+          algorithm: "SHA256",
+          digest_hex: "a".repeat(64),
+          verification_status: "MATCH",
+        },
+        {
+          algorithm: "MD5",
+          digest_hex: "b".repeat(32),
+          verification_status: "MISMATCH",
+        },
+      ],
+    },
+    koKR,
+  );
   expect(h).toMatchObject({ label: "MD5", status: "MISMATCH" });
-  expect(integritySummary({ hashes: [], status: "HASHING" }).label).toBe(
+  expect(integritySummary({ hashes: [], status: "HASHING" }, koKR).label).toBe(
     "해시 계산 중",
   );
 });

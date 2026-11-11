@@ -1,5 +1,7 @@
-import { errorMessages, resourceMessages } from "./locales/ko-KR";
+import type { Messages } from "./i18n/catalog";
+import type { Locale } from "./i18n/locales";
 import * as validators from "./contracts/validators.js";
+import type { AiConnectionStatus } from "../electron/aiConnection";
 export type Row = Record<string, any>; // Heterogeneous Core projection/plugin fields.
 export interface ApiError {
   code: string;
@@ -10,13 +12,26 @@ export interface ApiError {
 export type Reply<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 export interface DesktopBridge {
   invoke(operation: string, payload: Row): Promise<Reply<any>>;
+  /** `locale` selects the language of the native file dialog. */
   pick(
     kind: "file" | "directory",
+    locale?: Locale,
   ): Promise<Reply<{ reference: string; name: string } | null>>;
   openExports(): Promise<Reply<null>>;
   account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;
   login(input: Row): Promise<Reply<{ connected: boolean; origin: string }>>;
   logout(): Promise<Reply<null>>;
+  aiConnection(): Promise<Reply<AiConnectionStatus>>;
+  saveAiConnection(input: {
+    base_url: string;
+    model_id: string;
+    api_key?: string;
+    temperature?: number;
+    max_output?: number;
+    timeout?: number;
+  }): Promise<Reply<AiConnectionStatus>>;
+  clearAiConnection(): Promise<Reply<AiConnectionStatus>>;
+  completeSetup(): Promise<Reply<null>>;
 }
 declare global {
   interface Window {
@@ -75,14 +90,24 @@ export class DesktopGateway implements ApexGateway {
   }
 }
 export const gateway = new DesktopGateway();
-export const errorText = (error: unknown) => {
+// Engine message keys resolve to the same localized text as their error codes.
+const RESOURCE_KEY_CODES: Record<string, keyof Messages["errors"]> = {
+  "error.evidence.capability_unavailable": "CAPABILITY_UNAVAILABLE",
+  "error.capability_unavailable": "CAPABILITY_UNAVAILABLE",
+  "error.context_scope_mismatch": "CONTEXT_SCOPE_MISMATCH",
+  "error.context_revision_conflict": "CONTEXT_REVISION_CONFLICT",
+  "error.context_expired": "CONTEXT_EXPIRED",
+  "error.validation": "VALIDATION_ERROR",
+  "error.raw_read_limit_exceeded": "RAW_READ_LIMIT_EXCEEDED",
+  "error.raw_range_not_satisfiable": "RAW_RANGE_NOT_SATISFIABLE",
+};
+export function errorText(error: unknown, m: Messages): string {
   const code =
     error instanceof GatewayError ? error.code : "DESKTOP_OPERATION_FAILED";
-  return (
-    (error instanceof GatewayError && error.messageKey
-      ? resourceMessages[error.messageKey]
-      : undefined) ??
-    errorMessages[code] ??
-    `작업을 완료하지 못했습니다. 오류 코드: ${code}`
-  );
-};
+  const key = error instanceof GatewayError ? error.messageKey : undefined;
+  const known = (value: string): value is keyof Messages["errors"] =>
+    Object.hasOwn(m.errors, value);
+  if (key && Object.hasOwn(RESOURCE_KEY_CODES, key))
+    return m.errors[RESOURCE_KEY_CODES[key]];
+  return known(code) ? m.errors[code] : m.common.operationFailed(code);
+}

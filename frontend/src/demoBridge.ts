@@ -331,5 +331,28 @@ export function createDemoBridge(): DesktopBridge {
     async logout() {
       return ok(null);
     },
+    async aiConnection() {
+      // Storage reads as available so the preview renders the connection form.
+      return ok({
+        configured: false,
+        managed: false,
+        has_key: false,
+        storage_available: true,
+        base_url: null,
+        model_id: null,
+        temperature: 0,
+        max_output: 4096,
+        timeout: 30,
+      });
+    },
+    async saveAiConnection() {
+      return fail("DEMO_READ_ONLY");
+    },
+    async clearAiConnection() {
+      return fail("DEMO_READ_ONLY");
+    },
+    async completeSetup() {
+      return ok(null);
+    },
   };
 }

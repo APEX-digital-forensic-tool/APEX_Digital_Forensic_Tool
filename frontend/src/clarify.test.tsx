@@ -22,6 +22,7 @@ import {
   zoneLabel,
 } from "./ui";
 import core from "./__fixtures__/core.json";
+import { koKR } from "./locales/ko-KR";
 
 afterEach(() => {
   cleanup();
@@ -30,10 +31,10 @@ afterEach(() => {
 
 describe("display formatting", () => {
   it("states the case offset next to single timestamps", () => {
-    expect(timeWithZone("2026-09-14T00:00:00.000Z", "Asia/Seoul")).toBe(
+    expect(timeWithZone("2026-09-14T00:00:00.000Z", "Asia/Seoul", koKR)).toBe(
       "2026-09-14 09:00:00 (UTC+9)",
     );
-    expect(timeWithZone("2026-09-14 09:00:00", "Asia/Seoul")).toMatch(
+    expect(timeWithZone("2026-09-14 09:00:00", "Asia/Seoul", koKR)).toMatch(
       /시간대 미확정/,
     );
   });
@@ -45,22 +46,22 @@ describe("display formatting", () => {
   });
 
   it("translates engine values instead of printing them", () => {
-    expect(displayValue("ACQUISITION", "Asia/Seoul")).toBe("획득");
-    expect(displayValue(["프로젝트", "보고서"], "Asia/Seoul")).toBe(
+    expect(displayValue("ACQUISITION", "Asia/Seoul", koKR)).toBe("획득");
+    expect(displayValue(["프로젝트", "보고서"], "Asia/Seoul", koKR)).toBe(
       "프로젝트, 보고서",
     );
-    expect(displayValue("2026-09-14T00:40:00.000Z", "Asia/Seoul")).toBe(
+    expect(displayValue("2026-09-14T00:40:00.000Z", "Asia/Seoul", koKR)).toBe(
       "2026-09-14 09:40:00",
     );
-    expect(displayValue(true, "Asia/Seoul")).toBe("예");
-    expect(confidence(0.944)).toBe("94%");
-    expect(confidence("HIGH")).toBe("높음");
+    expect(displayValue(true, "Asia/Seoul", koKR)).toBe("예");
+    expect(confidence(0.944, koKR)).toBe("94%");
+    expect(confidence("HIGH", koKR)).toBe("높음");
   });
 
   it("keeps image format names as written", () => {
-    expect(evidenceFormat("RAW")).toBe("RAW");
-    expect(evidenceFormat("E01")).toBe("E01");
-    expect(evidenceFormat("DIRECTORY")).toBe("폴더");
+    expect(evidenceFormat("RAW", koKR)).toBe("RAW");
+    expect(evidenceFormat("E01", koKR)).toBe("E01");
+    expect(evidenceFormat("DIRECTORY", koKR)).toBe("폴더");
   });
 
   it("formats timestamps inside detail fields with the case offset", () => {
