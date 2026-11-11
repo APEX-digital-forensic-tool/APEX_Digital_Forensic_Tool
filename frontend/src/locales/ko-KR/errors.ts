@@ -1,4 +1,4 @@
-export const errorMessages: Record<string, string> = {
+export const errors = {
   TASK_RECEIPT_NOT_SAVED:
     "작업 결과는 유지되어 있지만 작업 이력을 디스크에 저장하지 못했습니다. 앱을 종료하면 이전 상태로 표시될 수 있습니다. 저장 공간과 권한을 확인한 뒤 기록 저장을 다시 시도해주세요. 분석은 재실행하지 않습니다.",
   AI_CONFIGURATION_INVALID:
@@ -92,15 +92,4 @@ export const errorMessages: Record<string, string> = {
   AUTH_SERVER_UNAVAILABLE:
     "인증 서버에 연결할 수 없습니다. 로컬 분석은 계속 사용할 수 있습니다.",
   PICKER_REFERENCE_REQUIRED: "증거 파일을 다시 선택해주세요.",
-};
-
-export const resourceMessages: Record<string, string> = {
-  "error.evidence.capability_unavailable": errorMessages.CAPABILITY_UNAVAILABLE,
-  "error.capability_unavailable": errorMessages.CAPABILITY_UNAVAILABLE,
-  "error.context_scope_mismatch": errorMessages.CONTEXT_SCOPE_MISMATCH,
-  "error.context_revision_conflict": errorMessages.CONTEXT_REVISION_CONFLICT,
-  "error.context_expired": errorMessages.CONTEXT_EXPIRED,
-  "error.validation": errorMessages.VALIDATION_ERROR,
-  "error.raw_read_limit_exceeded": errorMessages.RAW_READ_LIMIT_EXCEEDED,
-  "error.raw_range_not_satisfiable": errorMessages.RAW_RANGE_NOT_SATISFIABLE,
 };

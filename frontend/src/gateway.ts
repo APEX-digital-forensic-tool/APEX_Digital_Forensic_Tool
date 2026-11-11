@@ -1,4 +1,4 @@
-import { errorMessages, resourceMessages } from "./locales/ko-KR";
+import type { Messages } from "./i18n/catalog";
 import * as validators from "./contracts/validators.js";
 export type Row = Record<string, any>; // Heterogeneous Core projection/plugin fields.
 export interface ApiError {
@@ -75,14 +75,26 @@ export class DesktopGateway implements ApexGateway {
   }
 }
 export const gateway = new DesktopGateway();
-export const errorText = (error: unknown) => {
+// Engine message keys resolve to the same localized text as their error codes.
+const RESOURCE_KEY_CODES: Record<string, keyof Messages["errors"]> = {
+  "error.evidence.capability_unavailable": "CAPABILITY_UNAVAILABLE",
+  "error.capability_unavailable": "CAPABILITY_UNAVAILABLE",
+  "error.context_scope_mismatch": "CONTEXT_SCOPE_MISMATCH",
+  "error.context_revision_conflict": "CONTEXT_REVISION_CONFLICT",
+  "error.context_expired": "CONTEXT_EXPIRED",
+  "error.validation": "VALIDATION_ERROR",
+  "error.raw_read_limit_exceeded": "RAW_READ_LIMIT_EXCEEDED",
+  "error.raw_range_not_satisfiable": "RAW_RANGE_NOT_SATISFIABLE",
+};
+export function errorText(error: unknown, m: Messages): string {
   const code =
     error instanceof GatewayError ? error.code : "DESKTOP_OPERATION_FAILED";
+  const errors: Record<string, string | undefined> = m.errors;
+  const keyed =
+    error instanceof GatewayError && error.messageKey
+      ? RESOURCE_KEY_CODES[error.messageKey]
+      : undefined;
   return (
-    (error instanceof GatewayError && error.messageKey
-      ? resourceMessages[error.messageKey]
-      : undefined) ??
-    errorMessages[code] ??
-    `작업을 완료하지 못했습니다. 오류 코드: ${code}`
+    (keyed && m.errors[keyed]) ?? errors[code] ?? m.common.operationFailed(code)
   );
-};
+}

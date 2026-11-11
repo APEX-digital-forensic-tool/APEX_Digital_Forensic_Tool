@@ -21,6 +21,7 @@ import { FormDialog, GovernanceAudit } from "./panels";
 import { createDemoBridge } from "./demoBridge";
 import { errorText, unwrap } from "./gateway";
 import core from "./__fixtures__/core.json";
+import { koKR } from "./locales/ko-KR";
 
 afterEach(() => {
   cleanup();
@@ -240,7 +241,7 @@ it("honors known Korean message keys and does not expose developer messages", ()
       },
     });
   } catch (error) {
-    expect(errorText(error)).toContain("현재 환경에서 이 기능");
+    expect(errorText(error, koKR)).toContain("현재 환경에서 이 기능");
   }
 });
 it("maps directory, uppercase extension and unknown filenames to bundled icons", () => {

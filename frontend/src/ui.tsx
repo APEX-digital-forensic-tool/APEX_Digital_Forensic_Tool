@@ -15,6 +15,7 @@ import {
   SearchX,
 } from "./icons";
 import { type Row, errorText } from "./gateway";
+import { useI18n } from "./i18n/I18nProvider";
 export const labels: Record<string, string> = {
   FILE_SYSTEM_NODE: "파일 시스템 항목",
   FILE: "파일",
@@ -282,10 +283,11 @@ export function ErrorState({
   error: unknown;
   retry?: () => void;
 }) {
+  const { m } = useI18n();
   return (
     <div className="notice error" role="alert">
       <AlertCircle size={16} />
-      <span>{errorText(error)}</span>
+      <span>{errorText(error, m)}</span>
       {retry && <button onClick={retry}>다시 시도</button>}
     </div>
   );
