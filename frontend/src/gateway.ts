@@ -1,6 +1,7 @@
 import type { Messages } from "./i18n/catalog";
 import type { Locale } from "./i18n/locales";
 import * as validators from "./contracts/validators.js";
+import type { AiConnectionStatus } from "../electron/aiConnection";
 export type Row = Record<string, any>; // Heterogeneous Core projection/plugin fields.
 export interface ApiError {
   code: string;
@@ -20,6 +21,17 @@ export interface DesktopBridge {
   account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;
   login(input: Row): Promise<Reply<{ connected: boolean; origin: string }>>;
   logout(): Promise<Reply<null>>;
+  aiConnection(): Promise<Reply<AiConnectionStatus>>;
+  saveAiConnection(input: {
+    base_url: string;
+    model_id: string;
+    api_key?: string;
+    temperature?: number;
+    max_output?: number;
+    timeout?: number;
+  }): Promise<Reply<AiConnectionStatus>>;
+  clearAiConnection(): Promise<Reply<AiConnectionStatus>>;
+  completeSetup(): Promise<Reply<null>>;
 }
 declare global {
   interface Window {

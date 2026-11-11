@@ -165,4 +165,20 @@ describe("extended read-only demo", () => {
       ).ok,
     ).toBe(false);
   });
+
+  it("reports no AI connection and refuses to store one in the demo", async () => {
+    const bridge = createDemoBridge();
+    expect(await bridge.aiConnection()).toMatchObject({
+      ok: true,
+      data: { configured: false, managed: false, has_key: false },
+    });
+    expect(
+      await bridge.saveAiConnection({
+        base_url: "https://a.example/v1",
+        model_id: "m",
+        api_key: "test-key-123",
+      }),
+    ).toEqual({ ok: false, error: { code: "DEMO_READ_ONLY" } });
+    expect(await bridge.completeSetup()).toEqual({ ok: true, data: null });
+  });
 });

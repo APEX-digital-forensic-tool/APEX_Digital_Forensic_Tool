@@ -4,16 +4,36 @@ import {
   ipcMain,
   dialog,
   shell,
+  safeStorage,
   type IpcMainInvokeEvent,
+  type WebPreferences,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { join, resolve } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { runtimeExecutable } from "./runtime";
 import { messagesFor } from "../src/i18n/catalog";
+import {
+  aiConnectionStatus,
+  aiEnvironment,
+  clearAiConnection,
+  saveAiConnection,
+  type AiDeps,
+  type KeyCrypto,
+  type TextFile,
+} from "./aiConnection";
+import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -73,7 +93,10 @@ const operations = new Set([
   "policy.audit",
 ]);
 let window: BrowserWindow | undefined;
+let setupWindow: BrowserWindow | undefined;
 let backend: ChildProcess | undefined;
+// Bumped on every spawn and restart so a previous child's events never touch current state.
+let generation = 0;
 let backendURL = "";
 let backendError = "SERVICE_NOT_READY";
 const token = randomBytes(32).toString("hex");
@@ -89,19 +112,67 @@ let account:
 let pageURL = "";
 const fail = (code: string) => ({ ok: false, error: { code } });
 
-function trusted(event: IpcMainInvokeEvent) {
+/** A file in userData: unreadable reads as null; writes go through a 0600 temp file and rename. */
+function userDataFile(name: string): TextFile {
+  const path = () => join(app.getPath("userData"), name);
+  return {
+    read() {
+      try {
+        return readFileSync(path(), "utf8");
+      } catch {
+        return null;
+      }
+    },
+    write(text) {
+      const target = path();
+      const temp = `${target}.${process.pid}.tmp`;
+      mkdirSync(dirname(target), { recursive: true });
+      try {
+        writeFileSync(temp, text, { encoding: "utf8", mode: 0o600 });
+        chmodSync(temp, 0o600);
+        renameSync(temp, target);
+      } catch (error) {
+        rmSync(temp, { force: true });
+        throw error;
+      }
+    },
+    remove() {
+      rmSync(path(), { force: true });
+    },
+  };
+}
+const keyCrypto: KeyCrypto = {
+  available: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (plain) => safeStorage.encryptString(plain),
+  decrypt: (cipher) => safeStorage.decryptString(cipher),
+};
+const aiDeps: AiDeps = {
+  file: userDataFile("ai-connection.json"),
+  crypto: keyCrypto,
+  env: process.env,
+};
+const stateFile = userDataFile("app-state.json");
+
+function sentBy(event: IpcMainInvokeEvent, target: BrowserWindow | undefined) {
   return (
-    window &&
-    event.sender === window.webContents &&
-    event.senderFrame === window.webContents.mainFrame &&
+    !!target &&
+    !target.isDestroyed() &&
+    event.sender === target.webContents &&
+    event.senderFrame === target.webContents.mainFrame &&
     event.senderFrame.url.split("#")[0] === pageURL.split("#")[0]
   );
 }
-function handle(name: string, callback: (...args: any[]) => unknown) {
+function trusted(event: IpcMainInvokeEvent) {
+  return sentBy(event, window) || sentBy(event, setupWindow);
+}
+function handle(
+  name: string,
+  callback: (event: IpcMainInvokeEvent, ...args: any[]) => unknown,
+) {
   ipcMain.handle(name, async (event, ...args) => {
     if (!trusted(event)) return fail("DESKTOP_SENDER_DENIED");
     try {
-      return await callback(...args);
+      return await callback(event, ...args);
     } catch {
       return fail("DESKTOP_CONNECTION_FAILED");
     }
@@ -125,6 +196,7 @@ async function local(operation: string, payload: Record<string, unknown>) {
   return response.json();
 }
 async function startBackend() {
+  const current = ++generation;
   const repo = resolve(__dirname, "../..");
   const runtime = runtimeExecutable(process.resourcesPath, process.platform);
   const python =
@@ -140,7 +212,7 @@ async function startBackend() {
     return;
   }
   const args = app.isPackaged ? [] : ["-m", "apex_desktop"];
-  backend = spawn(
+  const child = spawn(
     command,
     [...args, "--data-dir", join(app.getPath("userData"), "local")],
     {
@@ -148,23 +220,28 @@ async function startBackend() {
       windowsHide: true,
       env: {
         ...process.env,
+        // {} when the user's own APEX_DESKTOP_AI_CONFIG manages the connection.
+        ...aiEnvironment(aiDeps),
         PYTHONPATH: app.isPackaged ? "" : join(repo, "src"),
         APEX_DESKTOP_TOKEN: token,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
-  backend.on("error", () => {
+  backend = child;
+  child.on("error", () => {
+    if (current !== generation) return;
     backendURL = "";
     backendError = "BACKEND_START_FAILED";
   });
-  backend.on("exit", () => {
+  child.on("exit", () => {
+    if (current !== generation) return;
     backendURL = "";
     backendError = "BACKEND_STOPPED";
   });
   // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
-  backend.stderr?.on("data", () => {});
-  const lines = createInterface({ input: backend.stdout! });
+  child.stderr?.on("data", () => {});
+  const lines = createInterface({ input: child.stdout! });
   lines.on("line", async (line) => {
     try {
       const data = JSON.parse(line);
@@ -175,12 +252,13 @@ async function startBackend() {
         data.port <= 65535
       ) {
         const origin = `http://127.0.0.1:${data.port}`;
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 50 && current === generation; i++) {
           try {
             const r = await fetch(`${origin}/health`, {
               headers: { Authorization: `Bearer ${token}` },
               signal: AbortSignal.timeout(1000),
             });
+            if (current !== generation) break;
             if (r.ok) {
               backendURL = origin;
               backendError = "";
@@ -197,12 +275,97 @@ async function startBackend() {
     }
   });
 }
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Stop the engine, start it with the current AI environment, and wait up to 90s for readiness. */
+async function restartEngine() {
+  const old = backend;
+  generation++;
+  backend = undefined;
+  if (old && old.exitCode === null && old.signalCode === null) {
+    await new Promise<void>((done) => {
+      const timer = setTimeout(done, 10000);
+      old.once("exit", () => {
+        clearTimeout(timer);
+        done();
+      });
+      old.kill();
+    });
+  }
+  backendURL = "";
+  backendError = "SERVICE_NOT_READY";
+  await startBackend();
+  const deadline = Date.now() + 90000;
+  while (!backendURL && backendError === "SERVICE_NOT_READY" && Date.now() < deadline)
+    await wait(100);
+}
+// Serialized so overlapping saves cannot orphan a child spawned by an earlier restart.
+let restarting: Promise<void> = Promise.resolve();
+function restartBackend() {
+  restarting = restarting.then(restartEngine, restartEngine);
+  return restarting;
+}
+
+const webPreferences: WebPreferences = {
+  preload: join(__dirname, "preload.cjs"),
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
+  webSecurity: true,
+};
+function lockDown(target: BrowserWindow) {
+  target.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  target.webContents.on("will-navigate", (event) => event.preventDefault());
+  target.webContents.session.setPermissionRequestHandler(
+    (_wc, _permission, callback) => callback(false),
+  );
+}
+/** Assigns `window` before loading, so callers can close another window right away. */
+async function createMainWindow() {
+  const created = new BrowserWindow({
+    width: 1540,
+    height: 960,
+    minWidth: 1060,
+    minHeight: 700,
+    backgroundColor: "#111519",
+    title: "APEX",
+    autoHideMenuBar: true,
+    webPreferences,
+  });
+  window = created;
+  created.on("closed", () => {
+    if (window === created) window = undefined;
+  });
+  lockDown(created);
+  await created.loadURL(pageURL);
+  return created;
+}
+async function createSetupWindow() {
+  const created = new BrowserWindow({
+    width: 620,
+    height: 720,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    center: true,
+    backgroundColor: "#111519",
+    title: "APEX",
+    autoHideMenuBar: true,
+    webPreferences,
+  });
+  setupWindow = created;
+  created.on("closed", () => {
+    if (setupWindow === created) setupWindow = undefined;
+  });
+  lockDown(created);
+  await created.loadURL(pageURL + "#setup");
+}
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
-    window?.show();
-    window?.focus();
+    const open = window ?? setupWindow;
+    open?.show();
+    open?.focus();
   });
   app.whenReady().then(async () => {
     await startBackend();
@@ -210,7 +373,7 @@ else {
       !app.isPackaged && process.env.APEX_DEV_URL === "http://127.0.0.1:5173"
         ? "http://127.0.0.1:5173/"
         : pathToFileURL(join(__dirname, "../dist/index.html")).href;
-    handle("apex:invoke", async (operation: unknown, input: unknown) => {
+    handle("apex:invoke", async (_event, operation: unknown, input: unknown) => {
       if (
         typeof operation !== "string" ||
         !operations.has(operation) ||
@@ -262,11 +425,13 @@ else {
       }
       return local(operation, payload);
     });
-    handle("apex:pick", async (kind: unknown, locale: unknown) => {
+    handle("apex:pick", async (event, kind: unknown, locale: unknown) => {
       if (kind !== "file" && kind !== "directory")
         return fail("VALIDATION_ERROR");
       const text = messagesFor(locale).native;
-      const result = await dialog.showOpenDialog(window!, {
+      // trusted() guarantees the sender is one of this app's windows.
+      const parent = BrowserWindow.fromWebContents(event.sender)!;
+      const result = await dialog.showOpenDialog(parent, {
         title: text.pickTitle,
         properties: [kind === "directory" ? "openDirectory" : "openFile"],
         filters:
@@ -304,7 +469,7 @@ else {
     }));
     handle(
       "apex:login",
-      async (input: {
+      async (_event, input: {
         origin: string;
         email: string;
         password: string;
@@ -369,28 +534,40 @@ else {
       account = undefined;
       return { ok: true, data: null };
     });
-    window = new BrowserWindow({
-      width: 1540,
-      height: 960,
-      minWidth: 1060,
-      minHeight: 700,
-      backgroundColor: "#111519",
-      title: "APEX",
-      autoHideMenuBar: true,
-      webPreferences: {
-        preload: join(__dirname, "preload.cjs"),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        webSecurity: true,
-      },
+    // Responses carry only the status; the key never leaves the main process.
+    handle("apex:ai-connection", () => ({
+      ok: true,
+      data: aiConnectionStatus(aiDeps),
+    }));
+    handle("apex:ai-connection-save", async (_event, input: unknown) => {
+      const result = saveAiConnection(input, aiDeps);
+      if (!result.ok) return fail(result.code);
+      await restartBackend();
+      return { ok: true, data: aiConnectionStatus(aiDeps) };
     });
-    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    window.webContents.on("will-navigate", (event) => event.preventDefault());
-    window.webContents.session.setPermissionRequestHandler(
-      (_wc, _permission, callback) => callback(false),
-    );
-    await window.loadURL(pageURL);
+    handle("apex:ai-connection-clear", async () => {
+      const result = clearAiConnection(aiDeps);
+      if (!result.ok) return fail(result.code);
+      await restartBackend();
+      return { ok: true, data: aiConnectionStatus(aiDeps) };
+    });
+    handle("apex:setup-complete", (event) => {
+      if (!sentBy(event, setupWindow)) return fail("DESKTOP_SENDER_DENIED");
+      const setup = setupWindow;
+      markSetupComplete(stateFile);
+      // Open the main window before closing setup so "all windows closed" never fires.
+      if (!window)
+        void createMainWindow().catch(() => {
+          /* A failed load leaves a blank window; nothing safe to report. */
+        });
+      setup?.close();
+      return { ok: true, data: null };
+    });
+    if (firstWindow({ setupComplete: isSetupComplete(stateFile), smokeTest }) === "setup") {
+      await createSetupWindow();
+      return;
+    }
+    const main = await createMainWindow();
     if (smokeTest) {
       try {
         const deadline = Date.now() + 90000;
@@ -400,7 +577,7 @@ else {
           await new Promise((r) => setTimeout(r, 100));
         }
         if (!backendURL) throw new Error("Backend readiness timed out");
-        const renderer = await window.webContents.executeJavaScript(`
+        const renderer = await main.webContents.executeJavaScript(`
           (async () => {
             if (!document.querySelector('#root')?.textContent ||
                 typeof window.apex?.invoke !== 'function') return false;
