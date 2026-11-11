@@ -8,6 +8,7 @@ import { native } from "./native";
 import { panels } from "./panels";
 import { report } from "./report";
 import { settings } from "./settings";
+import { setup } from "./setup";
 import { shell } from "./shell";
 import { tools } from "./tools";
 import { ui } from "./ui";
@@ -19,6 +20,7 @@ export const koKR = {
   common,
   errors,
   settings,
+  setup,
   native,
   labels,
   ui,

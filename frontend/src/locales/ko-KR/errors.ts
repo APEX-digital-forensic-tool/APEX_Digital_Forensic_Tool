@@ -1,8 +1,14 @@
 export const errors = {
   TASK_RECEIPT_NOT_SAVED:
     "작업 결과는 유지되어 있지만 작업 이력을 디스크에 저장하지 못했습니다. 앱을 종료하면 이전 상태로 표시될 수 있습니다. 저장 공간과 권한을 확인한 뒤 기록 저장을 다시 시도해주세요. 분석은 재실행하지 않습니다.",
+  AI_CONNECTION_INVALID:
+    "접속 주소, 모델 이름, API 키를 확인해주세요. 접속 주소는 https:// 로 시작해야 합니다(로컬 주소 제외).",
+  AI_KEY_STORAGE_UNAVAILABLE:
+    "이 컴퓨터에서는 키를 암호화할 수 없어 앱에 저장하지 않습니다.",
+  AI_CONNECTION_MANAGED:
+    "환경변수(APEX_DESKTOP_AI_CONFIG)로 관리되는 설정입니다. 실행 환경에서 변경해주세요.",
   AI_CONFIGURATION_INVALID:
-    "AI 연결 설정이 올바르지 않습니다. 실행 환경의 APEX_DESKTOP_AI_CONFIG를 확인해주세요. 로컬 분석은 계속 사용할 수 있습니다.",
+    "AI 연결 설정이 올바르지 않습니다. 설정의 AI 연결 또는 실행 환경의 APEX_DESKTOP_AI_CONFIG를 확인해주세요. 로컬 분석은 계속 사용할 수 있습니다.",
   VIDEO_LIMIT_EXCEEDED:
     "영상 프레임 해상도 한도를 초과했습니다. 최대 8K UHD에 해당하는 33,177,600픽셀까지 지원합니다.",
   VIDEO_FRAME_FAILED:

@@ -1,6 +1,7 @@
 import { ForensicTools } from "./ForensicTools";
 import { MachineSettings } from "./MachineSettings";
 import { LanguageSettings } from "./LanguageSettings";
+import { AiConnectionForm } from "./setup/AiConnectionForm";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup } from "./i18n/catalog";
 import {
@@ -1497,6 +1498,18 @@ export function App() {
           ) : route === "SETTINGS" ? (
             <div className="settings scroll">
               <LanguageSettings />
+              {window.apex && (
+                <div className="card">
+                  <h3>{m.setup.ai.title}</h3>
+                  <AiConnectionForm
+                    showRemove
+                    blockedReason={
+                      tasks.some(activeTask) ? m.setup.ai.busy : undefined
+                    }
+                    onChanged={() => void bootstrap()}
+                  />
+                </div>
+              )}
               <AccountPanel />
               <MachineSettings />
               {caseId && <PolicyPanel key={caseId} caseId={caseId} />}

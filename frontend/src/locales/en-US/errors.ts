@@ -3,8 +3,14 @@ import type { Messages } from "../ko-KR";
 export const errors: Messages["errors"] = {
   TASK_RECEIPT_NOT_SAVED:
     "The task result is kept, but its history could not be saved to disk. After you quit the app, the previous state may be shown. Check free space and permissions, then retry saving the record. The analysis will not run again.",
+  AI_CONNECTION_INVALID:
+    "Check the base URL, model name and API key. The base URL must start with https:// (except local addresses).",
+  AI_KEY_STORAGE_UNAVAILABLE:
+    "This computer cannot encrypt the key, so it is not stored in the app.",
+  AI_CONNECTION_MANAGED:
+    "Managed by the APEX_DESKTOP_AI_CONFIG environment variable. Change it in the runtime environment.",
   AI_CONFIGURATION_INVALID:
-    "The AI connection settings are invalid. Check APEX_DESKTOP_AI_CONFIG in the runtime environment. Local analysis remains available.",
+    "The AI connection settings are invalid. Check the AI connection in Settings or APEX_DESKTOP_AI_CONFIG in the runtime environment. Local analysis remains available.",
   VIDEO_LIMIT_EXCEEDED:
     "The video frame exceeds the resolution limit. Up to 33,177,600 pixels (8K UHD) is supported.",
   VIDEO_FRAME_FAILED:
