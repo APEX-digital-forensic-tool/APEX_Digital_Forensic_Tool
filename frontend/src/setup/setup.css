@@ -1,0 +1,97 @@
+/* First-run setup window (fixed 620x720): header, scrolling step body,
+   error row, footer with the step buttons always in view. */
+.setup {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  background: var(--bg);
+}
+.setup-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.setup-progress {
+  color: var(--text-muted);
+  font-size: var(--fs-ui);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.setup-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 24px 28px;
+  min-width: 0;
+}
+.setup-body > h2 {
+  font-size: var(--fs-title);
+  margin-bottom: 8px;
+}
+.setup-body > h2:focus {
+  outline: none;
+}
+.setup-body > .muted {
+  font-size: var(--fs-ui);
+  margin-bottom: 18px;
+}
+.setup-body .card:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+.setup-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+}
+.setup-choices .check {
+  color: var(--text);
+  font-size: var(--fs-body);
+  padding: 8px 0;
+  cursor: pointer;
+}
+.setup-choices input[type="radio"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+}
+.setup-fields label {
+  margin: 16px 0 7px;
+}
+.setup-fields label:first-child {
+  margin-top: 0;
+}
+.setup-fields input:not([type="checkbox"]):not([type="radio"]) {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+}
+.setup-fields .muted {
+  font-size: var(--fs-ui);
+  margin-top: 8px;
+}
+.setup-fields .actions {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0 12px;
+}
+.setup-error .notice {
+  border-top: 1px solid var(--line);
+}
+.setup-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.setup-spacer {
+  flex: 1;
+}

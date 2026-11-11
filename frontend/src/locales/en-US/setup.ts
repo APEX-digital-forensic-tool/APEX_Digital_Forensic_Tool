@@ -1,6 +1,22 @@
 import type { Messages } from "../ko-KR";
 
 export const setup: Messages["setup"] = {
+  title: "Set up APEX",
+  steps: [
+    "Language",
+    "Examiner name",
+    "AI connection",
+    "OCR and speech recognition",
+    "Server account",
+  ],
+  back: "Back",
+  skip: "Skip",
+  next: "Next",
+  start: "Start",
+  progress: (n: number, total: number) => `${n} / ${total}`,
+  optional: "Optional. You can change this later in Settings.",
+  accountNote: "Sign-in lasts until you quit the app.",
+  machineNote: "The defaults work out of the box.",
   ai: {
     title: "AI connection",
     baseUrl: "Base URL",

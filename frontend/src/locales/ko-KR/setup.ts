@@ -1,4 +1,22 @@
+const steps: [string, string, string, string, string] = [
+  "언어",
+  "분석자 이름",
+  "AI 연결",
+  "OCR·음성 인식",
+  "서버 계정",
+];
+
 export const setup = {
+  title: "APEX 시작 설정",
+  steps,
+  back: "이전",
+  skip: "건너뛰기",
+  next: "다음",
+  start: "시작",
+  progress: (n: number, total: number) => `${n} / ${total}`,
+  optional: "선택 사항입니다. 나중에 설정에서 바꿀 수 있습니다.",
+  accountNote: "로그인은 앱을 끌 때까지만 유지됩니다.",
+  machineNote: "기본값으로 바로 쓸 수 있습니다.",
   ai: {
     title: "AI 연결",
     baseUrl: "접속 주소",
