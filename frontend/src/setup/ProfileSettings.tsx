@@ -3,7 +3,13 @@ import { useI18n } from "../i18n/I18nProvider";
 import { readExaminerName, writeExaminerName } from "./profile";
 
 /** `showHint` is off where the host already explains the field. */
-export function ProfileSettings({ showHint = true }: { showHint?: boolean }) {
+export function ProfileSettings({
+  showHint = true,
+  onNameChange,
+}: {
+  showHint?: boolean;
+  onNameChange?: (name: string) => void;
+}) {
   const { m } = useI18n();
   const t = m.setup.examiner;
   const id = useId();
@@ -21,6 +27,7 @@ export function ProfileSettings({ showHint = true }: { showHint?: boolean }) {
           onChange={(e) => {
             setName(e.target.value);
             writeExaminerName(e.target.value);
+            onNameChange?.(e.target.value);
           }}
         />
       </label>

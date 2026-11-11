@@ -8,6 +8,7 @@ import { MachineSettings } from "../MachineSettings";
 import { AccountPanel } from "../panels";
 import { ErrorState } from "../ui";
 import { AiConnectionForm, type AiFormState } from "./AiConnectionForm";
+import { readExaminerName } from "./profile";
 import { ProfileSettings } from "./ProfileSettings";
 import "./setup.css";
 
@@ -23,7 +24,12 @@ export function SetupApp() {
   const [step, setStep] = useState(0);
   // A step stays mounted once opened, so what was typed survives moving around.
   const [visited, setVisited] = useState([true, false, false, false, false]);
-  const [ai, setAi] = useState<AiFormState>({ editable: false, busy: false });
+  const [ai, setAi] = useState<AiFormState>({
+    editable: false,
+    busy: false,
+    configured: false,
+  });
+  const [examiner, setExaminer] = useState(readExaminerName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const headings = useRef<(HTMLHeadingElement | null)[]>([]);
@@ -91,7 +97,7 @@ export function SetupApp() {
         </label>
       ))}
     </div>,
-    <ProfileSettings showHint={false} />,
+    <ProfileSettings showHint={false} onNameChange={setExaminer} />,
     <AiConnectionForm
       formId={aiFormId}
       hideActions
@@ -104,6 +110,12 @@ export function SetupApp() {
     <AccountPanel compact />,
   ];
 
+  // A check claims something is set, so passing a step is not enough. A
+  // language is always chosen; OCR/STT and the account never claim it.
+  const isSet = [true, examiner.trim() !== "", ai.configured, false, false];
+  const stepState = (i: number) =>
+    i === step ? "current" : isSet[i] ? "done" : "todo";
+
   // On the AI step the primary button saves what was typed, then moves on.
   const savesAi = step === AI_STEP && ai.editable;
 
@@ -115,16 +127,15 @@ export function SetupApp() {
         <nav aria-label={t.stepsLabel}>
           <ol className="setup-steps">
             {t.steps.map((name, i) => (
-              <li
-                key={i}
-                aria-current={i === step ? "step" : undefined}
-                data-state={
-                  i < step ? "done" : i === step ? "current" : "upcoming"
-                }
-              >
-                <button type="button" disabled={locked} onClick={() => go(i)}>
+              <li key={i} data-state={stepState(i)}>
+                <button
+                  type="button"
+                  aria-current={i === step ? "step" : undefined}
+                  disabled={locked}
+                  onClick={() => go(i)}
+                >
                   <span className="setup-step-mark" aria-hidden="true">
-                    {i < step && <Check size={11} />}
+                    {stepState(i) === "done" && <Check size={11} />}
                   </span>
                   {name}
                 </button>

@@ -103,11 +103,13 @@ it("shows where you are in the five steps and lets you jump between them", async
     "OCR and speech recognition",
     "Server account",
   ]);
-  expect(steps[0].getAttribute("aria-current")).toBe("step");
-  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  const button = (i: number) => within(steps[i]).getByRole("button");
+  expect(button(0).getAttribute("aria-current")).toBe("step");
   expect(steps[0].getAttribute("aria-current")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect(button(0).getAttribute("aria-current")).toBeNull();
   expect(steps[0].getAttribute("data-state")).toBe("done");
-  expect(steps[1].getAttribute("aria-current")).toBe("step");
+  expect(button(1).getAttribute("aria-current")).toBe("step");
   await userEvent.click(
     within(steps[4]).getByRole("button", { name: "Server account" }),
   );
@@ -318,4 +320,53 @@ it("stays on the AI step with the error and unlocks when a save fails", async ()
     ).disabled,
   ).toBe(false);
   expect(screen.queryByText(/restarting the analysis engine/i)).toBeNull();
+});
+
+function railStates() {
+  return within(screen.getByRole("navigation", { name: "Setup steps" }))
+    .getAllByRole("listitem")
+    .map((item) => item.getAttribute("data-state"));
+}
+
+it("checks off only the steps that have something set", async () => {
+  localStorage.removeItem("apex.examinerName");
+  window.apex = createDemoBridge();
+  renderInEnglish(<SetupApp />);
+  expect(railStates()).toEqual(["current", "todo", "todo", "todo", "todo"]);
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.click(screen.getByRole("button", { name: "Server account" }));
+  expect(railStates()).toEqual(["done", "todo", "todo", "todo", "current"]);
+  await userEvent.click(screen.getByRole("button", { name: "Examiner name" }));
+  await userEvent.type(screen.getByLabelText("Examiner name"), "Kim");
+  // The step being edited is never shown as done.
+  expect(railStates()[1]).toBe("current");
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect(railStates()).toEqual(["done", "done", "current", "todo", "todo"]);
+  await userEvent.click(screen.getByRole("button", { name: "Back" }));
+  await userEvent.clear(screen.getByLabelText("Examiner name"));
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect(railStates()[1]).toBe("todo");
+});
+
+it("checks off the AI step when a connection is configured", async () => {
+  window.apex = {
+    ...createDemoBridge(),
+    aiConnection: async () => ({
+      ok: true as const,
+      data: {
+        ...noConnection,
+        configured: true,
+        has_key: true,
+        base_url: "http://127.0.0.1:9/v1",
+        model_id: "test-model",
+      },
+    }),
+  };
+  renderInEnglish(<SetupApp />);
+  await userEvent.click(screen.getByRole("button", { name: "AI connection" }));
+  await screen.findByText("Configured");
+  expect(railStates()[2]).toBe("current");
+  await userEvent.click(screen.getByRole("button", { name: "Skip" }));
+  expect(railStates()[2]).toBe("done");
+  expect(railStates()[3]).toBe("current");
 });

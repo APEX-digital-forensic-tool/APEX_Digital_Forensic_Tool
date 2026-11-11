@@ -8,6 +8,8 @@ export type AiFormState = {
   /** False when the connection is managed elsewhere or cannot be stored. */
   editable: boolean;
   busy: boolean;
+  /** A connection is set up (stored here or managed elsewhere). */
+  configured: boolean;
 };
 
 export function AiConnectionForm({
@@ -71,9 +73,10 @@ export function AiConnectionForm({
 
   const editable =
     status != null && !status.managed && status.storage_available;
+  const configured = status?.configured ?? false;
   useEffect(() => {
-    onState?.({ editable, busy });
-  }, [onState, editable, busy]);
+    onState?.({ editable, busy, configured });
+  }, [onState, editable, busy, configured]);
 
   if (!bridge) return null;
 
