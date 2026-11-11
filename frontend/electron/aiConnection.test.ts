@@ -89,6 +89,7 @@ describe("aiConnection", () => {
       "a query string",
       { ...valid, base_url: "https://api.example.com/v1?k=1" },
     ],
+    ["a non-integer max_output", { ...valid, max_output: 1.5 }],
     ["a hash", { ...valid, base_url: "https://api.example.com/v1#x" }],
     ["not a URL", { ...valid, base_url: "api.example.com" }],
     ["an empty model", { ...valid, model_id: "" }],
@@ -153,6 +154,17 @@ describe("aiConnection", () => {
   it.each([
     ["corrupt JSON", "{oops"],
     ["a wrong shape", '{"base_url":1}'],
+    [
+      "a non-integer max_output",
+      JSON.stringify({
+        base_url: "https://a.example/v1",
+        model_id: "m",
+        temperature: 0,
+        max_output: 1.5,
+        timeout: 30,
+        key: Buffer.from("enc:k").toString("base64"),
+      }),
+    ],
     [
       "a key this account cannot decrypt",
       JSON.stringify({

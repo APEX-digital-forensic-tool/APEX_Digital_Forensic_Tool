@@ -104,6 +104,7 @@ function readStored(deps: AiDeps): Stored | null {
       !validModel(s.model_id) ||
       !inRange(s.temperature, 0, 2) ||
       !inRange(s.max_output, 1, 200000) ||
+      !Number.isInteger(s.max_output) ||
       !inRange(s.timeout, 1, 600) ||
       typeof s.key !== "string"
     )
@@ -162,6 +163,7 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
   if (
     !inRange(temperature, 0, 2) ||
     !inRange(max_output, 1, 200000) ||
+    !Number.isInteger(max_output) ||
     !inRange(timeout, 1, 600)
   )
     return INVALID;
