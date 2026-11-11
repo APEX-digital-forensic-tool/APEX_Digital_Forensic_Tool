@@ -23,6 +23,7 @@ export const setup: Messages["setup"] = {
   skip: "Skip",
   next: "Next",
   saveAndNext: "Save and continue",
+  saving: "Saving…",
   start: "Start",
   progress: (n: number, total: number) => `${n} / ${total}`,
   ai: {
@@ -44,6 +45,8 @@ export const setup: Messages["setup"] = {
     storageUnavailable:
       "This computer cannot encrypt the key, so it is not stored in the app.",
     restartNote: "Saving restarts the analysis engine.",
+    saving:
+      "Restarting the analysis engine. This can take up to a minute or so.",
     busy: "You can change this after the running analysis tasks finish.",
     policyNote: "What is sent to AI is decided by each case's AI data policy.",
   },

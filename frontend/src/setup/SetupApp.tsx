@@ -30,6 +30,11 @@ export function SetupApp() {
   const ids = useId();
   const aiFormId = `${ids}-ai`;
   const shownStep = useRef(step);
+  // Read by the AI form's callback, which may fire long after it was created.
+  const currentStep = useRef(step);
+  currentStep.current = step;
+  // An AI save restarts the engine (up to ~90s); nothing moves until it settles.
+  const locked = ai.busy || busy;
 
   // After moving, focus lands on the new step's heading so keyboard and
   // screen-reader users start at the top of the step.
@@ -78,6 +83,7 @@ export function SetupApp() {
             name="setup-locale"
             value={l}
             checked={locale === l}
+            disabled={locked}
             onChange={() => setLocale(l)}
           />
           <span>{LANGUAGE_NAMES[l]}</span>
@@ -90,7 +96,9 @@ export function SetupApp() {
       formId={aiFormId}
       hideActions
       onState={setAi}
-      onChanged={() => go(AI_STEP + 1)}
+      onChanged={() => {
+        if (currentStep.current === AI_STEP) go(AI_STEP + 1);
+      }}
     />,
     <MachineSettings compact />,
     <AccountPanel compact />,
@@ -114,7 +122,7 @@ export function SetupApp() {
                   i < step ? "done" : i === step ? "current" : "upcoming"
                 }
               >
-                <button type="button" onClick={() => go(i)}>
+                <button type="button" disabled={locked} onClick={() => go(i)}>
                   <span className="setup-step-mark" aria-hidden="true">
                     {i < step && <Check size={11} />}
                   </span>
@@ -126,7 +134,7 @@ export function SetupApp() {
         </nav>
         <p className="setup-rail-note">{t.intro}</p>
       </aside>
-      <div className="setup-pane">
+      <div className="setup-pane" aria-busy={locked || undefined}>
         <main className="setup-body">
           {content.map(
             (body, i) =>
@@ -157,6 +165,7 @@ export function SetupApp() {
             <button
               type="button"
               className="setup-quiet"
+              disabled={locked}
               onClick={() => go(step - 1)}
             >
               {t.back}
@@ -170,6 +179,7 @@ export function SetupApp() {
             <button
               type="button"
               className="setup-quiet"
+              disabled={locked}
               onClick={() => go(step + 1)}
             >
               {t.skip}
@@ -182,7 +192,7 @@ export function SetupApp() {
               className="primary"
               disabled={ai.busy}
             >
-              {t.saveAndNext}
+              {ai.busy ? t.saving : t.saveAndNext}
             </button>
           ) : step < LAST ? (
             <button

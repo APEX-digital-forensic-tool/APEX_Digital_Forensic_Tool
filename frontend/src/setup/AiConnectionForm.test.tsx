@@ -150,3 +150,20 @@ it("offers Try again when the status fails to load", async () => {
   await screen.findByLabelText("Base URL");
   expect(calls).toBe(2);
 });
+
+it("shows the saving label and the restart status while a save is running", async () => {
+  mount({
+    aiConnection: async () => ok(none),
+    saveAiConnection: () => new Promise(() => {}),
+  });
+  await userEvent.type(
+    await screen.findByLabelText("Base URL"),
+    "http://127.0.0.1:9/v1",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  const saving = screen.getByRole("button", { name: "Saving…" });
+  expect((saving as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    screen.getByText(/Restarting the analysis engine/).getAttribute("role"),
+  ).toBe("status");
+});

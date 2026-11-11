@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderInEnglish } from "../i18n/testing";
 import { I18nProvider } from "../i18n/I18nProvider";
@@ -211,4 +211,111 @@ it("embeds the OCR and account cards without repeating their titles", async () =
   ).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Server account" }));
   expect(screen.queryByRole("heading", { name: "APEX account" })).toBeNull();
+});
+
+function pendingSave() {
+  let settle!: (reply: unknown) => void;
+  const save = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+  );
+  return { save, settle: (reply: unknown) => settle(reply) };
+}
+
+async function saveOnAiStep(save: unknown) {
+  window.apex = {
+    ...createDemoBridge(),
+    saveAiConnection: save as never,
+  };
+  renderInEnglish(<SetupApp />);
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.type(
+    await screen.findByLabelText("Base URL"),
+    "http://127.0.0.1:9/v1",
+  );
+  await userEvent.type(screen.getByLabelText("Model name"), "test-model");
+  await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Save and continue" }),
+  );
+}
+
+function railButtons() {
+  return within(
+    screen.getByRole("navigation", { name: "Setup steps" }),
+  ).getAllByRole("button") as HTMLButtonElement[];
+}
+
+it("locks the window while the AI connection is saving and then moves on", async () => {
+  const { save, settle } = pendingSave();
+  await saveOnAiStep(save);
+  const saving = (await screen.findByRole("button", {
+    name: "Saving…",
+  })) as HTMLButtonElement;
+  expect(saving.disabled).toBe(true);
+  expect(railButtons().every((b) => b.disabled)).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Back" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Skip" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    screen
+      .getByText(/restarting the analysis engine/i)
+      .closest("[role='status']"),
+  ).toBeTruthy();
+  expect(document.querySelector(".setup-pane")!.getAttribute("aria-busy")).toBe(
+    "true",
+  );
+  await act(async () =>
+    settle({
+      ok: true,
+      data: {
+        ...noConnection,
+        configured: true,
+        has_key: true,
+        base_url: "http://127.0.0.1:9/v1",
+        model_id: "test-model",
+      },
+    }),
+  );
+  expect(
+    await screen.findByRole("heading", {
+      level: 2,
+      name: "OCR and speech recognition",
+    }),
+  ).toBeTruthy();
+  expect(railButtons().every((b) => !b.disabled)).toBe(true);
+});
+
+it("stays on the AI step with the error and unlocks when a save fails", async () => {
+  const { save, settle } = pendingSave();
+  await saveOnAiStep(save);
+  await screen.findByRole("button", { name: "Saving…" });
+  await act(async () =>
+    settle({ ok: false, error: { code: "AI_ENGINE_BUSY" } }),
+  );
+  expect(await screen.findByText(/An analysis task is running/)).toBeTruthy();
+  expect(
+    screen.getByRole("heading", { level: 2, name: "AI connection" }),
+  ).toBeTruthy();
+  expect(railButtons().every((b) => !b.disabled)).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Back" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Save and continue",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  expect(screen.queryByText(/restarting the analysis engine/i)).toBeNull();
 });

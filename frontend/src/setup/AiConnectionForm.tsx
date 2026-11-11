@@ -217,11 +217,16 @@ export function AiConnectionForm({
         </div>
       </details>
       {error != null && <ErrorState error={error} />}
+      {busy && (
+        <p role="status" className="setup-note">
+          {t.saving}
+        </p>
+      )}
       {blockedReason && <p className="setup-note">{blockedReason}</p>}
       {!hideActions && (
         <div className="actions">
           <button type="submit" className="primary" disabled={busy || blocked}>
-            {t.save}
+            {busy ? m.setup.saving : t.save}
           </button>
           {showRemove && (
             <button
