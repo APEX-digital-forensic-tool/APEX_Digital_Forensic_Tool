@@ -145,7 +145,7 @@ export function SetupApp() {
         </nav>
         <p className="setup-rail-note">{t.intro}</p>
       </aside>
-      <div className="setup-pane" aria-busy={locked || undefined}>
+      <div className="setup-pane">
         <main className="setup-body">
           {content.map(
             (body, i) =>

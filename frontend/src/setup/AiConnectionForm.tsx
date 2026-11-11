@@ -40,7 +40,9 @@ export function AiConnectionForm({
   const [maxOutput, setMaxOutput] = useState("4096");
   const [timeout, setTimeoutSeconds] = useState("30");
   const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
+  // Which action is running; both restart the engine.
+  const [action, setAction] = useState<"save" | "remove" | null>(null);
+  const busy = action !== null;
   const [attempt, setAttempt] = useState(0);
   // The key lives only in this uncontrolled input; it is never in React state.
   const keyRef = useRef<HTMLInputElement>(null);
@@ -82,9 +84,12 @@ export function AiConnectionForm({
 
   const blocked = Boolean(blockedReason);
 
-  async function run(call: () => Promise<Reply<AiConnectionStatus>>) {
+  async function run(
+    kind: "save" | "remove",
+    call: () => Promise<Reply<AiConnectionStatus>>,
+  ) {
     if (busy || blocked) return;
-    setBusy(true);
+    setAction(kind);
     setError(null);
     try {
       const next = unwrap(await call());
@@ -94,14 +99,14 @@ export function AiConnectionForm({
     } catch (err) {
       setError(err);
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   }
 
   function save(event: React.FormEvent) {
     event.preventDefault();
     const apiKey = keyRef.current?.value ?? "";
-    void run(() =>
+    void run("save", () =>
       bridge!.saveAiConnection({
         base_url: baseUrl.trim(),
         model_id: modelId.trim(),
@@ -229,13 +234,15 @@ export function AiConnectionForm({
       {!hideActions && (
         <div className="actions">
           <button type="submit" className="primary" disabled={busy || blocked}>
-            {busy ? m.setup.saving : t.save}
+            {action === "save" ? m.setup.saving : t.save}
           </button>
           {showRemove && (
             <button
               type="button"
               disabled={busy || blocked || !status.configured}
-              onClick={() => void run(() => bridge.clearAiConnection())}
+              onClick={() =>
+                void run("remove", () => bridge.clearAiConnection())
+              }
             >
               {t.remove}
             </button>

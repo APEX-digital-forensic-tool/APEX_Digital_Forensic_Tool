@@ -167,3 +167,29 @@ it("shows the saving label and the restart status while a save is running", asyn
     screen.getByText(/Restarting the analysis engine/).getAttribute("role"),
   ).toBe("status");
 });
+
+it("keeps the Save label while a removal is running", async () => {
+  mount(
+    {
+      aiConnection: async () =>
+        ok({
+          ...none,
+          configured: true,
+          has_key: true,
+          base_url: "http://127.0.0.1:9/v1",
+          model_id: "test-model",
+        }),
+      clearAiConnection: () => new Promise(() => {}),
+    },
+    { showRemove: true },
+  );
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Remove connection" }),
+  );
+  const save = screen.getByRole("button", { name: "Save" });
+  expect((save as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: "Saving…" })).toBeNull();
+  expect(screen.getByRole("status").textContent).toMatch(
+    /Restarting the analysis engine/,
+  );
+});

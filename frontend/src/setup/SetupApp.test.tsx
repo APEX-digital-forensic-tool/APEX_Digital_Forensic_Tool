@@ -273,9 +273,8 @@ it("locks the window while the AI connection is saving and then moves on", async
       .getByText(/restarting the analysis engine/i)
       .closest("[role='status']"),
   ).toBeTruthy();
-  expect(document.querySelector(".setup-pane")!.getAttribute("aria-busy")).toBe(
-    "true",
-  );
+  // A busy region can make screen readers hold back the status line inside it.
+  expect(document.querySelector("[aria-busy]")).toBeNull();
   await act(async () =>
     settle({
       ok: true,
