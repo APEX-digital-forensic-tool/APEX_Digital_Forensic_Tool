@@ -112,3 +112,19 @@ it("creates new cases in the display language", async () => {
     ),
   );
 });
+
+it("renders route views in English", async () => {
+  window.apex = createDemoBridge();
+  renderInEnglish(<App />);
+  await screen.findByText("Demo · Synthetic data");
+  fireEvent.change(screen.getByLabelText("Current case"), {
+    target: { value: core.cases[0].id },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Case" }));
+  fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+  expect(await screen.findByText(/^\d+ shown · /)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(
+    screen.getByRole("heading", { name: "Runtime capabilities" }),
+  ).toBeTruthy();
+});

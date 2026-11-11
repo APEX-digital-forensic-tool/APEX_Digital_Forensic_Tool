@@ -6,6 +6,7 @@ import { native } from "./native";
 import { settings } from "./settings";
 import { shell } from "./shell";
 import { ui } from "./ui";
+import { views } from "./views";
 
 export const enUS: Messages = {
   common,
@@ -15,4 +16,5 @@ export const enUS: Messages = {
   labels,
   ui,
   shell,
+  views,
 };

@@ -13,7 +13,6 @@ const KOREAN_ALLOWED = new Set([
   // Language names are always shown in their own language.
   "src/i18n/locales.ts",
   // Pending migration: each task removes its files.
-  "src/App.tsx",
   "src/panels.tsx",
   "src/reportWorkflow.ts",
   "src/ReportTools.tsx",

@@ -5,6 +5,7 @@ import { native } from "./native";
 import { settings } from "./settings";
 import { shell } from "./shell";
 import { ui } from "./ui";
+import { views } from "./views";
 
 /** Korean is the source catalog: its shape is the type every locale must match. */
 export const koKR = {
@@ -15,6 +16,7 @@ export const koKR = {
   labels,
   ui,
   shell,
+  views,
 };
 
 export type Messages = typeof koKR;
