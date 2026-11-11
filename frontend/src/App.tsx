@@ -1,5 +1,7 @@
 import { ForensicTools } from "./ForensicTools";
 import { MachineSettings } from "./MachineSettings";
+import { LanguageSettings } from "./LanguageSettings";
+import { useI18n } from "./i18n/I18nProvider";
 import {
   useCallback,
   useEffect,
@@ -254,6 +256,7 @@ function CandidateSubject({ candidate }: { candidate: Row }) {
 }
 
 export function App() {
+  const { locale } = useI18n();
   const [runtime, setRuntime] = useState<Row | null>(null),
     [startupError, setStartupError] = useState<unknown>(null),
     [cases, setCases] = useState<CaseRecord[]>([]),
@@ -837,7 +840,7 @@ export function App() {
   async function addEvidence(kind: "file" | "directory") {
     try {
       if (!window.apex) throw new GatewayError("DESKTOP_REQUIRED");
-      const picked = unwrap(await window.apex.pick(kind));
+      const picked = unwrap(await window.apex.pick(kind, locale));
       if (!picked) return;
       const owner = caseId;
       setDialog(
@@ -1502,6 +1505,7 @@ export function App() {
             </div>
           ) : route === "SETTINGS" ? (
             <div className="settings scroll">
+              <LanguageSettings />
               <AccountPanel />
               <MachineSettings />
               {caseId && <PolicyPanel key={caseId} caseId={caseId} />}

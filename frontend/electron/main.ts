@@ -13,6 +13,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { runtimeExecutable } from "./runtime";
+import { messagesFor } from "../src/i18n/catalog";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -261,20 +262,21 @@ else {
       }
       return local(operation, payload);
     });
-    handle("apex:pick", async (kind: unknown) => {
+    handle("apex:pick", async (kind: unknown, locale: unknown) => {
       if (kind !== "file" && kind !== "directory")
         return fail("VALIDATION_ERROR");
+      const text = messagesFor(locale).native;
       const result = await dialog.showOpenDialog(window!, {
-        title: "분석할 증거 선택",
+        title: text.pickTitle,
         properties: [kind === "directory" ? "openDirectory" : "openFile"],
         filters:
           kind === "file"
             ? [
                 {
-                  name: "증거 이미지",
+                  name: text.evidenceImages,
                   extensions: ["e01", "dd", "raw", "img", "vhd", "vhdx"],
                 },
-                { name: "모든 파일", extensions: ["*"] },
+                { name: text.allFiles, extensions: ["*"] },
               ]
             : undefined,
       });

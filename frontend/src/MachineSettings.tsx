@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { gateway, unwrap, type Row } from "./gateway";
 import { ErrorState, Fields, Loading } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
 
 const settingsErrorReasons: Record<string, string> = {
   EMPTY: "설정 내용이 비어 있음",
@@ -12,6 +13,7 @@ const settingsErrorReasons: Record<string, string> = {
 };
 
 export function MachineSettings() {
+  const { locale } = useI18n();
   const [data, setData] = useState<Row | null>(null);
   const [settings, setSettings] = useState<Row>({});
   const [error, setError] = useState<unknown>(null);
@@ -36,7 +38,7 @@ export function MachineSettings() {
   async function pick(key: string, kind: "file" | "directory") {
     if (!window.apex) return;
     try {
-      const picked = unwrap(await window.apex.pick(kind));
+      const picked = unwrap(await window.apex.pick(kind, locale));
       if (picked)
         setSettings((s) => ({
           ...s,

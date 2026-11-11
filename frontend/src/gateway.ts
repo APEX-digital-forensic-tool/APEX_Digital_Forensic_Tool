@@ -1,4 +1,5 @@
 import type { Messages } from "./i18n/catalog";
+import type { Locale } from "./i18n/locales";
 import * as validators from "./contracts/validators.js";
 export type Row = Record<string, any>; // Heterogeneous Core projection/plugin fields.
 export interface ApiError {
@@ -10,8 +11,10 @@ export interface ApiError {
 export type Reply<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 export interface DesktopBridge {
   invoke(operation: string, payload: Row): Promise<Reply<any>>;
+  /** `locale` selects the language of the native file dialog. */
   pick(
     kind: "file" | "directory",
+    locale?: Locale,
   ): Promise<Reply<{ reference: string; name: string } | null>>;
   openExports(): Promise<Reply<null>>;
   account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;

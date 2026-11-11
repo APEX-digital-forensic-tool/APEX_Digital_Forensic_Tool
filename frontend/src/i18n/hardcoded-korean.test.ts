@@ -27,7 +27,6 @@ const KOREAN_ALLOWED = new Set([
   "src/workbench/EvidenceTree.tsx",
   "src/workbench/FileViewer.tsx",
   "src/workbench/Properties.tsx",
-  "electron/main.ts",
 ]);
 
 const EXCLUDED = [
