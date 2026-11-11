@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { gateway, type Row } from "../gateway";
 import { ChevronDown, ChevronRight, HardDrive, FolderOpen } from "../icons";
 import { ErrorState, FileIcon } from "../ui";
+import { useI18n } from "../i18n/I18nProvider";
 
 type TreeProps = {
   caseId: string;
@@ -61,6 +62,7 @@ function Branch({
   props: TreeProps;
   root?: boolean;
 }) {
+  const { m } = useI18n();
   const directory = ["ROOT", "DIRECTORY"].includes(node.node_type);
   const [expanded, setExpanded] = useState(root && directory);
   const [children, setChildren] = useState<Row[]>([]);
@@ -134,7 +136,7 @@ function Branch({
       tabIndex={0}
       aria-label={
         root
-          ? `루트 디렉터리: ${node.display_path || "/"}`
+          ? m.workbench.tree.rootOf(node.display_path || "/")
           : node.original_name || "/"
       }
       aria-expanded={directory ? expanded : undefined}
@@ -151,7 +153,13 @@ function Branch({
         {directory ? (
           <button
             tabIndex={-1}
-            aria-label={`${root ? `${source.display_name} 루트 디렉터리` : node.original_name || "/"} ${expanded ? "접기" : "펼치기"}`}
+            aria-label={(expanded
+              ? m.workbench.tree.collapse
+              : m.workbench.tree.expand)(
+              root
+                ? m.workbench.tree.sourceRoot(source.display_name)
+                : node.original_name || "/",
+            )}
             onClick={(event) => {
               event.stopPropagation();
               setExpanded(!expanded);
@@ -164,7 +172,7 @@ function Branch({
         )}
         <FileIcon row={node} />
         <span title={node.display_path}>
-          {root ? "루트 디렉터리" : node.original_name}
+          {root ? m.workbench.tree.root : node.original_name}
         </span>
       </div>
       {directory && expanded && (
@@ -180,12 +188,12 @@ function Branch({
           ))}
           {busy && (
             <p className="tree-message" role="status">
-              항목 불러오는 중…
+              {m.workbench.tree.loadingItems}
             </p>
           )}
           {error != null && <ErrorState error={error} retry={() => load()} />}
           {!busy && !error && loaded && !visibleChildren.length && (
-            <p className="tree-message">하위 항목 없음</p>
+            <p className="tree-message">{m.workbench.tree.noChildren}</p>
           )}
           {cursor && (
             <button
@@ -193,7 +201,7 @@ function Branch({
               disabled={busy}
               onClick={() => load(cursor)}
             >
-              항목 더 보기
+              {m.workbench.tree.more}
             </button>
           )}
         </div>
@@ -203,6 +211,7 @@ function Branch({
 }
 
 function Source({ source, props }: { source: Row; props: TreeProps }) {
+  const { m } = useI18n();
   const [expanded, setExpanded] = useState(source.id === props.evidenceId);
   const [roots, setRoots] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
@@ -252,7 +261,9 @@ function Source({ source, props }: { source: Row; props: TreeProps }) {
       >
         <button
           tabIndex={-1}
-          aria-label={`${source.display_name} ${expanded ? "접기" : "펼치기"}`}
+          aria-label={(expanded
+            ? m.workbench.tree.collapse
+            : m.workbench.tree.expand)(source.display_name)}
           onClick={(event) => {
             event.stopPropagation();
             setExpanded(!expanded);
@@ -282,14 +293,12 @@ function Source({ source, props }: { source: Row; props: TreeProps }) {
           ))}
           {busy && (
             <p className="tree-message" role="status">
-              증거 불러오는 중…
+              {m.workbench.tree.loadingEvidence}
             </p>
           )}
           {error != null && <ErrorState error={error} />}
           {!busy && !error && !roots.length && (
-            <p className="tree-message">
-              파일 인덱스가 없습니다. 분석 시작으로 생성하세요.
-            </p>
+            <p className="tree-message">{m.workbench.tree.noIndex}</p>
           )}
         </div>
       )}
@@ -298,8 +307,13 @@ function Source({ source, props }: { source: Row; props: TreeProps }) {
 }
 
 export function EvidenceTree(props: TreeProps) {
+  const { m } = useI18n();
   return (
-    <div className="evidence-tree" role="tree" aria-label="증거 트리">
+    <div
+      className="evidence-tree"
+      role="tree"
+      aria-label={m.workbench.tree.label}
+    >
       {props.evidence.map((source) => (
         <Source
           key={`${props.caseId}:${source.id}`}
@@ -310,8 +324,8 @@ export function EvidenceTree(props: TreeProps) {
       {!props.evidence.length && (
         <p className="tree-message">
           {props.caseId
-            ? "이미지 또는 폴더를 추가하면 증거가 표시됩니다."
-            : "사건을 선택하면 증거를 탐색할 수 있습니다."}
+            ? m.workbench.tree.addHint
+            : m.workbench.tree.selectCase}
         </p>
       )}
     </div>

@@ -786,6 +786,7 @@ export function App() {
       const owner = caseId;
       setDialog(
         intakeDialog({
+          m,
           picked,
           kind,
           capabilities: runtime?.capabilities?.capabilities ?? [],
@@ -1847,7 +1848,7 @@ export function App() {
                           label: m.views.evidence.integrity,
                           width: 230,
                           render: (r) => {
-                            const h = integritySummary(r);
+                            const h = integritySummary(r, m);
                             return (
                               <span className="integrity-cell">
                                 <span>{h.label}</span>

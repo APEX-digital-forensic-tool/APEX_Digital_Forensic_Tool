@@ -23,42 +23,62 @@ export function Properties({
   const { m } = useI18n();
   const item = row ?? evidence;
   if (!item)
-    return (
-      <p className="pane-empty">증거나 파일을 선택하면 속성이 표시됩니다.</p>
-    );
+    return <p className="pane-empty">{m.workbench.properties.empty}</p>;
   const fields: [string, unknown][] = row?.node_type
     ? [
-        ["이름", row.original_name],
-        ["유형", lookup(m.labels, row.node_type)],
-        ["경로", row.display_path],
-        ["크기", size(row.file_size)],
-        ["파일 ID", row.id],
+        [m.workbench.properties.name, row.original_name],
+        [m.workbench.properties.type, lookup(m.labels, row.node_type)],
+        [m.workbench.properties.path, row.display_path],
+        [m.workbench.properties.size, size(row.file_size)],
+        [m.workbench.properties.fileId, row.id],
         ["MIME", row.mime_candidate],
-        ["삭제 상태", row.is_deleted ? "삭제됨" : "삭제되지 않음"],
-        ["생성 시간", timeWithZone(row.utc_timestamps?.created, zone, m)],
-        ["수정 시간", timeWithZone(row.utc_timestamps?.modified, zone, m)],
-        ["접근 시간", timeWithZone(row.utc_timestamps?.accessed, zone, m)],
-        ["결과 범위", row.is_partial ? "부분 결과" : "관찰됨"],
+        [
+          m.workbench.properties.deleteState,
+          row.is_deleted
+            ? m.workbench.properties.deleted
+            : m.workbench.properties.notDeleted,
+        ],
+        [
+          m.workbench.properties.created,
+          timeWithZone(row.utc_timestamps?.created, zone, m),
+        ],
+        [
+          m.workbench.properties.modified,
+          timeWithZone(row.utc_timestamps?.modified, zone, m),
+        ],
+        [
+          m.workbench.properties.accessed,
+          timeWithZone(row.utc_timestamps?.accessed, zone, m),
+        ],
+        [
+          m.workbench.properties.scope,
+          row.is_partial
+            ? m.workbench.properties.partial
+            : m.workbench.properties.observed,
+        ],
       ]
     : [
-        ["이름", item.display_name ?? item.title],
+        [m.workbench.properties.name, item.display_name ?? item.title],
         [
-          "유형",
+          m.workbench.properties.type,
           item.format
             ? evidenceFormat(item.format, m)
             : lookup(m.labels, item.artifact_type),
         ],
-        ["크기", size(item.size_bytes)],
-        ["상태", lookup(m.labels, item.status)],
-        ["증거 ID", item.id],
-        ["리더", item.reader?.id],
+        [m.workbench.properties.size, size(item.size_bytes)],
+        [m.workbench.properties.status, lookup(m.labels, item.status)],
+        [m.workbench.properties.evidenceId, item.id],
+        [m.workbench.properties.reader, item.reader?.id],
       ];
   return (
     <div className="properties-content">
       <div className="property-selection">
         <FileIcon row={item} />
         <strong>
-          {item.original_name ?? item.display_name ?? item.title ?? "선택 항목"}
+          {item.original_name ??
+            item.display_name ??
+            item.title ??
+            m.workbench.properties.selection}
         </strong>
       </div>
       <dl className="property-grid">
@@ -73,37 +93,37 @@ export function Properties({
         {evidence && (
           <>
             <div>
-              <dt>소스 증거</dt>
+              <dt>{m.workbench.properties.sourceEvidence}</dt>
               <dd>{evidence.display_name}</dd>
             </div>
             <div>
-              <dt>접근 모드</dt>
-              <dd>읽기 전용</dd>
+              <dt>{m.workbench.properties.accessMode}</dt>
+              <dd>{m.workbench.properties.readOnly}</dd>
             </div>
             <IntegrityRow evidence={evidence} />
           </>
         )}
         {evidence?.fingerprint?.value && (
           <div>
-            <dt>증거 SHA-256</dt>
+            <dt>{m.workbench.properties.evidenceSha}</dt>
             <dd className="mono">{evidence.fingerprint.value}</dd>
           </div>
         )}
       </dl>
-      {evidence && integritySummary(evidence).status === "MISMATCH" && (
+      {evidence && integritySummary(evidence, m).status === "MISMATCH" && (
         <div className="notice error" role="alert">
-          무결성 검증 결과가 이전 기준 해시와 일치하지 않습니다. 원인 확인이
-          필요합니다.
+          {m.workbench.properties.mismatch}
         </div>
       )}
     </div>
   );
 }
 function IntegrityRow({ evidence }: { evidence: Row }) {
-  const h = integritySummary(evidence);
+  const { m } = useI18n();
+  const h = integritySummary(evidence, m);
   return (
     <div>
-      <dt>무결성 해시</dt>
+      <dt>{m.workbench.properties.integrity}</dt>
       <dd className="integrity-cell" title={h.digest ?? undefined}>
         <span>{h.label}</span>
         {h.digest && <code>{shortDigest(h.digest)}</code>}

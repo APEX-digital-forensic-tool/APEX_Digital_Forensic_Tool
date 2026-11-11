@@ -18,10 +18,6 @@ const KOREAN_ALLOWED = new Set([
   "src/ImageInspector.tsx",
   "src/VideoInspector.tsx",
   "src/AiAssistant.tsx",
-  "src/EvidenceIntake.tsx",
-  "src/workbench/EvidenceTree.tsx",
-  "src/workbench/FileViewer.tsx",
-  "src/workbench/Properties.tsx",
 ]);
 
 const EXCLUDED = [

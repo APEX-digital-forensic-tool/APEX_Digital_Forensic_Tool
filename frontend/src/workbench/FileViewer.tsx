@@ -11,6 +11,7 @@ import {
 import { ImageInspector } from "../ImageInspector";
 import { VideoInspector } from "../VideoInspector";
 import { Splitter } from "./Splitter";
+import { useI18n } from "../i18n/I18nProvider";
 
 type Format = "preview" | "text" | "hex" | "metadata";
 export function FileViewer({
@@ -28,6 +29,7 @@ export function FileViewer({
   onCollect: (citations: Row[]) => void;
   onSelect: (row: Row) => void;
 }) {
+  const { m } = useI18n();
   const [format, setFormat] = useState<Format>("preview");
   const [offset, setOffset] = useState("0");
   const [range, setRange] = useState({ offset: 0, length: 4096 });
@@ -153,33 +155,38 @@ export function FileViewer({
   return (
     <section
       className="file-viewer"
-      aria-label="파일 내용 뷰어"
+      aria-label={m.workbench.viewer.label}
       style={{ height }}
     >
       <Splitter
         axis="horizontal"
-        label="내용 뷰어 높이 조절"
+        label={m.workbench.viewer.resize}
         value={height}
         min={180}
         max={maxHeight}
         onChange={onHeight}
       />
       <header className="pane-title">
-        <span>내용 뷰어</span>
+        <span>{m.workbench.viewer.title}</span>
         <span className="viewer-file">
           {selected && <FileIcon row={selected} />}
-          {selected?.original_name ?? selected?.title ?? "선택한 파일 없음"}
+          {selected?.original_name ??
+            selected?.title ??
+            m.workbench.viewer.noFile}
         </span>
-        <span className="pane-caption">읽기 전용</span>
+        <span className="pane-caption">{m.workbench.viewer.readOnly}</span>
       </header>
       <div className="viewer-toolbar">
-        <div className="tabs compact" aria-label="파일 표시 방식">
+        <div
+          className="tabs compact"
+          aria-label={m.workbench.viewer.formatLabel}
+        >
           {(
             [
               ["preview", "Preview"],
               ["text", "Text"],
               ["hex", "Hex"],
-              ["metadata", "메타데이터"],
+              ["metadata", m.workbench.viewer.metadata],
             ] as [Format, string][]
           ).map(([value, label]) => (
             <button
@@ -224,10 +231,10 @@ export function FileViewer({
           <label htmlFor="viewer-offset">Offset</label>
           <input
             id="viewer-offset"
-            aria-label="원본 바이트 오프셋"
+            aria-label={m.workbench.viewer.offsetLabel}
             value={offset}
             onChange={(event) => setOffset(event.target.value)}
-            placeholder="0 또는 0x100"
+            placeholder={m.workbench.viewer.offsetPlaceholder}
           />
           <button
             disabled={
@@ -237,9 +244,9 @@ export function FileViewer({
               Number(offset) < 0
             }
           >
-            이동
+            {m.workbench.viewer.go}
           </button>
-          <span>최대 4 KiB / 요청</span>
+          <span>{m.workbench.viewer.maxPerRequest}</span>
           <span className="spacer" />
           <button
             type="button"
@@ -250,7 +257,7 @@ export function FileViewer({
               setRange({ offset: next, length: 4096 });
             }}
           >
-            이전 범위
+            {m.workbench.viewer.previous}
           </button>
           <button
             type="button"
@@ -267,7 +274,7 @@ export function FileViewer({
               setRange({ offset: next, length: 4096 });
             }}
           >
-            다음 범위
+            {m.workbench.viewer.next}
           </button>
         </form>
       )}
@@ -275,8 +282,8 @@ export function FileViewer({
         {!selected ? (
           <div className="viewer-empty">
             <FileIcon row={{ original_name: "file" }} />
-            <p>파일을 선택해 내용을 확인하세요</p>
-            <small>Preview · Text · Hex · 메타데이터</small>
+            <p>{m.workbench.viewer.emptyTitle}</p>
+            <small>{m.workbench.viewer.emptyFormats}</small>
           </div>
         ) : busy ? (
           <Loading />
@@ -289,13 +296,22 @@ export function FileViewer({
               <>
                 <FieldGroups
                   groups={[
-                    ["기본 정보", projection?.primary_fields],
-                    ["추가 정보", projection?.secondary_fields],
-                    ["기술 정보", projection?.technical_fields],
-                    ["시각", projection?.timestamps],
+                    [
+                      m.workbench.viewer.groups.basic,
+                      projection?.primary_fields,
+                    ],
+                    [
+                      m.workbench.viewer.groups.extra,
+                      projection?.secondary_fields,
+                    ],
+                    [
+                      m.workbench.viewer.groups.technical,
+                      projection?.technical_fields,
+                    ],
+                    [m.workbench.viewer.groups.times, projection?.timestamps],
                   ]}
                 />
-                <Section title="원본 위치 및 인용 근거">
+                <Section title={m.workbench.viewer.locator}>
                   <Fields value={projection?.raw_locator} />
                   <Fields value={projection?.citations} />
                   {projection?.citations?.map(
@@ -316,18 +332,18 @@ export function FileViewer({
                               id: citation.source_id,
                               _resource_id: citation.source_id,
                               _resource_type: type,
-                              title: "인용 원본",
+                              title: m.workbench.viewer.citationSource,
                             })
                           }
                         >
-                          인용 {index + 1} 원본 보기
+                          {m.workbench.viewer.viewCitation(index + 1)}
                         </button>
                       ) : null;
                     },
                   )}
                   {!!projection?.citations?.length && (
                     <button onClick={() => onCollect(projection.citations)}>
-                      보고서 근거로 추가
+                      {m.workbench.viewer.addToReport}
                     </button>
                   )}
                 </Section>
@@ -336,12 +352,15 @@ export function FileViewer({
               <div className="inline-image">
                 <img
                   src={preview.image_url}
-                  alt={`${selected.original_name} 증거 미리보기`}
+                  alt={m.workbench.viewer.previewAlt(selected.original_name)}
                 />
                 <p>
-                  {preview.width} × {preview.height} · {preview.color_mode}
-                  {preview.is_resized ? " · 축소 미리보기" : ""} · 첫 프레임,
-                  EXIF 회전 미적용
+                  {m.workbench.viewer.imageInfo(
+                    preview.width,
+                    preview.height,
+                    preview.color_mode,
+                    preview.is_resized ? m.workbench.viewer.resized : "",
+                  )}
                 </p>
               </div>
             ) : raw ? (
@@ -349,7 +368,10 @@ export function FileViewer({
                 <ResultState data={raw} />
                 {format === "hex" ||
                 (format === "preview" && !raw.text_preview) ? (
-                  <div className="hex-view" aria-label="원본 Hex">
+                  <div
+                    className="hex-view"
+                    aria-label={m.workbench.viewer.hexLabel}
+                  >
                     <div className="hex-heading">
                       <span>Offset (h)</span>
                       <span>
@@ -366,18 +388,18 @@ export function FileViewer({
                         </div>
                       ))
                     ) : (
-                      <p className="pane-empty">
-                        이 범위의 Hex 데이터가 제공되지 않았습니다.
-                      </p>
+                      <p className="pane-empty">{m.workbench.viewer.noHex}</p>
                     )}
                   </div>
                 ) : (
-                  <pre className="text-view" aria-label="원본 텍스트">
-                    {raw.text_preview ??
-                      "텍스트로 해석할 수 없습니다. Hex 보기에서 바이트를 확인하세요."}
+                  <pre
+                    className="text-view"
+                    aria-label={m.workbench.viewer.textLabel}
+                  >
+                    {raw.text_preview ?? m.workbench.viewer.noText}
                   </pre>
                 )}
-                <Section title="원본 범위 및 출처">
+                <Section title={m.workbench.viewer.rangeSource}>
                   <Fields
                     value={{
                       ...raw,
@@ -388,21 +410,20 @@ export function FileViewer({
                 </Section>
               </>
             ) : (
-              <p className="pane-empty">
-                이 항목의 원본 바이트 읽기가 제공되지 않습니다. 메타데이터에서
-                출처와 지원 상태를 확인하세요.
-              </p>
+              <p className="pane-empty">{m.workbench.viewer.noRaw}</p>
             )}
           </>
         )}
       </div>
       {raw && (
         <footer className="viewer-status">
-          Offset {raw.returned_offset ?? range.offset} ·{" "}
-          {raw.returned_length ?? 0} bytes 반환
-          {typeof total === "number" ? ` / 전체 ${total} bytes` : ""}
-          {raw.truncated ? " · 요청/미리보기 범위 제한" : ""}
-          {raw.synthetic ? " · 합성 데모 데이터" : ""}
+          {m.workbench.viewer.status(
+            raw.returned_offset ?? range.offset,
+            raw.returned_length ?? 0,
+          )}
+          {typeof total === "number" ? m.workbench.viewer.total(total) : ""}
+          {raw.truncated ? m.workbench.viewer.truncated : ""}
+          {raw.synthetic ? m.workbench.viewer.synthetic : ""}
         </footer>
       )}
     </section>
