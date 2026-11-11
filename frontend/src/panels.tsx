@@ -12,8 +12,6 @@ import {
 import { gateway, unwrap, errorText, type Row } from "./gateway";
 import { ReportCompare, ReportVersionDialog } from "./ReportTools";
 import {
-  REVIEW_STEPS,
-  actionCopy,
   isRequiredSection,
   reviewFlow,
   sectionStatus,
@@ -51,7 +49,7 @@ export function FormDialog({
   fields,
   onSubmit,
   onClose,
-  submit = "저장",
+  submit,
 }: {
   title: string;
   description?: string;
@@ -122,7 +120,7 @@ export function FormDialog({
           <h2>{title}</h2>
           <button
             type="button"
-            aria-label="닫기"
+            aria-label={m.panels.form.close}
             onClick={onClose}
             disabled={busy}
           >
@@ -150,7 +148,7 @@ export function FormDialog({
               >
                 {f.required && f.default === undefined && (
                   <option value="" disabled>
-                    선택하세요
+                    {m.panels.form.choose}
                   </option>
                 )}
                 {f.options.map((o) => (
@@ -184,10 +182,10 @@ export function FormDialog({
         {error != null && <ErrorState error={error} />}
         <footer>
           <button type="button" onClick={onClose} disabled={busy}>
-            취소
+            {m.panels.form.cancel}
           </button>
           <button className="primary" disabled={busy}>
-            {busy ? "처리 중…" : submit}
+            {busy ? m.panels.form.busy : (submit ?? m.panels.form.save)}
           </button>
         </footer>
       </form>
@@ -195,6 +193,7 @@ export function FormDialog({
   );
 }
 export function AccountPanel() {
+  const { m } = useI18n();
   const [state, setState] = useState<Row>({ connected: false }),
     [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false);
@@ -204,12 +203,9 @@ export function AccountPanel() {
   return (
     <div className="card">
       <h3>
-        <ShieldCheck size={18} /> APEX 계정
+        <ShieldCheck size={18} /> {m.panels.account.title}
       </h3>
-      <p className="muted">
-        로그인 없이 모든 로컬 분석 작업을 사용할 수 있습니다. 서버 계정은 원격
-        서비스 연결에 사용합니다.
-      </p>
+      <p className="muted">{m.panels.account.body}</p>
       {state.connected ? (
         <>
           <p>
@@ -223,11 +219,9 @@ export function AccountPanel() {
               }
             }}
           >
-            <LogOut size={14} /> 앱에서 로그아웃
+            <LogOut size={14} /> {m.panels.account.logout}
           </button>
-          <p className="muted small">
-            이 앱의 메모리에서 계정 세션을 제거합니다.
-          </p>
+          <p className="muted small">{m.panels.account.logoutHint}</p>
         </>
       ) : (
         <form
@@ -253,24 +247,24 @@ export function AccountPanel() {
         >
           <div className="form-grid">
             <label>
-              기존 인증 서버 주소
+              {m.panels.account.origin}
               <input
                 name="origin"
                 type="url"
-                placeholder="https://인증-서버-주소"
+                placeholder={m.panels.account.originPlaceholder}
                 required
               />
             </label>
             <label>
-              테넌트 ID
+              {m.panels.account.tenant}
               <input name="tenant_id" required />
             </label>
             <label>
-              이메일
+              {m.panels.account.email}
               <input name="email" type="email" required />
             </label>
             <label>
-              비밀번호
+              {m.panels.account.password}
               <input
                 name="password"
                 type="password"
@@ -281,7 +275,7 @@ export function AccountPanel() {
           </div>
           <button disabled={!window.apex || busy}>
             <LogIn size={14} />
-            {busy ? "로그인 중…" : "계정 연결"}
+            {busy ? m.panels.account.signingIn : m.panels.account.connect}
           </button>
         </form>
       )}
@@ -289,30 +283,35 @@ export function AccountPanel() {
     </div>
   );
 }
-const policyNames: Record<string, string> = {
-  ai_enabled: "AI 사용 허용",
-  external_allowed: "외부 AI 사용 허용",
-  local_only: "로컬 AI만 허용",
-  raw_allowed: "원본 데이터 사용 허용",
-  redaction_required: "민감정보 제거 필수",
-  projection_required: "안전한 투영 필수",
-};
+const POLICY_FLAGS = [
+  "ai_enabled",
+  "external_allowed",
+  "local_only",
+  "raw_allowed",
+  "redaction_required",
+  "projection_required",
+] as const;
 export function GovernanceAudit({ audit }: { audit: Row }) {
+  const { m } = useI18n();
   const result = audit.result ?? {};
   const source = result.data?.source ?? {};
   const yesNo = (v: unknown) =>
-    v === true ? "적용" : v === false ? "미적용" : "확인되지 않음";
+    v === true
+      ? m.panels.audit.applied
+      : v === false
+        ? m.panels.audit.notApplied
+        : m.panels.audit.unknown;
   const fields: [string, unknown][] = [
-    ["사건", source.case_id],
-    ["소스", source.source_id],
-    ["소스 유형", source.source_type],
-    ["데이터 분류", result.data?.classification],
-    ["전송 대상", result.destination],
-    ["사유", result.reason],
-    ["민감정보 제거", yesNo(audit.redaction_applied)],
-    ["안전한 투영", yesNo(audit.projection_applied)],
-    ["정책 버전", result.policy_revision],
-    ["기록 시각", audit.created_at],
+    [m.panels.audit.case, source.case_id],
+    [m.panels.audit.source, source.source_id],
+    [m.panels.audit.sourceType, source.source_type],
+    [m.panels.audit.classification, result.data?.classification],
+    [m.panels.audit.destination, result.destination],
+    [m.panels.audit.reason, result.reason],
+    [m.panels.audit.redaction, yesNo(audit.redaction_applied)],
+    [m.panels.audit.projection, yesNo(audit.projection_applied)],
+    [m.panels.audit.policyRevision, result.policy_revision],
+    [m.panels.audit.recordedAt, audit.created_at],
   ];
   return (
     <article className="audit">
@@ -326,13 +325,14 @@ export function GovernanceAudit({ audit }: { audit: Row }) {
         ))}
       </dl>
       <details>
-        <summary>평가 기록 상세</summary>
+        <summary>{m.panels.audit.details}</summary>
         <Fields value={audit} />
       </details>
     </article>
   );
 }
 export function PolicyPanel({ caseId }: { caseId: string }) {
+  const { m } = useI18n();
   const [policy, setPolicy] = useState<Row | null>(null),
     [audits, setAudits] = useState<Row[]>([]),
     [error, setError] = useState<unknown>(null),
@@ -357,11 +357,8 @@ export function PolicyPanel({ caseId }: { caseId: string }) {
   }, [caseId]);
   return (
     <div className="card">
-      <h3>사건 AI 데이터 정책</h3>
-      <p className="muted">
-        설정과 허용 여부는 엔진이 관리합니다. 민감정보 제거·투영 요구는 최종
-        실행 허가가 아닙니다.
-      </p>
+      <h3>{m.panels.policy.title}</h3>
+      <p className="muted">{m.panels.policy.body}</p>
       {error != null && <ErrorState error={error} retry={reload} />}{" "}
       {!loaded ? (
         error != null ? null : (
@@ -379,7 +376,7 @@ export function PolicyPanel({ caseId }: { caseId: string }) {
               allowed_classifications: f.getAll("classification"),
               secret_handling: f.get("secret_handling"),
             };
-            for (const k of Object.keys(policyNames)) p[k] = f.has(k);
+            for (const k of POLICY_FLAGS) p[k] = f.has(k);
             setBusy(true);
             try {
               await gateway.call("policy.save", p);
@@ -393,7 +390,7 @@ export function PolicyPanel({ caseId }: { caseId: string }) {
           }}
         >
           <div className="policy-grid">
-            {Object.entries(policyNames).map(([k, v]) => (
+            {POLICY_FLAGS.map((k) => (
               <label className="check" key={k}>
                 <input
                   name={k}
@@ -408,12 +405,12 @@ export function PolicyPanel({ caseId }: { caseId: string }) {
                         ].includes(k)
                   }
                 />
-                {v}
+                {m.panels.policy.names[k]}
               </label>
             ))}
           </div>
           <fieldset>
-            <legend>허용할 데이터 분류</legend>
+            <legend>{m.panels.policy.classifications}</legend>
             {["PUBLIC", "INTERNAL", "SENSITIVE", "SECRET"].map((c) => (
               <label className="check inline" key={c}>
                 <input
@@ -429,38 +426,37 @@ export function PolicyPanel({ caseId }: { caseId: string }) {
             ))}
           </fieldset>
           <label>
-            비밀 데이터 처리
+            {m.panels.policy.secretHandling}
             <select
               name="secret_handling"
               defaultValue={policy?.secret_handling ?? "DENY"}
             >
-              <option value="DENY">차단</option>
-              <option value="REDACT">민감정보 제거</option>
-              <option value="ALLOW">허용 (엔진 정책 재평가 적용)</option>
+              <option value="DENY">{m.panels.policy.deny}</option>
+              <option value="REDACT">{m.panels.policy.redact}</option>
+              <option value="ALLOW">{m.panels.policy.allow}</option>
             </select>
           </label>
           <button className="primary" disabled={busy}>
-            <Save size={14} /> 정책 저장
+            <Save size={14} /> {m.panels.policy.save}
           </button>
           <span className="muted small">
             {" "}
-            버전 {policy?.revision ?? "미설정"}
+            {m.panels.policy.revision(
+              policy?.revision ?? m.panels.policy.unset,
+            )}
           </span>
         </form>
       )}
-      <Section title={`AI 데이터 접근 이력 · ${audits.length}건`}>
+      <Section title={m.panels.policy.auditTitle(audits.length)}>
         {audits.length ? (
           <>
-            <p className="muted small">
-              엔진의 정책 평가 이력입니다. 실제 전송 또는 AI 실행 완료를
-              의미하지 않습니다.
-            </p>
+            <p className="muted small">{m.panels.policy.auditBody}</p>
             {audits.map((a, i) => (
               <GovernanceAudit key={a.audit_id ?? i} audit={a} />
             ))}
           </>
         ) : (
-          <p className="muted">저장된 AI 데이터 접근 이력이 없습니다.</p>
+          <p className="muted">{m.panels.policy.auditNone}</p>
         )}
       </Section>
     </div>
@@ -478,10 +474,11 @@ function ReviewFlowBar({
   onAction: (action: ReviewAction | "export") => void;
 }) {
   const hintId = useId();
+  const { m } = useI18n();
   return (
-    <section className="review-flow" aria-label="검토 진행">
+    <section className="review-flow" aria-label={m.report.bar.label}>
       <ol className="review-steps">
-        {REVIEW_STEPS.map((label, i) => {
+        {m.report.reviewSteps.map((label, i) => {
           const current = i === flow.step;
           const state =
             i < flow.step ? "done" : current ? "current" : "upcoming";
@@ -502,16 +499,14 @@ function ReviewFlowBar({
       <div className="review-next">
         <div className="review-guide">
           {olderThan !== undefined && (
-            <p className="review-older">
-              이전 버전을 보고 있습니다. 최신은 버전 {olderThan}입니다.
-            </p>
+            <p className="review-older">{m.report.bar.older(olderThan)}</p>
           )}
           <p id={hintId}>{flow.blocked ?? flow.hint}</p>
         </div>
         <div className="review-buttons">
           {flow.secondary.map((a) => (
             <button key={a} disabled={busy} onClick={() => onAction(a)}>
-              {actionCopy[a].label}
+              {m.report.actions[a].label}
             </button>
           ))}
           <button
@@ -520,7 +515,7 @@ function ReviewFlowBar({
             aria-describedby={hintId}
             onClick={() => onAction(flow.primary)}
           >
-            {actionCopy[flow.primary].label}
+            {m.report.actions[flow.primary].label}
           </button>
         </div>
       </div>
@@ -627,6 +622,7 @@ export function Reports({
       exported:
         data?.report?.status === "EXPORTED" &&
         data.report.active_version_id === version.report_version_id,
+      m,
     });
   const review = (kind: ReviewAction, id: string | null = null) => {
     setAction(kind);
@@ -640,8 +636,8 @@ export function Reports({
     <div className="reports-layout">
       <aside className="report-list">
         <div className="section-heading">
-          보고서{" "}
-          <button title="보고서 만들기" onClick={() => setDialog("new")}>
+          {m.report.list.heading}{" "}
+          <button title={m.report.list.create} onClick={() => setDialog("new")}>
             <Plus size={15} />
           </button>
         </div>
@@ -660,7 +656,7 @@ export function Reports({
         ))}
         {reportCursor && (
           <button disabled={busy} onClick={() => void loadMore()}>
-            보고서 더 보기
+            {m.report.list.more}
           </button>
         )}
       </aside>
@@ -669,17 +665,17 @@ export function Reports({
         {busy && <Loading />}
         {!selected ? (
           <div className="empty">
-            <h2>보고서를 선택하세요</h2>
-            <p>분석자가 작성한 초안을 검토하고 승인한 후 내보내세요.</p>
+            <h2>{m.report.list.selectTitle}</h2>
+            <p>{m.report.list.selectBody}</p>
             <button className="primary" onClick={() => setDialog("new")}>
-              보고서 만들기
+              {m.report.list.create}
             </button>
           </div>
         ) : (
           <>
             <div className="report-heading">
               <div>
-                <span className="muted small">보고서</span>
+                <span className="muted small">{m.report.list.heading}</span>
                 <h2>{data?.report?.title}</h2>
               </div>
               <button
@@ -696,13 +692,13 @@ export function Reports({
                   setDialog("version");
                 }}
               >
-                <Plus size={14} /> 새 버전 작성
+                <Plus size={14} /> {m.report.list.newVersion}
               </button>
             </div>
             {versions.length > 0 && (
               <div className="toolbar">
                 <select
-                  aria-label="보고서 버전"
+                  aria-label={m.report.list.versionLabel}
                   value={version?.report_version_id ?? ""}
                   onChange={(e) => setVersionId(e.target.value)}
                 >
@@ -711,8 +707,10 @@ export function Reports({
                       key={v.report_version_id}
                       value={v.report_version_id}
                     >
-                      버전 {v.version_number} ·{" "}
-                      {lookup(m.labels, v.source_kind)}
+                      {m.report.list.versionOption(
+                        v.version_number,
+                        lookup(m.labels, v.source_kind),
+                      )}
                     </option>
                   ))}
                 </select>
@@ -742,7 +740,9 @@ export function Reports({
                         <h3>{s.title}</h3>
                         <div className="toolbar">
                           {!isRequiredSection(s) && (
-                            <span className="muted small">선택 검토</span>
+                            <span className="muted small">
+                              {m.report.list.optionalReview}
+                            </span>
                           )}
                           {flow.stage !== "DRAFT" && <Badge value={status} />}
                           <Badge value={s.source_kind} />
@@ -758,7 +758,7 @@ export function Reports({
                                 review("accept_section", s.section_id)
                               }
                             >
-                              {actionCopy.accept_section.label}
+                              {m.report.actions.accept_section.label}
                             </button>
                           )}
                           <button
@@ -767,17 +767,17 @@ export function Reports({
                               review("request_changes", s.section_id)
                             }
                           >
-                            {actionCopy.request_changes.label}
+                            {m.report.actions.request_changes.label}
                           </button>
                         </div>
                       )}
-                      <Section title="인용 근거">
+                      <Section title={m.report.list.citations}>
                         <Fields value={s.citations} />
                       </Section>
                     </article>
                   );
                 })}
-                <Section title="한계 및 출처" initial>
+                <Section title={m.report.list.limitations} initial>
                   <Fields
                     value={{
                       limitations: version.limitations,
@@ -787,7 +787,7 @@ export function Reports({
                   />
                 </Section>
                 <ReportCompare versions={versions} />
-                <Section title="검토 이력">
+                <Section title={m.report.list.history}>
                   <Fields value={data?.reviews?.[version.report_version_id]} />
                 </Section>
               </>
@@ -797,9 +797,9 @@ export function Reports({
       </div>
       {exportResult && (
         <div className="export-result">
-          <h3>내보내기 결과</h3>
+          <h3>{m.report.export.resultTitle}</h3>
           <button
-            aria-label="내보내기 결과 닫기"
+            aria-label={m.report.export.closeResult}
             onClick={() => setExportResult(null)}
           >
             <X size={16} />
@@ -808,15 +808,20 @@ export function Reports({
           <Fields value={exportResult.artifacts} />
           <Fields value={exportResult.manifest?.warnings} />
           <button onClick={() => window.apex?.openExports()}>
-            결과 폴더 열기
+            {m.report.export.openFolder}
           </button>
         </div>
       )}
       {dialog === "new" && (
         <FormDialog
-          title="보고서 만들기"
+          title={m.report.list.create}
           fields={[
-            { key: "title", label: "보고서 제목", required: true, max: 255 },
+            {
+              key: "title",
+              label: m.report.create.titleField,
+              required: true,
+              max: 255,
+            },
           ]}
           onClose={() => setDialog(null)}
           onSubmit={async (f) => {
@@ -844,15 +849,18 @@ export function Reports({
         <FormDialog
           title={
             reviewSection
-              ? `${actionCopy[action].title} · ${reviewSection.title}`
-              : actionCopy[action].title
+              ? m.report.review.sectionTitle(
+                  m.report.actions[action].title,
+                  reviewSection.title,
+                )
+              : m.report.actions[action].title
           }
-          description={actionCopy[action].description}
-          submit={actionCopy[action].submit}
+          description={m.report.actions[action].description}
+          submit={m.report.actions[action].submit}
           fields={[
             {
               key: "reason",
-              label: actionCopy[action].field ?? "검토·결정 사유",
+              label: m.report.actions[action].field ?? m.report.review.reason,
               type: "textarea",
               required: true,
               max: 4096,
@@ -881,17 +889,17 @@ export function Reports({
       )}{" "}
       {dialog === "export" && version && (
         <FormDialog
-          title="승인된 보고서 내보내기"
-          description="사건의 파생 결과 폴더에 저장됩니다. 기존 파일은 덮어쓰지 않습니다."
+          title={m.report.export.title}
+          description={m.report.export.description}
           fields={[
             {
               key: "format",
-              label: "파일 형식",
+              label: m.report.export.format,
               options: renderer.supported_formats ?? ["HTML"],
             },
             {
               key: "filename",
-              label: "파일 이름 (확장자 포함)",
+              label: m.report.export.filename,
               default: "report.html",
               required: true,
               max: 200,
@@ -900,8 +908,7 @@ export function Reports({
               ? [
                   {
                     key: "stale_confirmed",
-                    label:
-                      "출처가 최신 상태가 아님을 확인했으며 이 승인 버전을 내보냅니다.",
+                    label: m.report.export.staleConfirm,
                     type: "checkbox",
                     required: true,
                   },
@@ -919,8 +926,8 @@ export function Reports({
             setExportResult(r);
             onNotice(
               r.manifest?.status === "COMPLETED"
-                ? "보고서 파일을 생성했습니다. 결과 폴더에서 확인하세요."
-                : "보고서 내보내기 상태를 확인해주세요.",
+                ? m.report.export.done
+                : m.report.export.check,
             );
             await load();
           }}

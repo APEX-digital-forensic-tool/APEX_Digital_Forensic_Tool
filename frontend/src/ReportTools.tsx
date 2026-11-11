@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { ErrorState, Loading, time } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
+import type { Messages } from "./i18n/catalog";
 
 /**
  * Same rule as Core `ReportService.compare_versions`: a section is unchanged only
@@ -20,6 +21,7 @@ export function compareVersions(left: Row, right: Row) {
 }
 
 export function ReportCompare({ versions }: { versions: Row[] }) {
+  const { m } = useI18n();
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
   const ids = versions.map((v) => v.report_version_id).join(",");
@@ -40,16 +42,16 @@ export function ReportCompare({ versions }: { versions: Row[] }) {
   const ordered = (v: Row) =>
     [...(v.sections ?? [])].sort((x: Row, y: Row) => x.order - y.order);
   return (
-    <section className="report-compare" aria-label="보고서 버전 비교">
-      <h4>버전 비교</h4>
+    <section className="report-compare" aria-label={m.report.compare.label}>
+      <h4>{m.report.compare.title}</h4>
       <label>
-        기준 버전
+        {m.report.compare.base}
         <select value={left} onChange={(e) => setLeft(e.target.value)}>
           {options}
         </select>
       </label>
       <label>
-        비교 버전
+        {m.report.compare.other}
         <select value={right} onChange={(e) => setRight(e.target.value)}>
           {options}
         </select>
@@ -58,14 +60,20 @@ export function ReportCompare({ versions }: { versions: Row[] }) {
         <div>
           <p>
             {result.same_content
-              ? "두 버전의 내용이 같습니다."
-              : `추가·변경된 섹션 ${result.added.size}개 · 제거·변경된 섹션 ${result.removed.size}개`}
+              ? m.report.compare.same
+              : m.report.compare.diff(result.added.size, result.removed.size)}
           </p>
           <div className="compare-columns">
             {(
               [
-                ["기준", a, result.removed, "removed", "－ "],
-                ["비교", b, result.added, "added", "＋ "],
+                [
+                  m.report.compare.baseColumn,
+                  a,
+                  result.removed,
+                  "removed",
+                  "－ ",
+                ],
+                [m.report.compare.otherColumn, b, result.added, "added", "＋ "],
               ] as const
             ).map(([label, version, changed, className, mark]) => (
               <ul key={label} aria-label={label}>
@@ -81,9 +89,7 @@ export function ReportCompare({ versions }: { versions: Row[] }) {
               </ul>
             ))}
           </div>
-          <p className="muted small">
-            섹션 내용·순서·인용이 하나라도 다르면 다른 섹션으로 표시됩니다.
-          </p>
+          <p className="muted small">{m.report.compare.note}</p>
         </div>
       )}
     </section>
@@ -101,12 +107,13 @@ export function SearchHistory({
   onSearch: (text: string, mode: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const { m } = useI18n();
   return (
     <details
       className="search-history-panel"
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary>검색 이력</summary>
+      <summary>{m.report.history.title}</summary>
       {open && (
         <SearchHistoryEntries
           key={caseId}
@@ -156,17 +163,21 @@ function SearchHistoryEntries({
       {history == null ? (
         !error && <Loading />
       ) : !history.length ? (
-        <p className="muted">아직 실행한 검색이 없습니다.</p>
+        <p className="muted">{m.report.history.none}</p>
       ) : (
         <ul className="search-history">
           {history.map((h) => {
             const text = h.options?.original_query_text ?? h.query_text;
             return (
               <li key={h.execution_id}>
-                <span className="mono">{text}</span> · {h.query_mode} · 결과{" "}
-                {h.result_count ?? "—"}개 · {time(h.started_at, zone, m)}
+                <span className="mono">{text}</span>
+                {m.report.history.entry(
+                  h.query_mode,
+                  h.result_count ?? "—",
+                  time(h.started_at, zone, m),
+                )}
                 <button onClick={() => onSearch(text, h.query_mode)}>
-                  다시 검색
+                  {m.report.history.again}
                 </button>
               </li>
             );
@@ -226,10 +237,10 @@ export const PRESERVED_SECTION_FIELDS = [
 ] as const;
 
 let draftKey = 0;
-const draft = (s: Row = {}): DraftSection => ({
+const draft = (s: Row, defaultTitle: string): DraftSection => ({
   key: `draft-${++draftKey}`,
   section_type: s.section_type ?? "KEY_FINDINGS",
-  title: s.title ?? "주요 발견 사항",
+  title: s.title ?? defaultTitle,
   content: s.content ?? "",
   citations: s.citations ?? [],
   preserved: Object.fromEntries(
@@ -239,16 +250,16 @@ const draft = (s: Row = {}): DraftSection => ({
   ),
 });
 
-function sectionNotes(preserved: Row): string[] {
+function sectionNotes(preserved: Row, m: Messages): string[] {
   return [
     preserved.source_kind && preserved.source_kind !== "ANALYST_DRAFT"
-      ? `출처 ${preserved.source_kind}`
+      ? m.report.version.noteSource(preserved.source_kind)
       : "",
     preserved.content_kind && preserved.content_kind !== "PLAIN_TEXT"
-      ? `형식 ${preserved.content_kind}`
+      ? m.report.version.noteFormat(preserved.content_kind)
       : "",
-    preserved.is_partial ? "부분 분석" : "",
-    preserved.stale_reasons?.length ? "오래된 결과 경고" : "",
+    preserved.is_partial ? m.report.version.notePartial : "",
+    preserved.stale_reasons?.length ? m.report.version.noteStale : "",
   ].filter(Boolean);
 }
 
@@ -272,6 +283,7 @@ export function ReportVersionDialog({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const { m } = useI18n();
   const [title, setTitle] = useState(base?.title ?? reportTitle ?? "");
   const [summary, setSummary] = useState(base?.executive_summary ?? "");
   const [limitations, setLimitations] = useState(
@@ -282,8 +294,8 @@ export function ReportVersionDialog({
     base?.sections?.length
       ? [...base.sections]
           .sort((a: Row, b: Row) => a.order - b.order)
-          .map((s: Row) => draft(s))
-      : [draft()],
+          .map((s: Row) => draft(s, m.report.version.defaultSectionTitle))
+      : [draft({}, m.report.version.defaultSectionTitle)],
   );
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -304,7 +316,7 @@ export function ReportVersionDialog({
         className="modal report-version-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="새 보고서 버전 작성"
+        aria-label={m.report.version.title}
         onKeyDown={(e) => {
           if (e.key === "Escape" && !busy) onClose();
         }}
@@ -374,17 +386,19 @@ export function ReportVersionDialog({
         }}
       >
         <header>
-          <h2>새 보고서 버전 작성</h2>
-          <button type="button" aria-label="닫기" onClick={onClose}>
+          <h2>{m.report.version.title}</h2>
+          <button
+            type="button"
+            aria-label={m.panels.form.close}
+            onClick={onClose}
+          >
             ✕
           </button>
         </header>
-        <p className="muted">
-          원본 버전은 보존됩니다. 새 버전에는 다시 검토와 승인이 필요합니다.
-        </p>
+        <p className="muted">{m.report.version.body}</p>
         <fieldset disabled={busy}>
           <label>
-            제목
+            {m.report.version.titleField}
             <input
               value={title}
               maxLength={255}
@@ -393,7 +407,7 @@ export function ReportVersionDialog({
             />
           </label>
           <label>
-            요약
+            {m.report.version.summary}
             <textarea
               value={summary}
               rows={3}
@@ -403,11 +417,11 @@ export function ReportVersionDialog({
           </label>
           {sections.map((s, i) => (
             <fieldset key={s.key} className="section-draft">
-              <legend>섹션 {i + 1}</legend>
+              <legend>{m.report.version.section(i + 1)}</legend>
               <label>
-                섹션 유형
+                {m.report.version.sectionType}
                 <select
-                  aria-label={`섹션 ${i + 1} 유형`}
+                  aria-label={m.report.version.sectionTypeLabel(i + 1)}
                   value={s.section_type}
                   onChange={(e) => update(i, { section_type: e.target.value })}
                 >
@@ -417,9 +431,9 @@ export function ReportVersionDialog({
                 </select>
               </label>
               <label>
-                섹션 제목
+                {m.report.version.sectionTitle}
                 <input
-                  aria-label={`섹션 ${i + 1} 제목`}
+                  aria-label={m.report.version.sectionTitleLabel(i + 1)}
                   value={s.title}
                   maxLength={255}
                   required
@@ -427,9 +441,9 @@ export function ReportVersionDialog({
                 />
               </label>
               <label>
-                내용
+                {m.report.version.content}
                 <textarea
-                  aria-label={`섹션 ${i + 1} 내용`}
+                  aria-label={m.report.version.contentLabel(i + 1)}
                   value={s.content}
                   rows={4}
                   required
@@ -438,12 +452,14 @@ export function ReportVersionDialog({
               </label>
               {s.citations.length > 0 && (
                 <small className="muted">
-                  인용 {s.citations.length}개 유지
+                  {m.report.version.citationsKept(s.citations.length)}
                 </small>
               )}
-              {sectionNotes(s.preserved).length > 0 && (
+              {sectionNotes(s.preserved, m).length > 0 && (
                 <small className="muted">
-                  유지되는 상태: {sectionNotes(s.preserved).join(" · ")}
+                  {m.report.version.preserved(
+                    sectionNotes(s.preserved, m).join(" · "),
+                  )}
                 </small>
               )}
               <div className="button-row">
@@ -452,14 +468,14 @@ export function ReportVersionDialog({
                   disabled={i === 0}
                   onClick={() => move(i, -1)}
                 >
-                  위로
+                  {m.report.version.up}
                 </button>
                 <button
                   type="button"
                   disabled={i === sections.length - 1}
                   onClick={() => move(i, 1)}
                 >
-                  아래로
+                  {m.report.version.down}
                 </button>
                 <button
                   type="button"
@@ -468,7 +484,7 @@ export function ReportVersionDialog({
                     setSections((all) => all.filter((_, j) => j !== i))
                   }
                 >
-                  섹션 삭제
+                  {m.report.version.removeSection}
                 </button>
               </div>
             </fieldset>
@@ -479,14 +495,17 @@ export function ReportVersionDialog({
             onClick={() =>
               setSections((all) => [
                 ...all,
-                draft({ section_type: "OTHER", title: "" }),
+                draft(
+                  { section_type: "OTHER", title: "" },
+                  m.report.version.defaultSectionTitle,
+                ),
               ])
             }
           >
-            섹션 추가
+            {m.report.version.addSection}
           </button>
           <label>
-            분석의 한계 (줄마다 하나)
+            {m.report.version.limitations}
             <textarea
               value={limitations}
               rows={3}
@@ -498,10 +517,10 @@ export function ReportVersionDialog({
         {error != null && <ErrorState error={error} />}
         <footer>
           <button type="button" onClick={onClose} disabled={busy}>
-            취소
+            {m.panels.form.cancel}
           </button>
           <button className="primary" disabled={busy}>
-            {busy ? "처리 중…" : "저장"}
+            {busy ? m.panels.form.busy : m.panels.form.save}
           </button>
         </footer>
       </form>

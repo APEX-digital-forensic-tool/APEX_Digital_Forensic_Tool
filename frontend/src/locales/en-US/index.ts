@@ -3,6 +3,8 @@ import { common } from "./common";
 import { errors } from "./errors";
 import { labels } from "./labels";
 import { native } from "./native";
+import { panels } from "./panels";
+import { report } from "./report";
 import { settings } from "./settings";
 import { shell } from "./shell";
 import { ui } from "./ui";
@@ -17,4 +19,6 @@ export const enUS: Messages = {
   ui,
   shell,
   views,
+  panels,
+  report,
 };

@@ -13,6 +13,7 @@ import { Reports } from "./panels";
 import { gateway, type Row } from "./gateway";
 import { reviewFlow } from "./reportWorkflow";
 import fixture from "./__fixtures__/report.json";
+import { koKR } from "./locales/ko-KR";
 
 afterEach(() => {
   cleanup();
@@ -41,7 +42,11 @@ function version(
 
 describe("reviewFlow", () => {
   it("offers only submission on a draft and keeps sections read-only", () => {
-    const flow = reviewFlow({ version: version("DRAFT"), decision: null });
+    const flow = reviewFlow({
+      version: version("DRAFT"),
+      decision: null,
+      m: koKR,
+    });
     expect(flow).toMatchObject({
       stage: "DRAFT",
       primary: "submit",
@@ -54,6 +59,7 @@ describe("reviewFlow", () => {
     const partial = reviewFlow({
       version: version("IN_REVIEW", { s1: "ACCEPTED" }),
       decision: null,
+      m: koKR,
     });
     expect(partial.primary).toBe("complete");
     expect(partial.blocked).toMatch(/필수 섹션 2개 중 1개/);
@@ -62,6 +68,7 @@ describe("reviewFlow", () => {
     const done = reviewFlow({
       version: version("IN_REVIEW", { s1: "ACCEPTED", s2: "ACCEPTED" }),
       decision: null,
+      m: koKR,
     });
     expect(done.blocked).toBeUndefined();
   });
@@ -77,6 +84,7 @@ describe("reviewFlow", () => {
         },
       ]),
       decision: null,
+      m: koKR,
     });
     expect(flow).toMatchObject({ required: 1, accepted: 1 });
     expect(flow.blocked).toBeUndefined();
@@ -86,6 +94,7 @@ describe("reviewFlow", () => {
     const flow = reviewFlow({
       version: version("CHANGES_REQUESTED", { s2: "CHANGES_REQUESTED" }),
       decision: null,
+      m: koKR,
     });
     expect(flow).toMatchObject({
       stage: "CHANGES_REQUESTED",
@@ -98,6 +107,7 @@ describe("reviewFlow", () => {
     const flow = reviewFlow({
       version: version("REVIEW_COMPLETE"),
       decision: null,
+      m: koKR,
     });
     expect(flow).toMatchObject({
       primary: "approve",
@@ -105,8 +115,11 @@ describe("reviewFlow", () => {
       sectionReview: false,
     });
     expect(
-      reviewFlow({ version: version("REVIEW_COMPLETE"), decision: "REVOKED" })
-        .hint,
+      reviewFlow({
+        version: version("REVIEW_COMPLETE"),
+        decision: "REVOKED",
+        m: koKR,
+      }).hint,
     ).toMatch(/승인이 철회되었습니다/);
   });
 
@@ -114,6 +127,7 @@ describe("reviewFlow", () => {
     const flow = reviewFlow({
       version: version("REVIEW_COMPLETE"),
       decision: "APPROVED",
+      m: koKR,
     });
     expect(flow).toMatchObject({
       stage: "APPROVED",
@@ -125,6 +139,7 @@ describe("reviewFlow", () => {
         version: version("REVIEW_COMPLETE"),
         decision: "APPROVED",
         exported: true,
+        m: koKR,
       }).stage,
     ).toBe("EXPORTED");
   });
@@ -133,6 +148,7 @@ describe("reviewFlow", () => {
     const flow = reviewFlow({
       version: version("REVIEW_COMPLETE"),
       decision: "REJECTED",
+      m: koKR,
     });
     expect(flow).toMatchObject({
       stage: "REJECTED",
