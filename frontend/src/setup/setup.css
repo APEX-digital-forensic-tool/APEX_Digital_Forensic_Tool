@@ -61,6 +61,9 @@
   margin: 0;
   padding: 0;
 }
+/* Field layout of the examiner-name and AI connection forms. The components
+   carry this class themselves, so the setup window and the main Settings
+   cards lay them out the same way. */
 .setup-fields label {
   margin: 16px 0 7px;
 }
@@ -75,6 +78,12 @@
 .setup-fields .muted {
   font-size: var(--fs-ui);
   margin-top: 8px;
+}
+.setup-fields details {
+  margin-top: 16px;
+}
+.setup-fields summary {
+  cursor: pointer;
 }
 .setup-fields .actions {
   display: flex;

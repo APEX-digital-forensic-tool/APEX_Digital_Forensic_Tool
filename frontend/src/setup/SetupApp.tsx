@@ -86,16 +86,8 @@ export function SetupApp() {
             ))}
           </div>
         )}
-        {step === 1 && (
-          <div className="setup-fields">
-            <ProfileSettings />
-          </div>
-        )}
-        {step === 2 && (
-          <div className="setup-fields">
-            <AiConnectionForm />
-          </div>
-        )}
+        {step === 1 && <ProfileSettings />}
+        {step === 2 && <AiConnectionForm />}
         {step === 3 && (
           <>
             <p className="muted">{t.machineNote}</p>

@@ -116,7 +116,7 @@ export function AiConnectionForm({
   }
   const blocked = Boolean(blockedReason);
   return (
-    <form onSubmit={save}>
+    <form className="setup-fields" onSubmit={save}>
       {state}
       <label htmlFor={`${ids}-url`}>{t.baseUrl}</label>
       <input

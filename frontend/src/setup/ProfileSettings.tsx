@@ -8,7 +8,7 @@ export function ProfileSettings() {
   const id = useId();
   const [name, setName] = useState(readExaminerName);
   return (
-    <>
+    <div className="setup-fields">
       <label htmlFor={id}>{t.label}</label>
       <input
         id={id}
@@ -25,6 +25,6 @@ export function ProfileSettings() {
       <p id={`${id}-hint`} className="muted">
         {t.hint}
       </p>
-    </>
+    </div>
   );
 }
