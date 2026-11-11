@@ -341,8 +341,8 @@ async function createMainWindow() {
 }
 async function createSetupWindow() {
   const created = new BrowserWindow({
-    width: 620,
-    height: 720,
+    width: 880,
+    height: 660,
     resizable: false,
     maximizable: false,
     fullscreenable: false,

@@ -41,7 +41,7 @@
 Python 엔진은 **바꾸지 않는다.**
 
 ```
-[설정 창 620×720]  ─┐
+[설정 창 880×660]  ─┐
                     ├─IPC─▶ Electron main ─▶ userData/app-state.json      (설정 완료 여부)
 [본 앱 창]         ─┘                     ─▶ userData/ai-connection.json  (암호화된 키 + 접속 정보)
                                           ─▶ 엔진 실행 시 env 주입
@@ -52,7 +52,7 @@ Python 엔진은 **바꾸지 않는다.**
 ### 1. 창 흐름 (`frontend/electron/main.ts`)
 
 - 시작할 때 `app-state.json`의 `setup_complete`를 본다.
-  - 없거나 false → **설정 창**만 연다: 620×720, 크기 조절·최대화 불가, 화면 가운데.
+  - 없거나 false → **설정 창**만 연다: 880×660, 크기 조절·최대화 불가, 화면 가운데.
   - true → 지금처럼 본 앱 창을 연다.
   - `--apex-smoke-test`(패키징 CI)에서는 설정 창을 건너뛰고 본 앱 창을 연다.
 - 두 창은 같은 `index.html`을 쓴다. 설정 창은 `#setup`을 붙여 연다.
