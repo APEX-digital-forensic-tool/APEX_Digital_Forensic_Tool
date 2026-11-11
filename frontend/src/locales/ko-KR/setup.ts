@@ -6,17 +6,27 @@ const steps: [string, string, string, string, string] = [
   "서버 계정",
 ];
 
+/** One line under each step's heading, in step order. */
+const descriptions: [string, string, string, string, string] = [
+  "앱에 표시할 언어를 고르세요. 고르는 즉시 바뀝니다.",
+  "새 사건을 만들 때 분석자 이름이 미리 채워집니다. 사건마다 바꿀 수 있습니다.",
+  "외부 AI 제공자에 연결하면 AI 분석 보조를 쓸 수 있습니다. 연결하지 않아도 로컬 분석은 모두 동작합니다.",
+  "문자 인식(OCR)과 음성 인식(STT)에 쓸 분석기와 모델입니다. 기본값으로 바로 쓸 수 있습니다.",
+  "서버 계정은 원격 서비스에 연결할 때만 씁니다. 로컬 분석에는 필요하지 않고, 로그인은 앱을 끌 때까지만 유지됩니다.",
+];
+
 export const setup = {
   title: "APEX 시작 설정",
+  stepsLabel: "설정 단계",
   steps,
+  descriptions,
+  intro: "언어 외에는 건너뛸 수 있고, 나중에 설정에서 바꿀 수 있습니다.",
   back: "이전",
   skip: "건너뛰기",
   next: "다음",
+  saveAndNext: "저장하고 다음",
   start: "시작",
   progress: (n: number, total: number) => `${n} / ${total}`,
-  optional: "선택 사항입니다. 나중에 설정에서 바꿀 수 있습니다.",
-  accountNote: "로그인은 앱을 끌 때까지만 유지됩니다.",
-  machineNote: "기본값으로 바로 쓸 수 있습니다.",
   ai: {
     title: "AI 연결",
     baseUrl: "접속 주소",
@@ -40,6 +50,7 @@ export const setup = {
     policyNote: "무엇을 AI로 보낼지는 사건별 AI 데이터 정책이 결정합니다.",
   },
   examiner: {
+    title: "새 사건 기본값",
     label: "분석자 이름",
     hint: "새 사건을 만들 때 미리 채워집니다. 사건마다 바꿀 수 있습니다.",
   },

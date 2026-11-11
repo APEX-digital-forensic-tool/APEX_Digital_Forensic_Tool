@@ -4,19 +4,33 @@ import { unwrap, type Reply } from "../gateway";
 import { useI18n } from "../i18n/I18nProvider";
 import { ErrorState, Loading } from "../ui";
 
+export type AiFormState = {
+  /** False when the connection is managed elsewhere or cannot be stored. */
+  editable: boolean;
+  busy: boolean;
+};
+
 export function AiConnectionForm({
   blockedReason,
   showRemove,
   onChanged,
+  formId,
+  hideActions,
+  onState,
 }: {
   /** Save/remove are blocked with this reason shown (e.g. analysis tasks running). */
   blockedReason?: string;
   showRemove?: boolean;
   onChanged?: (status: AiConnectionStatus) => void;
+  /** Lets a button outside the form submit it (`<button form={formId}>`). */
+  formId?: string;
+  /** The host supplies the submit button; the form's own buttons are left out. */
+  hideActions?: boolean;
+  onState?: (state: AiFormState) => void;
 }) {
   const { m } = useI18n();
   const t = m.setup.ai;
-  const ids = useId();
+  const keyHintId = useId();
   const [status, setStatus] = useState<AiConnectionStatus | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
@@ -54,9 +68,18 @@ export function AiConnectionForm({
     };
   }, [bridge]);
 
+  const editable =
+    status != null && !status.managed && status.storage_available;
+  useEffect(() => {
+    onState?.({ editable, busy });
+  }, [onState, editable, busy]);
+
   if (!bridge) return null;
 
+  const blocked = Boolean(blockedReason);
+
   async function run(call: () => Promise<Reply<AiConnectionStatus>>) {
+    if (busy || blocked) return;
     setBusy(true);
     setError(null);
     try {
@@ -89,108 +112,119 @@ export function AiConnectionForm({
   if (!status) {
     return error ? <ErrorState error={error} /> : <Loading />;
   }
-  const state = (
-    <p>
-      <span className="badge">
+  // On a first run "not configured" is a given; the badge earns its place
+  // once there is a connection or the form stands alone in Settings.
+  const state = (status.configured || !hideActions) && (
+    <p className="ai-status">
+      <span className={`badge ${status.configured ? "green" : ""}`}>
         {status.configured ? t.configured : t.notConfigured}
       </span>
     </p>
   );
-  if (status.managed) {
+  if (!editable) {
     return (
-      <>
+      <div className="setup-fields">
         {state}
-        <p className="muted">{t.managed}</p>
-        <p className="muted">{t.policyNote}</p>
-      </>
-    );
-  }
-  if (!status.storage_available) {
-    return (
-      <>
-        {state}
-        <p className="muted">{t.storageUnavailable}</p>
-        <p className="muted">{t.policyNote}</p>
-      </>
-    );
-  }
-  const blocked = Boolean(blockedReason);
-  return (
-    <form className="setup-fields" onSubmit={save}>
-      {state}
-      <label htmlFor={`${ids}-url`}>{t.baseUrl}</label>
-      <input
-        id={`${ids}-url`}
-        type="text"
-        inputMode="url"
-        autoComplete="off"
-        spellCheck={false}
-        value={baseUrl}
-        onChange={(e) => setBaseUrl(e.target.value)}
-      />
-      <label htmlFor={`${ids}-model`}>{t.model}</label>
-      <input
-        id={`${ids}-model`}
-        type="text"
-        autoComplete="off"
-        spellCheck={false}
-        value={modelId}
-        onChange={(e) => setModelId(e.target.value)}
-      />
-      <label htmlFor={`${ids}-key`}>{t.apiKey}</label>
-      <input
-        id={`${ids}-key`}
-        ref={keyRef}
-        type="password"
-        autoComplete="off"
-        spellCheck={false}
-      />
-      {status.has_key && <p className="muted">{t.keepKey}</p>}
-      <details>
-        <summary>{t.advanced}</summary>
-        <label htmlFor={`${ids}-temp`}>{t.temperature}</label>
-        <input
-          id={`${ids}-temp`}
-          type="number"
-          step="any"
-          value={temperature}
-          onChange={(e) => setTemperature(e.target.value)}
-        />
-        <label htmlFor={`${ids}-max`}>{t.maxOutput}</label>
-        <input
-          id={`${ids}-max`}
-          type="number"
-          step={1}
-          value={maxOutput}
-          onChange={(e) => setMaxOutput(e.target.value)}
-        />
-        <label htmlFor={`${ids}-timeout`}>{t.timeout}</label>
-        <input
-          id={`${ids}-timeout`}
-          type="number"
-          step="any"
-          value={timeout}
-          onChange={(e) => setTimeoutSeconds(e.target.value)}
-        />
-      </details>
-      {blockedReason && <p className="muted">{blockedReason}</p>}
-      <p className="muted">{t.restartNote}</p>
-      {error != null && <ErrorState error={error} />}
-      <div className="actions">
-        <button type="submit" disabled={busy || blocked}>
-          {t.save}
-        </button>
-        {showRemove && (
-          <button
-            type="button"
-            disabled={busy || blocked || !status.configured}
-            onClick={() => void run(() => bridge.clearAiConnection())}
-          >
-            {t.remove}
-          </button>
-        )}
+        <p className="setup-note">
+          {status.managed ? t.managed : t.storageUnavailable}
+        </p>
+        <p className="setup-note">{t.policyNote}</p>
       </div>
-      <p className="muted">{t.policyNote}</p>
+    );
+  }
+  return (
+    <form className="setup-fields" id={formId} onSubmit={save}>
+      {state}
+      <div className="setup-grid">
+        <label>
+          {t.baseUrl}
+          <input
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+        </label>
+        <label>
+          {t.model}
+          <input
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            value={modelId}
+            onChange={(e) => setModelId(e.target.value)}
+          />
+        </label>
+        <label className="setup-wide">
+          {t.apiKey}
+          <input
+            ref={keyRef}
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby={status.has_key ? keyHintId : undefined}
+          />
+        </label>
+      </div>
+      {status.has_key && (
+        <p id={keyHintId} className="setup-note">
+          {t.keepKey}
+        </p>
+      )}
+      <details className="setup-advanced">
+        <summary>{t.advanced}</summary>
+        <div className="setup-grid setup-grid-three">
+          <label>
+            {t.temperature}
+            <input
+              type="number"
+              step="any"
+              value={temperature}
+              onChange={(e) => setTemperature(e.target.value)}
+            />
+          </label>
+          <label>
+            {t.maxOutput}
+            <input
+              type="number"
+              step={1}
+              value={maxOutput}
+              onChange={(e) => setMaxOutput(e.target.value)}
+            />
+          </label>
+          <label>
+            {t.timeout}
+            <input
+              type="number"
+              step="any"
+              value={timeout}
+              onChange={(e) => setTimeoutSeconds(e.target.value)}
+            />
+          </label>
+        </div>
+      </details>
+      {error != null && <ErrorState error={error} />}
+      {blockedReason && <p className="setup-note">{blockedReason}</p>}
+      {!hideActions && (
+        <div className="actions">
+          <button type="submit" className="primary" disabled={busy || blocked}>
+            {t.save}
+          </button>
+          {showRemove && (
+            <button
+              type="button"
+              disabled={busy || blocked || !status.configured}
+              onClick={() => void run(() => bridge.clearAiConnection())}
+            >
+              {t.remove}
+            </button>
+          )}
+        </div>
+      )}
+      {!hideActions && <p className="setup-note">{t.restartNote}</p>}
+      <p className="setup-note">{t.policyNote}</p>
     </form>
   );
 }

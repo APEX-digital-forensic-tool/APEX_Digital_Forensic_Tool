@@ -1507,7 +1507,9 @@ export function App() {
               <LanguageSettings />
               {window.apex && (
                 <div className="card">
-                  <h3>{m.setup.ai.title}</h3>
+                  <h3>
+                    <AssistantIcon size={18} /> {m.setup.ai.title}
+                  </h3>
                   <AiConnectionForm
                     showRemove
                     blockedReason={
@@ -1518,6 +1520,7 @@ export function App() {
                 </div>
               )}
               <div className="card">
+                <h3>{m.setup.examiner.title}</h3>
                 <ProfileSettings />
               </div>
               <AccountPanel />

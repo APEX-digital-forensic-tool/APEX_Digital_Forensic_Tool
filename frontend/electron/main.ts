@@ -347,7 +347,10 @@ async function createSetupWindow() {
     maximizable: false,
     fullscreenable: false,
     center: true,
-    backgroundColor: "#111519",
+    // macOS: no title bar, window buttons inset over the setup rail (which is
+    // the drag region). Other platforms keep their native frame.
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    backgroundColor: "#18191c",
     title: "APEX",
     autoHideMenuBar: true,
     webPreferences,

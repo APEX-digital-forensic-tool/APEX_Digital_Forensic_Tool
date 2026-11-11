@@ -48,11 +48,13 @@ Rules:
 - **Jobs**: finished jobs say "끝남" or "일부 결과로 끝남" instead of a percentage. An amber "확인 N" badge next to 작업 counts failed or partial jobs.
 - **Free-text with suggestions**: `FieldSpec.suggestions` renders a datalist (case time zone). Invalid IANA zones are rejected before `cases.create`.
 - **Time**: tables put the case offset in the column header ("생성 시간 (UTC+9)"). Single values append it ("… (UTC+9)").
+- **First-run setup window** (`frontend/src/setup/SetupApp.tsx`): a fixed 620×720 window shown before the main window on first launch. A 196px rail on `--surface-sunken` holds the logo, the window title and the five-step list; a step's mark is its number, filled with `--accent-fill` when current and a green check when done. The pane shows one step at a time: a `--fs-heading` title, a one-line lead, then the step's controls, with Back / Skip / primary pinned in the footer. Language is two full-width choice rows. On the AI step the primary button saves and continues; every other optional step has Skip and Next. The shared OCR and account panels are embedded with `compact` (no card frame, title or intro). Text uses `word-break: keep-all` so Hangul wraps between words. On macOS the window has no title bar and the rail is the drag region.
+- **AI connection and new-case defaults** (`AiConnectionForm`, `ProfileSettings`): Settings cards in the same pattern as the account card. The API key is an uncontrolled password field that is cleared after saving and never rendered back.
 
 ## Accessibility
 
 - Contrast: body and muted text are 5.4:1 or better on every surface. White text sits on `--accent-fill` (#2563eb, 5.2:1), never on `--accent` (3.7:1). `--text-faint` (#90959e) is 4.6:1 on panel headers.
 - Heading order has no skipped levels: pane titles, empty states and the inspector title use h2 under the workspace h1.
-- Required dialog fields get a visual "필수" mark from CSS (`content: "필수" / ""`). The control's `required` attribute carries the requirement to assistive tech, and the accessible name stays the bare label.
+- Required dialog fields get a visual "필수" / "Required" mark from CSS (`content: attr(data-required-label) / ""`, with the text coming from the message catalog). The control's `required` attribute carries the requirement to assistive tech, and the accessible name stays the bare label.
 - Keys: Esc closes the AI and job drawers (dialogs handle their own Esc). Ctrl/⌘+F opens 통합 검색 and focuses the query. Icon-only buttons have `aria-label`.
 - Advisory left open on purpose: in the dense workbench, pane titles sit near table size (12px) and are separated by weight, not size.

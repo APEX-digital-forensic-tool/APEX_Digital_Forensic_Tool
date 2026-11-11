@@ -2,6 +2,7 @@ import type { Messages } from "../ko-KR";
 
 export const setup: Messages["setup"] = {
   title: "Set up APEX",
+  stepsLabel: "Setup steps",
   steps: [
     "Language",
     "Examiner name",
@@ -9,14 +10,21 @@ export const setup: Messages["setup"] = {
     "OCR and speech recognition",
     "Server account",
   ],
+  descriptions: [
+    "Choose the language the app is shown in. It changes as soon as you pick.",
+    "The examiner name is prefilled when you create a case. You can change it for each case.",
+    "Connect an external AI provider to use AI-assisted analysis. All local analysis works without it.",
+    "The analyzers and models used for text recognition (OCR) and speech recognition (STT). The defaults work out of the box.",
+    "A server account is only for connecting to remote services. Local analysis does not need it, and sign-in lasts until you quit the app.",
+  ],
+  intro:
+    "Everything except language can be skipped and changed later in Settings.",
   back: "Back",
   skip: "Skip",
   next: "Next",
+  saveAndNext: "Save and continue",
   start: "Start",
   progress: (n: number, total: number) => `${n} / ${total}`,
-  optional: "Optional. You can change this later in Settings.",
-  accountNote: "Sign-in lasts until you quit the app.",
-  machineNote: "The defaults work out of the box.",
   ai: {
     title: "AI connection",
     baseUrl: "Base URL",
@@ -40,6 +48,7 @@ export const setup: Messages["setup"] = {
     policyNote: "What is sent to AI is decided by each case's AI data policy.",
   },
   examiner: {
+    title: "New case defaults",
     label: "Examiner name",
     hint: "Prefilled when you create a case. You can change it for each case.",
   },

@@ -4,7 +4,8 @@ import { ErrorState, Fields, Loading } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup } from "./i18n/catalog";
 
-export function MachineSettings() {
+/** `compact` drops the card frame, title and intro for hosts that supply their own. */
+export function MachineSettings({ compact = false }: { compact?: boolean }) {
   const { locale, m } = useI18n();
   const [data, setData] = useState<Row | null>(null);
   const [settings, setSettings] = useState<Row>({});
@@ -73,10 +74,14 @@ export function MachineSettings() {
     }
   }
   return (
-    <div className="card">
-      <h3>{m.machine.title}</h3>
-      <p>{m.machine.privacy}</p>
-      <p>{m.machine.sttIntro}</p>
+    <div className={compact ? "machine-settings" : "card"}>
+      {!compact && (
+        <>
+          <h3>{m.machine.title}</h3>
+          <p>{m.machine.privacy}</p>
+          <p>{m.machine.sttIntro}</p>
+        </>
+      )}
       {error != null && <ErrorState error={error} />}
       {!data ? (
         !error && <Loading />

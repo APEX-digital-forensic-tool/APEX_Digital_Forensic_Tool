@@ -197,7 +197,8 @@ export function FormDialog({
     </div>
   );
 }
-export function AccountPanel() {
+/** `compact` drops the card frame, title and intro for hosts that supply their own. */
+export function AccountPanel({ compact = false }: { compact?: boolean }) {
   const { m } = useI18n();
   const [state, setState] = useState<Row>({ connected: false }),
     [error, setError] = useState<unknown>(null),
@@ -206,11 +207,15 @@ export function AccountPanel() {
     window.apex?.account().then(unwrap).then(setState).catch(setError);
   }, []);
   return (
-    <div className="card">
-      <h3>
-        <ShieldCheck size={18} /> {m.panels.account.title}
-      </h3>
-      <p className="muted">{m.panels.account.body}</p>
+    <div className={compact ? "account-panel" : "card"}>
+      {!compact && (
+        <>
+          <h3>
+            <ShieldCheck size={18} /> {m.panels.account.title}
+          </h3>
+          <p className="muted">{m.panels.account.body}</p>
+        </>
+      )}
       {state.connected ? (
         <>
           <p>
