@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { ErrorState, Loading, time } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
 
 /**
  * Same rule as Core `ReportService.compare_versions`: a section is unchanged only
@@ -127,6 +128,7 @@ function SearchHistoryEntries({
   zone: string;
   onSearch: (text: string, mode: string) => void;
 }) {
+  const { m } = useI18n();
   const [history, setHistory] = useState<Row[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -162,7 +164,7 @@ function SearchHistoryEntries({
             return (
               <li key={h.execution_id}>
                 <span className="mono">{text}</span> · {h.query_mode} · 결과{" "}
-                {h.result_count ?? "—"}개 · {time(h.started_at, zone)}
+                {h.result_count ?? "—"}개 · {time(h.started_at, zone, m)}
                 <button onClick={() => onSearch(text, h.query_mode)}>
                   다시 검색
                 </button>

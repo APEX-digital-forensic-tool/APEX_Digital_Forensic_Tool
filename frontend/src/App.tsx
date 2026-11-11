@@ -2,6 +2,7 @@ import { ForensicTools } from "./ForensicTools";
 import { MachineSettings } from "./MachineSettings";
 import { LanguageSettings } from "./LanguageSettings";
 import { useI18n } from "./i18n/I18nProvider";
+import { lookup } from "./i18n/catalog";
 import {
   useCallback,
   useEffect,
@@ -46,7 +47,6 @@ import type { CaseRecord } from "./contracts/generated/case";
 import type { GuiContext } from "./contracts/generated/gui-session-context";
 import {
   Badge,
-  labels,
   ArtifactSemantics,
   RawPreview,
   Empty,
@@ -237,13 +237,14 @@ const candidateDecisions = {
 } as const;
 /** Quotes the candidate being decided on so the analyst confirms the target. */
 function CandidateSubject({ candidate }: { candidate: Row }) {
+  const { m } = useI18n();
   const path = candidate.raw_locator?.source_path;
   return (
     <figure className="decision-subject">
       <blockquote>{candidate.text}</blockquote>
       <figcaption>
-        {labels[candidate.extraction_type] ?? candidate.extraction_type} ·
-        신뢰도 {confidence(candidate.confidence)} ·{" "}
+        {lookup(m.labels, candidate.extraction_type)} · 신뢰도{" "}
+        {confidence(candidate.confidence, m)} ·{" "}
         {path ?? (
           <span title={candidate.source_node_id}>원본 경로 정보 없음</span>
         )}
@@ -256,7 +257,7 @@ function CandidateSubject({ candidate }: { candidate: Row }) {
 }
 
 export function App() {
-  const { locale } = useI18n();
+  const { locale, m } = useI18n();
   const [runtime, setRuntime] = useState<Row | null>(null),
     [startupError, setStartupError] = useState<unknown>(null),
     [cases, setCases] = useState<CaseRecord[]>([]),
@@ -936,13 +937,13 @@ export function App() {
       key: "created",
       label: inZone("생성 시간"),
       width: 165,
-      render: (r) => time(r.utc_timestamps?.created, zone),
+      render: (r) => time(r.utc_timestamps?.created, zone, m),
     },
     {
       key: "modified",
       label: inZone("수정 시간"),
       width: 165,
-      render: (r) => time(r.utc_timestamps?.modified, zone),
+      render: (r) => time(r.utc_timestamps?.modified, zone, m),
     },
     {
       key: "is_deleted",
@@ -974,7 +975,7 @@ export function App() {
       key: "observed_at_utc",
       label: inZone("관찰 시간"),
       width: 170,
-      render: (r) => time(r.observed_at_utc, zone),
+      render: (r) => time(r.observed_at_utc, zone, m),
     },
     {
       key: "parse_status",
@@ -984,7 +985,7 @@ export function App() {
     {
       key: "confidence",
       label: "신뢰도",
-      render: (r) => confidence(r.confidence),
+      render: (r) => confidence(r.confidence, m),
     },
     { key: "source_path", label: "소스", width: 220 },
     {
@@ -1038,7 +1039,7 @@ export function App() {
                 width: 190,
                 render: (r: Row) =>
                   r.normalized_utc
-                    ? time(r.normalized_utc, zone)
+                    ? time(r.normalized_utc, zone, m)
                     : "시간대 미확정",
               },
               { key: "event_type", label: "이벤트 유형", width: 200 },
@@ -1058,7 +1059,7 @@ export function App() {
                 {
                   key: "confidence",
                   label: "신뢰도",
-                  render: (r: Row) => confidence(r.confidence),
+                  render: (r: Row) => confidence(r.confidence, m),
                 },
                 {
                   key: "source",
@@ -1079,7 +1080,7 @@ export function App() {
                     key: "event_type",
                     label: "유형",
                     width: 130,
-                    render: (r: Row) => custodyEvent(r.event_type),
+                    render: (r: Row) => custodyEvent(r.event_type, m),
                   },
                   { key: "action", label: "행위", width: 230 },
                   {
@@ -1091,7 +1092,7 @@ export function App() {
                     key: "occurred_at_utc",
                     label: inZone("시각"),
                     width: 180,
-                    render: (r: Row) => time(r.occurred_at_utc, zone),
+                    render: (r: Row) => time(r.occurred_at_utc, zone, m),
                   },
                   { key: "event_hash", label: "이벤트 해시", width: 240 },
                 ]
@@ -1492,7 +1493,7 @@ export function App() {
                     {
                       key: "created_at",
                       label: inZone("생성 시각"),
-                      render: (r) => time(r.created_at, zone),
+                      render: (r) => time(r.created_at, zone, m),
                     },
                     { key: "timezone", label: "시간대" },
                   ]}
@@ -1616,9 +1617,9 @@ export function App() {
                         "PREFIX",
                         "EXACT",
                         "REGEX_METADATA",
-                      ].map((m) => (
-                        <option key={m} value={m}>
-                          {labels[m]}
+                      ].map((searchMode) => (
+                        <option key={searchMode} value={searchMode}>
+                          {lookup(m.labels, searchMode)}
                         </option>
                       ))}
                     </select>
@@ -1682,7 +1683,7 @@ export function App() {
                             key: "event_type",
                             label: "이벤트 유형",
                             options: CUSTODY_EVENTS,
-                            optionLabel: custodyEvent,
+                            optionLabel: (type) => custodyEvent(type, m),
                             required: true,
                           },
                           {
@@ -1838,7 +1839,7 @@ export function App() {
                         {
                           key: "format",
                           label: "형식",
-                          render: (r) => evidenceFormat(r.format),
+                          render: (r) => evidenceFormat(r.format, m),
                         },
                         {
                           key: "size_bytes",
@@ -2047,24 +2048,26 @@ export function App() {
                       </h2>
                     </div>
                     <div className="tabs compact" aria-label="검사기 보기">
-                      {(["SIMPLE", "DETAILED", "RAW"] as const).map((m, i) => (
-                        <button
-                          key={m}
-                          className={mode === m ? "active" : ""}
-                          aria-pressed={mode === m}
-                          disabled={
-                            !selected ||
-                            (m === "RAW" &&
-                              !!projection &&
-                              !projection.available_actions?.includes(
-                                "view.raw",
-                              ))
-                          }
-                          onClick={() => setMode(m)}
-                        >
-                          {["간단히", "상세히", "원본"][i]}
-                        </button>
-                      ))}
+                      {(["SIMPLE", "DETAILED", "RAW"] as const).map(
+                        (viewMode, i) => (
+                          <button
+                            key={viewMode}
+                            className={mode === viewMode ? "active" : ""}
+                            aria-pressed={mode === viewMode}
+                            disabled={
+                              !selected ||
+                              (viewMode === "RAW" &&
+                                !!projection &&
+                                !projection.available_actions?.includes(
+                                  "view.raw",
+                                ))
+                            }
+                            onClick={() => setMode(viewMode)}
+                          >
+                            {["간단히", "상세히", "원본"][i]}
+                          </button>
+                        ),
+                      )}
                     </div>
                   </header>
                   <div className="inspector-content">
@@ -2113,7 +2116,7 @@ export function App() {
                           />
                         )}
                         <p className="summary-text">
-                          {labels[projection.summary] ?? projection.summary}
+                          {lookup(m.labels, projection.summary)}
                         </p>
                         {mode === "RAW" ? (
                           <>

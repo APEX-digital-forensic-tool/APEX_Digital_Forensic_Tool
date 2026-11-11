@@ -14,7 +14,6 @@ const KOREAN_ALLOWED = new Set([
   "src/i18n/locales.ts",
   // Pending migration: each task removes its files.
   "src/App.tsx",
-  "src/ui.tsx",
   "src/panels.tsx",
   "src/reportWorkflow.ts",
   "src/ReportTools.tsx",

@@ -22,7 +22,6 @@ import {
 } from "./reportWorkflow";
 import {
   Badge,
-  labels,
   Fields,
   Loading,
   ErrorState,
@@ -30,6 +29,8 @@ import {
   Section,
   time,
 } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
+import { lookup } from "./i18n/catalog";
 export type FieldSpec = {
   key: string;
   label: string;
@@ -61,6 +62,7 @@ export function FormDialog({
   onClose: () => void;
   submit?: string;
 }) {
+  const { m } = useI18n();
   const [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -153,7 +155,7 @@ export function FormDialog({
                 )}
                 {f.options.map((o) => (
                   <option key={o} value={o}>
-                    {f.optionLabel?.(o) ?? labels[o] ?? o}
+                    {f.optionLabel?.(o) ?? lookup(m.labels, o)}
                   </option>
                 ))}
               </select>
@@ -538,6 +540,7 @@ export function Reports({
   citations?: Row[];
   onNotice: (s: string) => void;
 }) {
+  const { m } = useI18n();
   const [reports, setReports] = useState<Row[]>([]),
     [selected, setSelected] = useState(""),
     [detail, setDetail] = useState<Row | null>(null),
@@ -709,7 +712,7 @@ export function Reports({
                       value={v.report_version_id}
                     >
                       버전 {v.version_number} ·{" "}
-                      {labels[v.source_kind] ?? v.source_kind}
+                      {lookup(m.labels, v.source_kind)}
                     </option>
                   ))}
                 </select>

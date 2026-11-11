@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import type { Row } from "./gateway";
 import type { FieldSpec } from "./panels";
 import { AlertCircle } from "./icons";
-import { Badge, labels } from "./ui";
+import { Badge } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
+import { lookup } from "./i18n/catalog";
 
 /** Engine readers an image of this kind needs; the engine still probes the format. */
 const readersByExtension: Record<string, string[]> = {
@@ -65,6 +67,7 @@ function IntakeSubject({
   kind: "file" | "directory";
   capabilities: Row[];
 }) {
+  const { m } = useI18n();
   const extension = extensionOf(picked.name);
   const missing = missingReaders(kind, picked.name, capabilities);
   return (
@@ -86,7 +89,7 @@ function IntakeSubject({
           <span>
             이 PC에서는 {readerNames[c.id] ?? c.id} 구성요소({c.id})를 사용할 수
             없습니다
-            {c.reason ? ` (${labels[c.reason] ?? c.reason})` : ""}. 등록이
+            {c.reason ? ` (${lookup(m.labels, c.reason)})` : ""}. 등록이
             실패하거나 내부 파일을 읽지 못할 수 있습니다.
           </span>
           <Badge value={c.status} />
