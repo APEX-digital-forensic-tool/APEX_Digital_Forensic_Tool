@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { ErrorState, Fields, Loading, Section } from "./ui";
 import { X } from "./icons";
+import { useI18n } from "./i18n/I18nProvider";
 
 export function ForensicTools({
   caseId,
@@ -14,6 +15,7 @@ export function ForensicTools({
   selected: Row | null;
   onTask: () => void;
 }) {
+  const { m } = useI18n();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -76,13 +78,13 @@ export function ForensicTools({
   return (
     <>
       <div className="tools-strip">
-        <span>추가 분석</span>
+        <span>{m.tools.forensic.strip}</span>
         <button
           disabled={!caseId || !evidenceId}
           onClick={() => setOpen(true)}
-          title="삭제 파일 복구, 시그니처 카빙, OCR, 대체 데이터 스트림(ADS)"
+          title={m.tools.forensic.openTitle}
         >
-          복구·카빙·OCR·ADS
+          {m.tools.forensic.open}
         </button>
       </div>
       <dialog
@@ -91,40 +93,41 @@ export function ForensicTools({
         onCancel={() => setOpen(false)}
       >
         <header className="forensic-tools-header">
-          <h2>추가 포렌식 분석</h2>
-          <button onClick={() => setOpen(false)} aria-label="추가 분석 닫기">
+          <h2>{m.tools.forensic.title}</h2>
+          <button
+            onClick={() => setOpen(false)}
+            aria-label={m.tools.forensic.close}
+          >
             <X size={18} />
           </button>
         </header>
         <p>
-          {selected?.original_name ?? "선택한 증거"} · 원본은 읽기 전용으로
-          유지됩니다.
+          {m.tools.forensic.subject(
+            selected?.original_name ?? m.tools.forensic.selectedEvidence,
+          )}
         </p>
-        <Section title="삭제 파일 복구">
-          <p>
-            기록된 데이터 위치로 파생 파일을 만듭니다. 덮어쓴 데이터와 누락
-            구간은 복구를 보장하지 않습니다.
-          </p>
+        <Section title={m.tools.forensic.recover.title}>
+          <p>{m.tools.forensic.recover.body}</p>
           <button
             disabled={busy || !file || !selected?.is_deleted}
             onClick={() => void call("files.recover", node, true)}
           >
-            선택한 삭제 파일 복구
+            {m.tools.forensic.recover.action}
           </button>
         </Section>
-        <Section title="NTFS 데이터 스트림 (ADS)">
+        <Section title={m.tools.forensic.streams.title}>
           <button
             disabled={busy || !file || !imageFile || !!selected?.is_deleted}
             onClick={() => void call("files.streams", node)}
           >
-            데이터 스트림 조회
+            {m.tools.forensic.streams.list}
           </button>
           {streams.length > 0 && (
             <>
               <label>
-                스트림
+                {m.tools.forensic.streams.stream}
                 <select
-                  aria-label="데이터 스트림"
+                  aria-label={m.tools.forensic.streams.streamLabel}
                   disabled={busy}
                   value={streamId}
                   onChange={(e) => {
@@ -135,13 +138,16 @@ export function ForensicTools({
                 >
                   {streams.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name || "기본 스트림"} · {s.size} bytes
+                      {m.tools.forensic.streams.option(
+                        s.name || m.tools.forensic.streams.defaultStream,
+                        s.size,
+                      )}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                스트림 오프셋
+                {m.tools.forensic.streams.offset}
                 <input
                   disabled={busy}
                   value={offset}
@@ -167,7 +173,7 @@ export function ForensicTools({
                   })
                 }
               >
-                스트림 읽기
+                {m.tools.forensic.streams.read}
               </button>
               <button
                 disabled={busy || !streamId}
@@ -179,28 +185,27 @@ export function ForensicTools({
                   )
                 }
               >
-                스트림 내보내기
+                {m.tools.forensic.streams.export}
               </button>
             </>
           )}
         </Section>
-        <Section title="OCR·음성 인식">
-          <p>
-            설정에서 로컬 분석기와 모델을 선택하세요. 결과는 자동 추출 후보
-            화면에서 검토합니다.
-          </p>
+        <Section title={m.tools.forensic.machine.title}>
+          <p>{m.tools.forensic.machine.body}</p>
           <label>
-            언어
+            {m.tools.forensic.machine.language}
             <select
               disabled={busy}
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
             >
-              <option value="eng">영어 OCR</option>
-              <option value="kor+eng">한국어·영어 OCR</option>
-              <option value="ko">한국어 음성</option>
-              <option value="en">영어 음성</option>
-              <option value="auto">음성 언어 자동</option>
+              <option value="eng">{m.tools.forensic.machine.ocrEng}</option>
+              <option value="kor+eng">
+                {m.tools.forensic.machine.ocrKorEng}
+              </option>
+              <option value="ko">{m.tools.forensic.machine.sttKo}</option>
+              <option value="en">{m.tools.forensic.machine.sttEn}</option>
+              <option value="auto">{m.tools.forensic.machine.sttAuto}</option>
             </select>
           </label>
           {(["OCR", "STT"] as const).map((kind) => (
@@ -223,28 +228,29 @@ export function ForensicTools({
                 )
               }
             >
-              {kind === "OCR" ? "선택 파일 문자 추출" : "선택 파일 음성 인식"}
+              {kind === "OCR"
+                ? m.tools.forensic.machine.runOcr
+                : m.tools.forensic.machine.runStt}
             </button>
           ))}
         </Section>
-        <Section title="파일 시그니처 카빙">
-          <p>
-            PNG·JPEG·PDF·ZIP·GIF의 연속 바이트를 찾습니다. 결과는 원본 이름을 알
-            수 없는 검토 후보입니다.
-          </p>
+        <Section title={m.tools.forensic.carve.title}>
+          <p>{m.tools.forensic.carve.body}</p>
           <label>
-            탐색 범위
+            {m.tools.forensic.carve.scope}
             <select
               disabled={busy}
               value={scope}
               onChange={(e) => setScope(e.target.value)}
             >
-              <option value="UNALLOCATED">미할당 영역</option>
-              <option value="IMAGE">이미지 전체</option>
+              <option value="UNALLOCATED">
+                {m.tools.forensic.carve.unallocated}
+              </option>
+              <option value="IMAGE">{m.tools.forensic.carve.wholeImage}</option>
             </select>
           </label>
           <label>
-            한 작업의 탐색량 (MiB)
+            {m.tools.forensic.carve.budget}
             <input
               type="number"
               disabled={busy}
@@ -255,7 +261,7 @@ export function ForensicTools({
             />
           </label>
           <label>
-            탐색 시작 오프셋
+            {m.tools.forensic.carve.startOffset}
             <input
               disabled={busy}
               value={carveOffset}
@@ -286,18 +292,19 @@ export function ForensicTools({
               )
             }
           >
-            카빙 시작
+            {m.tools.forensic.carve.start}
           </button>
-          <p>
-            제한에 도달하면 작업 결과의 next_offset부터 이어서 탐색할 수
-            있습니다.
-          </p>
+          <p>{m.tools.forensic.carve.resume}</p>
         </Section>
         {busy && <Loading />}
         {error != null && <ErrorState error={error} />}
         {result && (
           <Section
-            title={result.task_id ? "작업이 등록되었습니다" : "분석 결과"}
+            title={
+              result.task_id
+                ? m.tools.forensic.taskRegistered
+                : m.tools.forensic.result
+            }
           >
             {result.text_preview && (
               <pre className="text-view">{result.text_preview}</pre>
@@ -306,7 +313,7 @@ export function ForensicTools({
           </Section>
         )}
         <button onClick={() => window.apex?.openExports()}>
-          복구·추출 결과 폴더 열기
+          {m.tools.forensic.openFolder}
         </button>
       </dialog>
     </>

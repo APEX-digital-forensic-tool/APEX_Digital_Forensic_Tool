@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { Badge, ErrorState, Fields, Loading, Section } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
 
 export function AiAssistant({
   caseId,
@@ -9,6 +10,7 @@ export function AiAssistant({
   caseId: string;
   selected: { type: string; id: string } | null;
 }) {
+  const { m } = useI18n();
   const [result, setResult] = useState<Row | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -65,19 +67,16 @@ export function AiAssistant({
   const summary = result?.execution?.result;
   return (
     <>
-      <p className="muted">
-        선택한 자료와 사건 정책을 확인한 후 분석합니다. 본문 분석은 전송할
-        발췌문을 먼저 확인해야 합니다.
-      </p>
+      <p className="muted">{m.ai.intro}</p>
       <label>
-        분석 방식
+        {m.ai.mode}
         <select
           value={mode}
           disabled={busy}
           onChange={(e) => setMode(e.target.value)}
         >
-          <option value="STRUCTURE">구조 정보 요약</option>
-          <option value="CONTENT">증거 본문 발췌 분석</option>
+          <option value="STRUCTURE">{m.ai.structure}</option>
+          <option value="CONTENT">{m.ai.content}</option>
         </select>
       </label>
       {mode === "CONTENT" && (
@@ -85,23 +84,22 @@ export function AiAssistant({
           disabled={!supported || busy}
           onClick={() => void analyze(true)}
         >
-          전송할 발췌문 준비
+          {m.ai.prepare}
         </button>
       )}
       {mode === "CONTENT" && result?.preview && (
-        <Section title="전송할 발췌문">
-          <p>{result.preview.notice}</p>
+        <Section title={m.ai.excerpt}>
+          {/* The engine's notice is Korean-only; show the catalog's wording. */}
+          {result.preview.notice && <p>{m.ai.redactionNotice}</p>}
           <pre className="text-view">{result.preview.payload.text}</pre>
-          {result.preview.payload.truncated && (
-            <p>일부 내용만 포함된 발췌문입니다.</p>
-          )}
+          {result.preview.payload.truncated && <p>{m.ai.truncated}</p>}
           <label className="check">
             <input
               type="checkbox"
               checked={reviewed}
               onChange={(e) => setReviewed(e.target.checked)}
             />
-            발췌문을 확인했고 이 내용의 분석 요청에 동의합니다.
+            {m.ai.consent}
           </label>
         </Section>
       )}
@@ -111,28 +109,23 @@ export function AiAssistant({
         }
         onClick={() => void analyze()}
       >
-        현재 선택 분석 요청
+        {m.ai.request}
       </button>
       {busy && <Loading />}
       {error != null && (
         <ErrorState error={error} retry={() => void analyze()} />
       )}
       {result?.status === "CONFIGURATION_REQUIRED" && (
-        <p>분석 요청을 저장했습니다. AI 제공자 연결 설정이 필요합니다.</p>
+        <p>{m.ai.configRequired}</p>
       )}
-      {result?.status === "POLICY_DENIED" && (
-        <p>
-          사건의 AI 데이터 정책이 전송을 허용하지 않았습니다. 설정에서 평가
-          사유를 확인하세요.
-        </p>
-      )}
+      {result?.status === "POLICY_DENIED" && <p>{m.ai.policyDenied}</p>}
       {result?.audit && (
-        <Section title="데이터 정책 평가">
+        <Section title={m.ai.policyEvaluation}>
           <Fields value={result.audit.result} />
         </Section>
       )}
       {summary && (
-        <Section title={summary.title ?? "AI 분석 결과"}>
+        <Section title={summary.title ?? m.ai.resultTitle}>
           <Badge value="AI_INFERENCE" />
           <p>{summary.summary_text}</p>
           <ul>
@@ -142,16 +135,16 @@ export function AiAssistant({
           </ul>
           <p className="muted small">
             {mode === "CONTENT"
-              ? "검토한 발췌문에 대한 AI 해석입니다. 원본 전체를 분석한 결과가 아니며 근거를 확인해야 합니다."
-              : "구조 정보에 대한 AI 요약입니다. 원본 내용에 대한 분석이나 검증된 관찰 사실을 의미하지 않습니다."}
+              ? m.ai.contentDisclaimer
+              : m.ai.structureDisclaimer}
           </p>
-          <Section title="선택 자료 출처">
+          <Section title={m.ai.sources}>
             <Fields value={summary.citations} />
           </Section>
         </Section>
       )}
       {result?.request && (
-        <Section title="저장된 요청">
+        <Section title={m.ai.savedRequest}>
           <Fields
             value={{
               assistance_request_id: result.request.assistance_request_id,

@@ -12,12 +12,6 @@ const KOREAN_ALLOWED = new Set([
   "src/demoBridge.ts",
   // Language names are always shown in their own language.
   "src/i18n/locales.ts",
-  // Pending migration: each task removes its files.
-  "src/MachineSettings.tsx",
-  "src/ForensicTools.tsx",
-  "src/ImageInspector.tsx",
-  "src/VideoInspector.tsx",
-  "src/AiAssistant.tsx",
 ]);
 
 const EXCLUDED = [

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { gateway, unwrap, type Row } from "./gateway";
 import { Badge, ErrorState, Fields, Loading } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
 
 export function ImageInspector({
   caseId,
@@ -11,6 +12,7 @@ export function ImageInspector({
   resourceType: string;
   resourceId: string;
 }) {
+  const { m } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const request = useRef(0);
   const [preview, setPreview] = useState<Row | null>(null);
@@ -79,7 +81,7 @@ export function ImageInspector({
           if (!preview) void run("PREVIEW");
         }}
       >
-        이미지 보기 · 비트 분석
+        {m.tools.image.open}
       </button>
       <dialog
         className="image-dialog"
@@ -87,17 +89,16 @@ export function ImageInspector({
         aria-labelledby="image-inspector-title"
       >
         <header>
-          <h2 id="image-inspector-title">이미지 보기 · 비트 분석</h2>
-          <button onClick={() => dialog.current?.close()}>닫기</button>
+          <h2 id="image-inspector-title">{m.tools.image.open}</h2>
+          <button onClick={() => dialog.current?.close()}>
+            {m.panels.form.close}
+          </button>
         </header>
-        <p className="muted small">
-          읽기 전용 파생 분석 · 첫 프레임의 저장된 픽셀을 사용합니다. EXIF
-          회전은 적용하지 않습니다.
-        </p>
+        <p className="muted small">{m.tools.image.intro}</p>
         <fieldset disabled={busy} className="image-controls">
-          <legend>이미지 표시</legend>
+          <legend>{m.tools.image.display.legend}</legend>
           <label>
-            표시 채널
+            {m.tools.image.display.channel}
             <select
               value={channel}
               onChange={(e) => {
@@ -111,7 +112,7 @@ export function ImageInspector({
             </select>
           </label>
           <label>
-            비트 평면
+            {m.tools.image.display.bitPlane}
             <select
               value={viewBit}
               onChange={(e) => {
@@ -119,7 +120,7 @@ export function ImageInspector({
                 setPreview(null);
               }}
             >
-              <option value={-1}>전체 값</option>
+              <option value={-1}>{m.tools.image.display.allValues}</option>
               {Array.from({ length: 8 }, (_, i) => (
                 <option key={i} value={i}>
                   bit {i}
@@ -129,7 +130,7 @@ export function ImageInspector({
             </select>
           </label>
           <label>
-            최대 표시 크기
+            {m.tools.image.display.maxSize}
             <select
               value={dimension}
               onChange={(e) => {
@@ -144,9 +145,11 @@ export function ImageInspector({
               ))}
             </select>
           </label>
-          <button onClick={() => void run("PREVIEW")}>이미지 표시</button>
+          <button onClick={() => void run("PREVIEW")}>
+            {m.tools.image.display.show}
+          </button>
           <label>
-            확대율
+            {m.tools.image.display.zoom}
             <select
               value={zoom}
               onChange={(e) => setZoom(Number(e.target.value))}
@@ -167,25 +170,30 @@ export function ImageInspector({
               {preview.format} · {preview.width} × {preview.height} ·{" "}
               {preview.color_mode}
               {preview.is_resized
-                ? ` · 축소 미리보기 ${preview.preview_width} × ${preview.preview_height}`
-                : " · 원본 해상도"}
+                ? m.tools.image.resized(
+                    preview.preview_width,
+                    preview.preview_height,
+                  )
+                : m.tools.image.original}
             </p>
             <div className="image-viewport">
               <img
-                alt={`증거 이미지 · ${preview.channel}${preview.bit == null ? "" : ` bit ${preview.bit}`}`}
+                alt={m.tools.image.alt(
+                  `${preview.channel}${preview.bit == null ? "" : ` bit ${preview.bit}`}`,
+                )}
                 src={preview.image_url}
                 style={{ width: (preview.preview_width * zoom) / 100 }}
               />
             </div>
             <p className="small image-hash">
-              원본 SHA-256: {preview.source_sha256}
+              {m.tools.image.sourceHash(preview.source_sha256)}
             </p>
           </>
         )}
         <fieldset disabled={busy} className="image-controls">
-          <legend>픽셀 비트 추출</legend>
+          <legend>{m.tools.image.extract.legend}</legend>
           <label>
-            채널 순서
+            {m.tools.image.extract.channelOrder}
             <input
               value={channels}
               maxLength={4}
@@ -193,7 +201,7 @@ export function ImageInspector({
             />
           </label>
           <label>
-            추출 비트
+            {m.tools.image.extract.bit}
             <select
               value={bit}
               onChange={(e) => setBit(Number(e.target.value))}
@@ -207,14 +215,18 @@ export function ImageInspector({
             </select>
           </label>
           <label>
-            바이트 조합
+            {m.tools.image.extract.byteOrder}
             <select value={order} onChange={(e) => setOrder(e.target.value)}>
-              <option value="MSB_FIRST">상위 비트부터 (MSB)</option>
-              <option value="LSB_FIRST">하위 비트부터 (LSB)</option>
+              <option value="MSB_FIRST">
+                {m.tools.image.extract.msbFirst}
+              </option>
+              <option value="LSB_FIRST">
+                {m.tools.image.extract.lsbFirst}
+              </option>
             </select>
           </label>
           <label>
-            시작 픽셀
+            {m.tools.image.extract.startPixel}
             <input
               type="number"
               min={0}
@@ -224,7 +236,7 @@ export function ImageInspector({
             />
           </label>
           <label>
-            최대 추출 바이트
+            {m.tools.image.extract.maxBytes}
             <input
               type="number"
               min={1}
@@ -234,27 +246,35 @@ export function ImageInspector({
             />
           </label>
           <button disabled={!valid} onClick={() => void run("EXTRACT")}>
-            비트 추출
+            {m.tools.image.extract.run}
           </button>
         </fieldset>
-        <p className="muted small">
-          채널은 R·G·B·A를 중복 없이 지정합니다. 왼쪽 위부터 행 순서로 8비트
-          RGBA 변환 픽셀을 읽습니다. 추출에는 축소 미리보기를 사용하지 않습니다.
-        </p>
+        <p className="muted small">{m.tools.image.hint}</p>
         {result && (
-          <section className="image-extraction" aria-label="비트 추출 결과">
+          <section
+            className="image-extraction"
+            aria-label={m.tools.image.result.label}
+          >
             <h3>
-              추출 결과 <Badge value="DERIVED_ANALYSIS" />
+              {m.tools.image.result.title} <Badge value="DERIVED_ANALYSIS" />
             </h3>
             <p>
-              {result.channels} · bit {result.bit} ·{" "}
-              {result.bit_order === "MSB_FIRST" ? "MSB 우선" : "LSB 우선"} ·
-              시작 픽셀 {result.pixel_offset}
-              {` · ${result.returned_bytes} / ${result.available_bytes}바이트`}
-              {result.has_more ? " · 추가 데이터 있음" : " · 끝"}
+              {m.tools.image.result.summary(
+                result.channels,
+                result.bit,
+                result.bit_order === "MSB_FIRST"
+                  ? m.tools.image.result.msb
+                  : m.tools.image.result.lsb,
+                result.pixel_offset,
+                result.returned_bytes,
+                result.available_bytes,
+                result.has_more
+                  ? m.tools.image.result.more
+                  : m.tools.image.result.end,
+              )}
             </p>
             <label>
-              추출 텍스트 (UTF-8)
+              {m.tools.image.result.text}
               <textarea
                 readOnly
                 rows={6}
@@ -264,16 +284,13 @@ export function ImageInspector({
                 )}
               />
             </label>
-            <p className="muted small">
-              제어 문자는 ·, 유효하지 않은 UTF-8은 �로 표시합니다. 정확한
-              바이트는 Hex와 저장된 JSON에서 확인하세요.
-            </p>
+            <p className="muted small">{m.tools.image.result.controlNote}</p>
             <details>
-              <summary>추출 Hex</summary>
+              <summary>{m.tools.image.result.hex}</summary>
               <pre>{result.hex}</pre>
             </details>
             <details>
-              <summary>분석 조건 · 출처 · 해시</summary>
+              <summary>{m.tools.image.result.conditions}</summary>
               <Fields
                 value={Object.fromEntries(
                   Object.entries(result).filter(
@@ -283,8 +300,7 @@ export function ImageInspector({
               />
             </details>
             <p className="small">
-              분석 조건·원본 해시·결과가 JSON으로 저장됐습니다:{" "}
-              {result.export_relative_path}
+              {m.tools.image.result.saved(result.export_relative_path)}
             </p>
             <button
               onClick={async () => {
@@ -295,7 +311,7 @@ export function ImageInspector({
                 }
               }}
             >
-              결과 폴더 열기
+              {m.tools.image.result.openFolder}
             </button>
           </section>
         )}

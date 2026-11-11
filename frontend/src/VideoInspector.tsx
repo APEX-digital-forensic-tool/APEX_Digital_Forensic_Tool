@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { ErrorState, Fields, Loading } from "./ui";
+import { useI18n } from "./i18n/I18nProvider";
 
 export function VideoInspector({
   caseId,
@@ -11,6 +12,7 @@ export function VideoInspector({
   resourceType: string;
   resourceId: string;
 }) {
+  const { m } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const revision = useRef(0);
   const [seconds, setSeconds] = useState(0);
@@ -50,7 +52,7 @@ export function VideoInspector({
   return (
     <>
       <button onClick={() => dialog.current?.showModal()}>
-        영상 프레임 보기
+        {m.tools.video.open}
       </button>
       <dialog
         className="image-dialog"
@@ -58,19 +60,15 @@ export function VideoInspector({
         aria-labelledby="video-inspector-title"
       >
         <header>
-          <h2 id="video-inspector-title">영상 프레임 보기</h2>
-          <button onClick={() => dialog.current?.close()}>닫기</button>
+          <h2 id="video-inspector-title">{m.tools.video.open}</h2>
+          <button onClick={() => dialog.current?.close()}>
+            {m.panels.form.close}
+          </button>
         </header>
-        <p>
-          영상의 로컬 사본에서 한 프레임을 읽습니다. 원본은 변경하지 않으며
-          외부로 전송하지 않습니다.
-        </p>
-        <p className="muted small">
-          최대 512 MiB · 15초 디코딩 제한 · 최대 1536 px 미리보기. 지정 시각
-          이후 디코딩되는 프레임이며 원본 프레임 번호를 보장하지 않습니다.
-        </p>
+        <p>{m.tools.video.intro}</p>
+        <p className="muted small">{m.tools.video.limits}</p>
         <label>
-          요청 시각 (초)
+          {m.tools.video.seconds}
           <input
             type="number"
             min={0}
@@ -86,18 +84,18 @@ export function VideoInspector({
           }
           onClick={() => void inspect()}
         >
-          프레임 읽기
+          {m.tools.video.read}
         </button>
         {busy && <Loading />}
         {error != null && <ErrorState error={error} />}
         {result && (
           <>
-            <p>요청 시각: {result.timestamp_seconds_requested}초 · 파생 분석</p>
+            <p>{m.tools.video.requested(result.timestamp_seconds_requested)}</p>
             <div className="image-viewport">
-              <img alt="선택 시각의 영상 프레임" src={result.image_url} />
+              <img alt={m.tools.video.alt} src={result.image_url} />
             </div>
             <details>
-              <summary>영상 정보 · 출처 · 해시</summary>
+              <summary>{m.tools.video.details}</summary>
               <Fields
                 value={Object.fromEntries(
                   Object.entries(result).filter(([key]) => key !== "image_url"),
