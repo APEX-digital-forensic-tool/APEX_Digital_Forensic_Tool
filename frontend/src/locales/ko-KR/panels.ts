@@ -5,6 +5,7 @@ export const panels = {
     choose: "선택하세요",
     cancel: "취소",
     busy: "처리 중…",
+    required: "필수",
   },
   account: {
     title: "APEX 계정",

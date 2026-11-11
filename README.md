@@ -1,6 +1,6 @@
 # APEX Digital Forensic Tool
 
-APEX는 **Electron + React + TypeScript 데스크톱 앱**, **Python·Native 하이브리드 분석 엔진**, **한국어 UI**, **MCP 및 선택적 AI 분석 보조 기능**을 제공하는 디지털 포렌식 분석 플랫폼입니다. 로그인 없이 로컬 사건을 생성하고 증거를 분석할 수 있습니다.
+APEX는 **Electron + React + TypeScript 데스크톱 앱**, **Python·Native 하이브리드 분석 엔진**, **한국어·영어 UI**, **MCP 및 선택적 AI 분석 보조 기능**을 제공하는 디지털 포렌식 분석 플랫폼입니다. 로그인 없이 로컬 사건을 생성하고 증거를 분석할 수 있습니다.
 
 ## 다운로드 — v0.1.4 Preview
 
@@ -52,6 +52,10 @@ APEX는 독립적인 Python 분석 엔진과 Electron·TypeScript 앱을 사용�
 | 인증 백엔드 | **Identity / Approval 구현·연동** | JWT RS256·JWKS·세션·사건별 RBAC·DB confirmation grant. 서버 별도 실행. 앱의 자동 토큰 갱신·서버 로그아웃 연결 및 Billing은 후속 범위 |
 | 배포 / CI | **Windows x64·macOS arm64/x64 성공** | 런타임 빌드·기동 확인, 설치 파일·체크섬·빌드 출처 공개. 서명·공증·자동 업데이트는 미제공 |
 | KakaoTalk Windows 2.0.8.990 | **IMPLEMENTED_UNVERIFIED** | Offline Discovery·PE Version 검증·외부 Key 복호화·`chatLogs` 추출 구현, 자동 Key 획득과 실제 Fixture는 외부 근거 부족으로 차단 |
+
+### 다음 릴리스에 포함 (미배포)
+
+- **언어 선택:** 첫 실행은 OS 언어를 따릅니다(한국어가 아니면 영어). 설정 → 언어에서 한국어·English를 바꾸면 재시작 없이 적용되고 다음 실행에도 유지됩니다. 보고서 레이블은 사건을 만들 때의 언어를 따르므로, 한국어로 만든 사건은 화면이 영어여도 보고서가 한국어로 나옵니다.
 
 ### v0.1.4 배포 수정
 

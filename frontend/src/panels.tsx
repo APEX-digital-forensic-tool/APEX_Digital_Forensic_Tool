@@ -131,7 +131,12 @@ export function FormDialog({
         {context}
         {fields.map((f) => (
           <label key={f.key}>
-            <span className="field-label">{f.label}</span>
+            <span
+              className="field-label"
+              data-required-label={m.panels.form.required}
+            >
+              {f.label}
+            </span>
             {f.type === "textarea" ? (
               <textarea
                 name={f.key}

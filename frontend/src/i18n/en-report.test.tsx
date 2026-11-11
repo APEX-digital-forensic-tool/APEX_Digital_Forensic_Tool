@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { HANGUL, renderInEnglish } from "./testing";
 import { enUS } from "../locales/en-US";
-import { Reports } from "../panels";
+import { FormDialog, Reports } from "../panels";
 import { gateway, type Row } from "../gateway";
 import { reviewFlow } from "../reportWorkflow";
 import fixture from "../__fixtures__/report.json";
@@ -67,4 +67,19 @@ it("derives English hints from reviewFlow", () => {
   expect(flow.hint).not.toMatch(HANGUL);
   expect(flow.hint.length).toBeGreaterThan(0);
   expect(enUS.report.actions[flow.primary].label).toBe("Submit for review");
+});
+
+it("marks required dialog fields in English", () => {
+  renderInEnglish(
+    <FormDialog
+      title="Dialog"
+      fields={[{ key: "name", label: "Case name", required: true }]}
+      onSubmit={async () => {}}
+      onClose={() => {}}
+    />,
+  );
+  // The marker is drawn by CSS from this attribute, so it follows the catalog.
+  expect(
+    screen.getByText("Case name").getAttribute("data-required-label"),
+  ).toBe("Required");
 });

@@ -29,11 +29,15 @@ function walk(dir: string): string[] {
 }
 
 function sourceFiles() {
-  return ["src", "electron"]
-    .flatMap((dir) => walk(join(root, dir)))
-    .map((path) => relative(root, path).split(sep).join("/"))
-    .filter((path) => /\.tsx?$/.test(path))
-    .filter((path) => !EXCLUDED.some((pattern) => pattern.test(path)));
+  return (
+    ["src", "electron"]
+      .flatMap((dir) => walk(join(root, dir)))
+      .map((path) => relative(root, path).split(sep).join("/"))
+      // Stylesheets count too: generated content (`content: "…"`) is UI copy.
+      .filter((path) => /\.(tsx?|css)$/.test(path))
+      .concat("index.html")
+      .filter((path) => !EXCLUDED.some((pattern) => pattern.test(path)))
+  );
 }
 
 const read = (path: string) => readFileSync(join(root, path), "utf8");

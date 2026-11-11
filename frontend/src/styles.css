@@ -822,7 +822,8 @@ legend {
 }
 /* Visual required marker; the control's required attribute carries it to AT. */
 .modal label:has(:required) .field-label::after {
-  content: "필수" / "";
+  /* Text comes from the message catalog via FormDialog. */
+  content: attr(data-required-label) / "";
   margin-left: 6px;
   color: var(--warn-fg);
   font-size: var(--fs-meta);

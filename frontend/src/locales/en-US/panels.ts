@@ -7,6 +7,7 @@ export const panels: Messages["panels"] = {
     choose: "Select",
     cancel: "Cancel",
     busy: "Working…",
+    required: "Required",
   },
   account: {
     title: "APEX account",
