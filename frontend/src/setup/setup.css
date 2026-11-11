@@ -42,6 +42,16 @@
   border-bottom: 0;
   margin-bottom: 0;
 }
+/* The engine's runtime details nest field lists up to four deep, each nested
+   row reserving a fixed 150px label column. That does not fit this window
+   and the deepest rows were cut off, so nested rows stack label over value. */
+.setup-body .fields .fields > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+.setup-body .fields dt {
+  overflow-wrap: anywhere;
+}
 .setup-choices {
   display: flex;
   flex-direction: column;
