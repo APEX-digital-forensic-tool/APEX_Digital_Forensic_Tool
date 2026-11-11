@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { gateway, unwrap, type Row } from "./gateway";
+import { gateway, GatewayError, unwrap, type Row } from "./gateway";
 import { ErrorState, Fields, Loading } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup } from "./i18n/catalog";
@@ -10,24 +10,43 @@ export function MachineSettings({ compact = false }: { compact?: boolean }) {
   const [data, setData] = useState<Row | null>(null);
   const [settings, setSettings] = useState<Row>({});
   const [error, setError] = useState<unknown>(null);
+  // Set when the initial load failed; save/reset errors leave it false.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
-    gateway
-      .call("machine.capabilities")
-      .then((r) => {
-        if (live) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      gateway
+        .call("machine.capabilities")
+        .then((r) => {
+          if (!live) return;
           setData(r);
           setSettings(r.settings);
-        }
-      })
-      .catch((e) => {
-        if (live) setError(e);
-      });
+        })
+        .catch((e) => {
+          if (!live) return;
+          // The engine may still be starting (setup steps mount early): keep waiting.
+          if (e instanceof GatewayError && e.code === "SERVICE_NOT_READY")
+            timer = setTimeout(load, 1000);
+          else {
+            setError(e);
+            setLoadFailed(true);
+          }
+        });
+    };
+    load();
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [attempt]);
+  function retryLoad() {
+    setError(null);
+    setLoadFailed(false);
+    setAttempt((n) => n + 1);
+  }
   async function pick(key: string, kind: "file" | "directory") {
     if (!window.apex) return;
     try {
@@ -82,7 +101,9 @@ export function MachineSettings({ compact = false }: { compact?: boolean }) {
           <p>{m.machine.sttIntro}</p>
         </>
       )}
-      {error != null && <ErrorState error={error} />}
+      {error != null && (
+        <ErrorState error={error} retry={loadFailed ? retryLoad : undefined} />
+      )}
       {!data ? (
         !error && <Loading />
       ) : (

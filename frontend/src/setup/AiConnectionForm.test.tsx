@@ -135,3 +135,18 @@ it("says when the key cannot be encrypted on this computer", async () => {
   );
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
+
+it("offers Try again when the status fails to load", async () => {
+  let calls = 0;
+  mount({
+    aiConnection: async () =>
+      ++calls === 1
+        ? { ok: false, error: { code: "DESKTOP_CONNECTION_FAILED" } }
+        : ok(none),
+  });
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Try again" }),
+  );
+  await screen.findByLabelText("Base URL");
+  expect(calls).toBe(2);
+});

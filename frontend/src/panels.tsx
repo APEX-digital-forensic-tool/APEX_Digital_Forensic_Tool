@@ -202,10 +202,20 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
   const { m } = useI18n();
   const [state, setState] = useState<Row>({ connected: false }),
     [error, setError] = useState<unknown>(null),
+    // Set when the status itself failed to load; sign-in errors leave it false.
+    [loadFailed, setLoadFailed] = useState(false),
+    [attempt, setAttempt] = useState(0),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    window.apex?.account().then(unwrap).then(setState).catch(setError);
-  }, []);
+    window.apex
+      ?.account()
+      .then(unwrap)
+      .then(setState)
+      .catch((err) => {
+        setError(err);
+        setLoadFailed(true);
+      });
+  }, [attempt]);
   return (
     <div className={compact ? "account-panel" : "card"}>
       {!compact && (
@@ -239,6 +249,7 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
             e.preventDefault();
             setBusy(true);
             setError(null);
+            setLoadFailed(false);
             const form = e.currentTarget;
             const data = Object.fromEntries(new FormData(form));
             try {
@@ -289,7 +300,20 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
           </button>
         </form>
       )}
-      {error != null && <ErrorState error={error} />}
+      {error != null && (
+        <ErrorState
+          error={error}
+          retry={
+            loadFailed
+              ? () => {
+                  setError(null);
+                  setLoadFailed(false);
+                  setAttempt((n) => n + 1);
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

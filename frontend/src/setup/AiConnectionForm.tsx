@@ -39,6 +39,7 @@ export function AiConnectionForm({
   const [timeout, setTimeoutSeconds] = useState("30");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // The key lives only in this uncontrolled input; it is never in React state.
   const keyRef = useRef<HTMLInputElement>(null);
   const bridge = window.apex;
@@ -66,7 +67,7 @@ export function AiConnectionForm({
     return () => {
       live = false;
     };
-  }, [bridge]);
+  }, [bridge, attempt]);
 
   const editable =
     status != null && !status.managed && status.storage_available;
@@ -110,7 +111,17 @@ export function AiConnectionForm({
   }
 
   if (!status) {
-    return error ? <ErrorState error={error} /> : <Loading />;
+    return error ? (
+      <ErrorState
+        error={error}
+        retry={() => {
+          setError(null);
+          setAttempt((n) => n + 1);
+        }}
+      />
+    ) : (
+      <Loading />
+    );
   }
   // On a first run "not configured" is a given; the badge earns its place
   // once there is a connection or the form stands alone in Settings.

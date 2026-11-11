@@ -2,6 +2,7 @@
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,10 +10,11 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MachineSettings } from "./MachineSettings";
-import { gateway } from "./gateway";
+import { gateway, GatewayError } from "./gateway";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -131,4 +133,53 @@ it("points environment-managed invalid settings to the runtime environment", asy
     "stt_provider",
   );
   expect(screen.queryByText("손상된 설정 보존 후 기본값으로 복구")).toBeNull();
+});
+
+it("keeps loading and retries while the engine is still starting", async () => {
+  vi.useFakeTimers();
+  const call = vi
+    .spyOn(gateway, "call")
+    .mockRejectedValueOnce(new GatewayError("SERVICE_NOT_READY"))
+    .mockResolvedValue(capabilities);
+  render(<MachineSettings />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("엔진 응답을 기다리는 중")).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(call).toHaveBeenCalledTimes(2);
+  expect(
+    screen.getByText("저장된 STT 설정: 분석기와 모델 파일 준비됨"),
+  ).toBeTruthy();
+});
+
+it("offers Retry for any other load error and loads on click", async () => {
+  const call = vi
+    .spyOn(gateway, "call")
+    .mockRejectedValueOnce(new GatewayError("BACKEND_STOPPED"))
+    .mockResolvedValue(capabilities);
+  render(<MachineSettings />);
+  fireEvent.click(await screen.findByRole("button", { name: "다시 시도" }));
+  await screen.findByText("저장된 STT 설정: 분석기와 모델 파일 준비됨");
+  expect(call).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("stops retrying once unmounted", async () => {
+  vi.useFakeTimers();
+  const call = vi
+    .spyOn(gateway, "call")
+    .mockRejectedValue(new GatewayError("SERVICE_NOT_READY"));
+  const view = render(<MachineSettings />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(call).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(call).toHaveBeenCalledTimes(1);
 });
