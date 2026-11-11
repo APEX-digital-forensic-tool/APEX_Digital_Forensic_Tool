@@ -3,6 +3,7 @@ import { errors } from "./errors";
 import { labels } from "./labels";
 import { native } from "./native";
 import { settings } from "./settings";
+import { shell } from "./shell";
 import { ui } from "./ui";
 
 /** Korean is the source catalog: its shape is the type every locale must match. */
@@ -13,6 +14,7 @@ export const koKR = {
   native,
   labels,
   ui,
+  shell,
 };
 
 export type Messages = typeof koKR;

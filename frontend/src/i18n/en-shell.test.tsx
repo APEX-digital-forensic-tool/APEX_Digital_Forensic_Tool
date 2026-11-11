@@ -1,8 +1,19 @@
 // @vitest-environment jsdom
 import React from "react";
-import { afterEach, expect, it } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderInEnglish } from "./testing";
+import { I18nProvider } from "./I18nProvider";
+import { App } from "../App";
+import { createDemoBridge } from "../demoBridge";
+import core from "../__fixtures__/core.json";
 import { enUS } from "../locales/en-US";
 import { GatewayError } from "../gateway";
 import {
@@ -46,5 +57,58 @@ it("translates enum labels and helper text", () => {
   expect(evidenceFormat("DIRECTORY", enUS)).toBe("Folder");
   expect(time("2026-01-01T00:00:00", "UTC", enUS)).toContain(
     "time zone unknown",
+  );
+});
+
+it("switches the shell to English without losing the open case", async () => {
+  window.apex = createDemoBridge();
+  render(
+    <I18nProvider initialLocale="ko-KR">
+      <App />
+    </I18nProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      document.querySelector(`option[value="${core.cases[0].id}"]`),
+    ).toBeTruthy(),
+  );
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "설정" }));
+  await userEvent.selectOptions(
+    screen.getByRole("combobox", { name: "언어" }),
+    "en-US",
+  );
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Settings" }),
+  ).toBeTruthy();
+  expect(
+    screen
+      .getByRole("button", { name: "Settings" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
+  expect(
+    (screen.getByLabelText("Current case") as HTMLSelectElement).value,
+  ).toBe(core.cases[0].id);
+  for (const name of ["Case", "Explore", "Analyze", "Report"])
+    expect(screen.getByRole("button", { name })).toBeTruthy();
+});
+
+it("creates new cases in the display language", async () => {
+  const bridge = createDemoBridge();
+  const invoke = vi.spyOn(bridge, "invoke");
+  window.apex = bridge;
+  renderInEnglish(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "New case" }));
+  fireEvent.change(screen.getByLabelText(/Case name/), {
+    target: { value: "Laptop seizure" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create case" }));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(
+      "cases.create",
+      expect.objectContaining({ locale: "en-US" }),
+    ),
   );
 });

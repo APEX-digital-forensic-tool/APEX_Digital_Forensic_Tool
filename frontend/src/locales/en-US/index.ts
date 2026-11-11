@@ -4,6 +4,7 @@ import { errors } from "./errors";
 import { labels } from "./labels";
 import { native } from "./native";
 import { settings } from "./settings";
+import { shell } from "./shell";
 import { ui } from "./ui";
 
 export const enUS: Messages = {
@@ -13,4 +14,5 @@ export const enUS: Messages = {
   native,
   labels,
   ui,
+  shell,
 };
