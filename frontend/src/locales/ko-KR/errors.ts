@@ -7,6 +7,8 @@ export const errors = {
     "이 컴퓨터에서는 키를 암호화할 수 없어 앱에 저장하지 않습니다.",
   AI_CONNECTION_MANAGED:
     "환경변수(APEX_DESKTOP_AI_CONFIG)로 관리되는 설정입니다. 실행 환경에서 변경해주세요.",
+  AI_ENGINE_BUSY:
+    "분석 작업이 실행 중이라 지금은 변경할 수 없습니다. 작업이 끝난 뒤 다시 시도해주세요.",
   AI_CONFIGURATION_INVALID:
     "AI 연결 설정이 올바르지 않습니다. 설정의 AI 연결 또는 실행 환경의 APEX_DESKTOP_AI_CONFIG를 확인해주세요. 로컬 분석은 계속 사용할 수 있습니다.",
   VIDEO_LIMIT_EXCEEDED:

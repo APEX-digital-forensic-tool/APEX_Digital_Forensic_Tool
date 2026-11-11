@@ -34,6 +34,7 @@ import {
   type TextFile,
 } from "./aiConnection";
 import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
+import { hasActiveTasks, stopChild } from "./engineGuard";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -99,6 +100,8 @@ let backend: ChildProcess | undefined;
 let generation = 0;
 let backendURL = "";
 let backendError = "SERVICE_NOT_READY";
+// Set in before-quit; no engine is spawned or restarted after that.
+let quitting = false;
 const token = randomBytes(32).toString("hex");
 const picked = new Map<string, string>();
 let account:
@@ -196,6 +199,7 @@ async function local(operation: string, payload: Record<string, unknown>) {
   return response.json();
 }
 async function startBackend() {
+  if (quitting) return;
   const current = ++generation;
   const repo = resolve(__dirname, "../..");
   const runtime = runtimeExecutable(process.resourcesPath, process.platform);
@@ -276,30 +280,33 @@ async function startBackend() {
   });
 }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** Stop the engine, start it with the current AI environment, and wait up to 90s for readiness. */
+/**
+ * Stop the engine, start it with the current AI environment, and wait up to 90s for readiness.
+ * Resolves false when the old engine survived SIGKILL; no second engine is started on its data.
+ */
 async function restartEngine() {
+  if (quitting) return true;
   const old = backend;
   generation++;
-  backend = undefined;
-  if (old && old.exitCode === null && old.signalCode === null) {
-    await new Promise<void>((done) => {
-      const timer = setTimeout(done, 10000);
-      old.once("exit", () => {
-        clearTimeout(timer);
-        done();
-      });
-      old.kill();
-    });
-  }
+  // No request may reach the engine while it is being stopped.
   backendURL = "";
   backendError = "SERVICE_NOT_READY";
+  if (old && !(await stopChild(old, { graceMs: 10000, killMs: 5000 }))) {
+    // Keep the survivor so before-quit and a later restart try to stop it again.
+    backend = old;
+    backendError = "BACKEND_START_FAILED";
+    return false;
+  }
+  backend = undefined;
+  if (quitting) return true;
   await startBackend();
   const deadline = Date.now() + 90000;
   while (!backendURL && backendError === "SERVICE_NOT_READY" && Date.now() < deadline)
     await wait(100);
+  return true;
 }
 // Serialized so overlapping saves cannot orphan a child spawned by an earlier restart.
-let restarting: Promise<void> = Promise.resolve();
+let restarting: Promise<boolean> = Promise.resolve(true);
 function restartBackend() {
   restarting = restarting.then(restartEngine, restartEngine);
   return restarting;
@@ -542,16 +549,21 @@ else {
       ok: true,
       data: aiConnectionStatus(aiDeps),
     }));
+    // A restart kills running analysis, so it is refused while any case has an active task.
+    // A failed check while the engine is up throws, which handle() reports as a failure.
+    const engineBusy = async () => !!backendURL && (await hasActiveTasks(local));
     handle("apex:ai-connection-save", async (_event, input: unknown) => {
+      if (await engineBusy()) return fail("AI_ENGINE_BUSY");
       const result = saveAiConnection(input, aiDeps);
       if (!result.ok) return fail(result.code);
-      await restartBackend();
+      if (!(await restartBackend())) return fail("BACKEND_START_FAILED");
       return { ok: true, data: aiConnectionStatus(aiDeps) };
     });
     handle("apex:ai-connection-clear", async () => {
+      if (await engineBusy()) return fail("AI_ENGINE_BUSY");
       const result = clearAiConnection(aiDeps);
       if (!result.ok) return fail(result.code);
-      await restartBackend();
+      if (!(await restartBackend())) return fail("BACKEND_START_FAILED");
       return { ok: true, data: aiConnectionStatus(aiDeps) };
     });
     handle("apex:setup-complete", (event) => {
@@ -602,6 +614,7 @@ else {
 }
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", () => {
+  quitting = true;
   account = undefined;
   backend?.kill();
 });
