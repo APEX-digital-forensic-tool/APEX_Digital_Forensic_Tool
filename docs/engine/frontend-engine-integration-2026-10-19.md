@@ -49,7 +49,7 @@
 
 ## AI 연결
 
-`APEX_DESKTOP_AI_CONFIG` 환경변수에 기존 `AiProviderRuntimeConfig` 형식의 JSON을 설정한다. API 키는 `api_key_env`가 지칭하는 별도 환경변수로 제공한다. 키는 화면 → 앱 본체(Electron main)로 **저장할 때 한 번만** 지나간다. 본체는 키를 OS 키체인으로 암호화해 저장하고, 화면에는 "키가 있다/없다"만 돌려준다. 서버 계정 로그인의 비밀번호도 같은 경로(`apex:login`)를 쓴다.
+`APEX_DESKTOP_AI_CONFIG` 환경변수에 기존 `AiProviderRuntimeConfig` 형식의 JSON을 설정한다. API 키는 `api_key_env`가 지칭하는 별도 환경변수로 제공한다. 키는 화면 → 앱 본체(Electron main)로 **저장할 때 한 번만** 지나간다. 본체는 키를 Electron `safeStorage`를 통해 운영체제의 자격 증명 보호(macOS 키체인, Windows DPAPI)로 암호화해 저장하며, 저장 파일은 macOS와 Linux에서 소유자 전용(`0600`)이다. 화면에는 상태(설정 여부, 키 보유 여부, 접속 주소와 모델)만 돌려주고 키는 돌려주지 않는다. 서버 계정 로그인의 비밀번호도 같은 경로(`apex:login`)를 쓴다.
 
 2026-11-11 갱신: 사용자가 `APEX_DESKTOP_AI_CONFIG`를 직접 설정하지 않았으면, 본체는 앱 안에서 저장한 연결(`userData/ai-connection.json`)로 이 환경변수를 만들어 엔진을 실행한다. 이때 `provider_id`는 `apex-desktop`, `api_key_env`는 `APEX_DESKTOP_AI_STORED_KEY`로 고정하고 복호화한 키를 그 변수에 넣는다. 사용자가 설정한 `APEX_DESKTOP_AI_CONFIG`가 있으면 그쪽이 우선하고 본체는 덮어쓰지 않는다. 엔진(Python) 쪽 읽기 방식은 바뀌지 않았다. 설계: [첫 실행 설정 창 + 앱 내 AI 연결 설정](../superpowers/specs/2026-11-11-first-run-setup-design.md).
 

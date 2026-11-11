@@ -3,6 +3,7 @@ import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
 import { renderInEnglish } from "../i18n/testing";
 import { I18nProvider } from "../i18n/I18nProvider";
 import { createDemoBridge } from "../demoBridge";
@@ -369,4 +370,12 @@ it("checks off the AI step when a connection is configured", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Skip" }));
   expect(railStates()[2]).toBe("done");
   expect(railStates()[3]).toBe("current");
+});
+
+it("makes the rail a window drag region only on macOS", () => {
+  const css = readFileSync("src/setup/setup.css", "utf8");
+  const dragging = [
+    ...css.matchAll(/([^{}]+)\{[^}]*-webkit-app-region:\s*drag/g),
+  ].map((match) => match[1].replace(/\/\*[\s\S]*?\*\//g, "").trim());
+  expect(dragging).toEqual([".setup-mac .setup-rail"]);
 });

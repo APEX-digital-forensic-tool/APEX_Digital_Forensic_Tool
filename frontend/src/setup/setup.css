@@ -24,12 +24,12 @@
   padding: 30px 18px 22px;
   background: var(--surface-sunken);
   border-right: 1px solid var(--line-subtle);
-  /* The setup window has no title bar on macOS; the rail moves it. */
-  -webkit-app-region: drag;
 }
 .setup-mac .setup-rail {
   /* Clears the window buttons macOS draws over this corner. */
   padding-top: 58px;
+  /* Only macOS has no title bar here; the rail moves the window. */
+  -webkit-app-region: drag;
 }
 .setup-rail button {
   -webkit-app-region: no-drag;
