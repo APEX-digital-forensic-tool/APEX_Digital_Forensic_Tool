@@ -2471,7 +2471,9 @@ export function App() {
                           {jobEvidenceName(t)}
                         </span>
                       )}
-                      {lookup(m.views.jobs.kinds, String(t.kind))}
+                      {t.kind == null
+                        ? null
+                        : lookup(m.views.jobs.kinds, String(t.kind))}
                     </strong>
                     <Badge value={t.status} />
                   </header>

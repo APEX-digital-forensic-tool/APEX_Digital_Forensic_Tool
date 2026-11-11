@@ -8,6 +8,8 @@ import { HANGUL } from "./testing";
 import { koKR } from "../locales/ko-KR";
 import { enUS } from "../locales/en-US";
 import { errorText, GatewayError } from "../gateway";
+import { lookup } from "./catalog";
+import { displayValue } from "../ui";
 
 afterEach(cleanup);
 
@@ -138,5 +140,15 @@ describe("errorText", () => {
     expect(errorText(new Error("boom"), enUS)).toContain(
       "DESKTOP_OPERATION_FAILED",
     );
+  });
+});
+
+describe("lookup", () => {
+  it("shows evidence values named like built-in object members as-is", () => {
+    expect(lookup(enUS.labels, "FILE")).toBe("File");
+    for (const key of ["constructor", "toString", "__proto__", "valueOf"]) {
+      expect(lookup(enUS.labels, key)).toBe(key);
+      expect(displayValue(key, "UTC", koKR)).toBe(key);
+    }
   });
 });

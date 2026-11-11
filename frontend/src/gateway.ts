@@ -92,12 +92,10 @@ const RESOURCE_KEY_CODES: Record<string, keyof Messages["errors"]> = {
 export function errorText(error: unknown, m: Messages): string {
   const code =
     error instanceof GatewayError ? error.code : "DESKTOP_OPERATION_FAILED";
-  const errors: Record<string, string | undefined> = m.errors;
-  const keyed =
-    error instanceof GatewayError && error.messageKey
-      ? RESOURCE_KEY_CODES[error.messageKey]
-      : undefined;
-  return (
-    (keyed && m.errors[keyed]) ?? errors[code] ?? m.common.operationFailed(code)
-  );
+  const key = error instanceof GatewayError ? error.messageKey : undefined;
+  const known = (value: string): value is keyof Messages["errors"] =>
+    Object.hasOwn(m.errors, value);
+  if (key && Object.hasOwn(RESOURCE_KEY_CODES, key))
+    return m.errors[RESOURCE_KEY_CODES[key]];
+  return known(code) ? m.errors[code] : m.common.operationFailed(code);
 }

@@ -15,7 +15,7 @@ import { App } from "../App";
 import { createDemoBridge } from "../demoBridge";
 import core from "../__fixtures__/core.json";
 import { enUS } from "../locales/en-US";
-import { GatewayError } from "../gateway";
+import { GatewayError, type Reply, type Row } from "../gateway";
 import {
   Badge,
   displayValue,
@@ -77,7 +77,7 @@ it("switches the shell to English without losing the open case", async () => {
   });
   fireEvent.click(await screen.findByRole("button", { name: "설정" }));
   await userEvent.selectOptions(
-    screen.getByRole("combobox", { name: "언어" }),
+    screen.getByRole("combobox", { name: "언어 · Language" }),
     "en-US",
   );
   expect(
@@ -127,4 +127,34 @@ it("renders route views in English", async () => {
   expect(
     screen.getByRole("heading", { name: "Runtime capabilities" }),
   ).toBeTruthy();
+});
+
+it("prints no placeholder for a task the engine reports without a kind", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) =>
+    op === "tasks.list"
+      ? {
+          ok: true,
+          data: [
+            {
+              task_id: "t-1",
+              case_id: payload.case_id,
+              status: "SUCCEEDED",
+              actions: [],
+            },
+          ],
+        }
+      : (original(op, payload) as Promise<Reply<Row>>);
+  window.apex = bridge;
+  renderInEnglish(<App />);
+  await screen.findByText("Demo · Synthetic data");
+  fireEvent.change(screen.getByLabelText("Current case"), {
+    target: { value: core.cases[0].id },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /^Tasks \d+$/ }));
+  await waitFor(() =>
+    expect(document.querySelector(".job-card strong")).toBeTruthy(),
+  );
+  expect(document.querySelector(".job-card strong")?.textContent).toBe("");
 });

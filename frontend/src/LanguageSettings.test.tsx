@@ -17,10 +17,10 @@ it("switches the display language and remembers it", async () => {
     </I18nProvider>,
   );
   await userEvent.selectOptions(
-    screen.getByRole("combobox", { name: "언어" }),
+    screen.getByRole("combobox", { name: "언어 · Language" }),
     "en-US",
   );
-  expect(screen.getByRole("heading", { name: "Language" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Language · 언어" })).toBeTruthy();
   expect(document.documentElement.lang).toBe("en");
   expect(localStorage.getItem("apex.locale")).toBe("en-US");
 });

@@ -8,7 +8,13 @@ export function messagesFor(locale: unknown): Messages {
   return locale === "en-US" ? enUS : koKR;
 }
 
-/** Looks up an engine code in a code→text table; unknown codes show as-is. */
+/**
+ * Looks up an engine code in a code→text table; unknown codes show as-is.
+ * Own keys only: evidence values such as "constructor" must not resolve to
+ * members inherited from Object.prototype.
+ */
 export function lookup(table: object, key: string): string {
-  return (table as Record<string, string | undefined>)[key] ?? key;
+  return Object.hasOwn(table, key)
+    ? (table as Record<string, string>)[key]
+    : key;
 }

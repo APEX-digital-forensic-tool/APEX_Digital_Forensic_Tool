@@ -227,6 +227,10 @@
   border-bottom: 1px solid var(--line-subtle);
   min-height: 27px;
 }
+/* English property names are longer; keep each on one line. */
+:lang(en) .property-grid > div {
+  grid-template-columns: 124px minmax(0, 1fr);
+}
 .property-grid dt {
   color: var(--text-muted);
   padding: 6px 8px;
