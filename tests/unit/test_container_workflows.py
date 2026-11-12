@@ -247,13 +247,17 @@ def test_exfat_timestamps_use_the_recorded_utc_offset_not_the_analyst_timezone(
 
     # The Sleuth Kit reads exFAT local times in the host timezone and ignores the
     # offset byte, so the same evidence gave different UTC times on different PCs.
-    monkeypatch.setenv("TZ", "America/New_York")
-    time.tzset()
+    # Where the host can switch zones (not Windows), use one far from +09:00.
+    tzset = getattr(time, "tzset", None)
+    if tzset is not None:
+        monkeypatch.setenv("TZ", "America/New_York")
+        tzset()
     try:
         _, _, nodes = index_image(services, fixture_image(tmp_path, "exfat-times.img"))
     finally:
         monkeypatch.undo()
-        time.tzset()
+        if tzset is not None:
+            tzset()
     assert "when.txt" in nodes, sorted(nodes)
     node = nodes["when.txt"]
 
