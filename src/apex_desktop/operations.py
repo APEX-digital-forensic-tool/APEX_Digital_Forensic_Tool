@@ -283,6 +283,11 @@ def invoke(
         )
     if operation == "analysis.start":
         kind = p["kind"]
+        folder = p.pop("node_id")
+        if folder is not None:
+            node = s.fs.get_node(folder)
+            if kind != "FILES" or node.case_id != case_id or node.evidence_id != p["evidence_id"]:
+                mismatch()
         args: dict[str, Any] = {
             "case_id": case_id,
             "evidence_id": p["evidence_id"],
@@ -299,6 +304,11 @@ def invoke(
                 "cancellation_token": token,
                 "progress_callback": cb,
             }
+            if kind == "FILES" and folder is not None:
+                options["profile_type"] = AnalysisProfileType.SELECTED_SCOPE
+                return b.fs.index_evidence(
+                    **options, selected_node_ids=[folder], include_background=False
+                )
             if kind == "FILES":
                 return b.fs.index_evidence(**options)
             if kind == "ARTIFACTS":

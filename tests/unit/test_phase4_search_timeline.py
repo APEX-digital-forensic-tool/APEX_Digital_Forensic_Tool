@@ -596,3 +596,11 @@ def test_phase4_reopen_resume_pause_and_cancel(tmp_path: Path) -> None:
         assert cancelled_timeline.status == "CANCELLED"
     finally:
         reopened.close()
+
+
+def test_file_search_hits_carry_the_display_path(services, tmp_path: Path) -> None:
+    case, _ = _indexed_search_case_with_names(services, tmp_path / "paths", ["pathterm.txt"])
+
+    page = services.search.query(case_id=case.case_id, query_text="pathterm")
+
+    assert [item.raw_locator["source_path"] for item in page.results] == ["/pathterm.txt"]

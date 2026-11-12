@@ -60,7 +60,7 @@ class PartitionParser:
                     ),
                 )
             ]
-        if boot[510:512] != _MBR_SIGNATURE:
+        if boot[510:512] != _MBR_SIGNATURE or self._is_volume_boot_record(boot):
             return [self._superfloppy(reader, case_id=case_id, evidence_id=evidence_id)]
         entries = self._mbr_entries(boot)
         protective = [
@@ -365,6 +365,20 @@ class PartitionParser:
             gap_start_lba=first_usable,
             gap_end_lba=last_usable,
             scheme=VolumeScheme.GPT.value,
+        )
+
+    @staticmethod
+    def _is_volume_boot_record(sector: bytes) -> bool:
+        """A filesystem boot sector also ends in 55 AA; its boot code is not a partition table.
+
+        A partition-level acquisition (one volume, no MBR) starts with one of these.
+        exFAT in particular fills the MBR entry area with boot code bytes.
+        """
+
+        return (
+            sector[3:11] in (b"EXFAT   ", b"NTFS    ")
+            or sector[54:62] in (b"FAT12   ", b"FAT16   ")
+            or sector[82:90] == b"FAT32   "
         )
 
     @staticmethod

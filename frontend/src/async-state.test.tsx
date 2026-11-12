@@ -544,3 +544,99 @@ it("offers Retry when the account status fails to load", async () => {
   expect(calls).toBe(2);
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+it("indexes a quick-triage folder when it is opened instead of showing it empty", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const starts: Row[] = [];
+  bridge.invoke = async (op, payload) => {
+    if (op === "analysis.start") {
+      starts.push(payload);
+      return { ok: true, data: { task_id: "folder", status: "QUEUED" } };
+    }
+    const reply = await original(op, payload);
+    if (
+      op === "files.list" &&
+      reply.ok &&
+      !payload.parent_node_id?.startsWith("x")
+    )
+      for (const node of reply.data.items)
+        if (node.node_type === "DIRECTORY") node.is_partial = true;
+    return reply;
+  };
+  window.apex = bridge;
+  await openFiles();
+  const folder = (
+    await within(screen.getByRole("table")).findAllByText(
+      (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+    )
+  ).find((el) => el.closest("tr")?.textContent?.includes("폴더"));
+  expect(folder).toBeTruthy();
+  fireEvent.doubleClick(folder!.closest("tr")!);
+  await waitFor(() =>
+    expect(starts).toContainEqual(
+      expect.objectContaining({ kind: "FILES", node_id: expect.any(String) }),
+    ),
+  );
+  // Opening the same folder again does not start a second job.
+  const count = starts.length;
+  fireEvent.doubleClick(folder!.closest("tr")!);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(starts.filter((s) => s.node_id).length).toBe(count);
+});
+
+it("lists a report right after it is created", async () => {
+  const created = { ...reportFixture.report, title: "새로 만든 보고서" };
+  let exists = false;
+  window.apex = {
+    ...createDemoBridge(),
+    invoke: async (op: string) => {
+      if (op === "reports.list")
+        return {
+          ok: true,
+          data: {
+            items: exists ? [created] : [],
+            page: {
+              returned: Number(exists),
+              has_more: false,
+              next_cursor: null,
+            },
+          },
+        };
+      if (op === "reports.create") {
+        exists = true;
+        return { ok: true, data: created };
+      }
+      if (op === "reports.get")
+        return {
+          ok: true,
+          data: { ...reportFixture.detail, report: created, versions: [] },
+        };
+      return { ok: true, data: null };
+    },
+  } as never;
+  render(
+    <Reports
+      caseId={reportFixture.case_id}
+      evidenceId=""
+      renderer={{}}
+      onNotice={() => {}}
+    />,
+  );
+  fireEvent.click(
+    (await screen.findAllByRole("button", { name: "보고서 만들기" }))[0],
+  );
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByRole("textbox"), {
+    target: { value: created.title },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+  const list = await screen
+    .findByRole("list", {}, { timeout: 3000 })
+    .catch(() => document.body);
+  await waitFor(() =>
+    expect(
+      within(list as HTMLElement).getAllByText(created.title).length,
+    ).toBeGreaterThan(1),
+  );
+});

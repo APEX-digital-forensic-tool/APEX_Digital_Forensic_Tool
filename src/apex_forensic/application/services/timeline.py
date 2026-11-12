@@ -6,7 +6,7 @@ import base64
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -469,6 +469,19 @@ class TimelineService:
                     TimezoneSource.UTC_SOURCE if utc_value is not None else TimezoneSource.UNKNOWN
                 ),
             )
+            if timestamp_sources.get(key) in {"FAT_LOCAL_TIME", "FAT_LOCAL_DATE"}:
+                # FAT stores no timezone; the value was read in the analysis host's
+                # zone, so it is not a UTC-sourced time.
+                normalized = replace(
+                    normalized,
+                    timezone_source=TimezoneSource.UNKNOWN,
+                    timezone_confidence=TimezoneConfidence.LOW,
+                    precision=(
+                        TimestampPrecision.DAY
+                        if timestamp_sources[key] == "FAT_LOCAL_DATE"
+                        else normalized.precision
+                    ),
+                )
             events.append(
                 self._make_event(
                     row=row,
@@ -486,6 +499,11 @@ class TimelineService:
                         "path": row.get("path"),
                         "node_type": row.get("node_type"),
                         "platform": row.get("platform"),
+                        **(
+                            {"timezone_note": "FAT_LOCAL_TIME_ZONE_UNRECORDED"}
+                            if timestamp_sources.get(key) in {"FAT_LOCAL_TIME", "FAT_LOCAL_DATE"}
+                            else {}
+                        ),
                     },
                 )
             )

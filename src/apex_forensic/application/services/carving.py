@@ -99,15 +99,41 @@ class CarvingService:
             yield 0, reader.size
             return
         provider = PyTskFileSystemProvider()
+        readable = 0
         for volume in reader.volumes(case_id=evidence.case_id, evidence_id=evidence.evidence_id):
             if not volume.is_allocated:
+                readable += 1
                 yield volume.byte_offset, volume.byte_length
                 continue
-            filesystem = provider._open_fs(evidence, volume)
+            # One volume without a readable allocation map (APFS, HFS+, unformatted)
+            # must not stop free-space carving of the others; it is reported instead.
             try:
-                yield from free_ranges(reader, filesystem, volume, warnings)
+                filesystem = provider._open_fs(evidence, volume)
+            except OSError:
+                warnings.append(
+                    f"VOLUME_SKIPPED volume-{volume.volume_index}: filesystem unreadable"
+                )
+                continue
+            try:
+                ranges = free_ranges(reader, filesystem, volume, warnings)
+                try:
+                    first = next(ranges, None)  # The filesystem check runs here.
+                except UnsupportedCapabilityError:
+                    warnings.append(
+                        f"VOLUME_SKIPPED volume-{volume.volume_index}: allocation map unsupported"
+                    )
+                    continue
+                readable += 1
+                if first is not None:
+                    yield first
+                    yield from ranges
             finally:
                 filesystem.close()
+        if not readable:
+            raise UnsupportedCapabilityError(
+                "No volume has a readable allocation map; carve the whole image instead.",
+                required_capability="FILESYSTEM_FREE_SPACE",
+            )
 
     def carve(
         self,

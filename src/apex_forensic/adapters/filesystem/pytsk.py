@@ -7,7 +7,7 @@ import mimetypes
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from types import ModuleType
 from typing import Any
@@ -35,6 +35,8 @@ from apex_forensic.ports.filesystem_provider import (
 )
 
 _DISK_IMAGE_FORMATS = set(EvidenceFormat) - {EvidenceFormat.DIRECTORY}
+_TSK_FS_TYPE_EXFAT = 10
+_TSK_FAT_LOCAL_TIME_TYPES = (2, 4, 8, _TSK_FS_TYPE_EXFAT)
 _SUPPORTED_FS_FAMILIES = ("NTFS", "FAT12", "FAT16", "FAT32", "EXFAT", "EXT2", "EXT3", "EXT4")
 
 
@@ -468,6 +470,23 @@ class PyTskFileSystemProvider:
             if timestamps[name] is None and raw_timestamps[field] not in (None, 0, "0")
         ]
         inode = str(getattr(meta, "addr", ""))
+        timestamp_sources = dict.fromkeys(timestamps, "PYTSK_FS_META")
+        ftype = int(getattr(fs_info.info, "ftype", 0))
+        if ftype in _TSK_FAT_LOCAL_TIME_TYPES:
+            # FAT/exFAT keep local wall-clock time; TSK applied the host's zone.
+            timestamp_sources = dict.fromkeys(timestamps, "FAT_LOCAL_TIME")
+            if ftype != _TSK_FS_TYPE_EXFAT:
+                timestamp_sources["accessed"] = "FAT_LOCAL_DATE"  # FAT access is a date.
+        exfat_times = (
+            self._exfat_entry_times(fs_info, volume, int(getattr(meta, "addr", 0)))
+            if int(getattr(fs_info.info, "ftype", 0)) == _TSK_FS_TYPE_EXFAT
+            else None
+        )
+        exfat_trace: dict[str, dict[str, Any]] = {}
+        for field_name, (utc, local, offset) in (exfat_times or {}).items():
+            timestamps[field_name] = utc
+            timestamp_sources[field_name] = "EXFAT_DIRECTORY_ENTRY"
+            exfat_trace[field_name] = {"local": local, "utc_offset_minutes": offset}
         return FileSystemNode(
             node_id=self._node_id(evidence, relative_path, inode),
             case_id=evidence.case_id,
@@ -503,7 +522,7 @@ class PyTskFileSystemProvider:
             },
             raw_timestamps=raw_timestamps,
             utc_timestamps=timestamps,
-            timestamp_sources=dict.fromkeys(timestamps, "PYTSK_FS_META"),
+            timestamp_sources=timestamp_sources,
             is_deleted=is_deleted,
             is_readable=not is_deleted and node_type is not FileSystemNodeType.OTHER,
             is_link=node_type is FileSystemNodeType.SYMLINK,
@@ -537,6 +556,7 @@ class PyTskFileSystemProvider:
                 "allocated_size": sum(int(item["byte_length"]) for item in extents),
                 "slack": slack,
                 "timestamp_warnings": timestamp_warnings,
+                **({"exfat_timestamps": exfat_trace} if exfat_trace else {}),
                 "entry_sort_key": self._entry_sort_key(name, inode),
                 "reads_file_body": not is_deleted and node_type is FileSystemNodeType.FILE,
             },
@@ -545,6 +565,71 @@ class PyTskFileSystemProvider:
             created_at=now,
             updated_at=now,
         )
+
+    @staticmethod
+    def _exfat_entry_times(
+        fs_info: Any, volume: EvidenceVolume, inode: int
+    ) -> dict[str, tuple[datetime, str, int]] | None:
+        """Read exFAT times with their recorded UTC offset.
+
+        The Sleuth Kit converts exFAT local times with the host's timezone and ignores
+        the offset byte, so its value depends on the analyst's computer. TSK numbers a
+        FAT-family directory entry as 3 + (sector - first data sector) * entries per
+        sector + index; that locates the File entry holding the original fields.
+        Returns None when the entry cannot be confirmed (TSK's value is kept).
+        """
+
+        image = getattr(fs_info, "image", None)
+        if image is None or inode < 3:
+            return None
+        boot = bytes(image.read(volume.byte_offset, 512))
+        if boot[3:11] != b"EXFAT   ":
+            return None
+        sector = 1 << boot[108]
+        heap = int.from_bytes(boot[88:92], "little")
+        per_sector = sector // 32
+        index = inode - 3
+        entry = bytes(
+            image.read(
+                volume.byte_offset
+                + (heap + index // per_sector) * sector
+                + (index % per_sector) * 32,
+                32,
+            )
+        )
+        if len(entry) != 32 or entry[0] not in (0x85, 0x05):
+            return None
+        times: dict[str, tuple[datetime, str, int]] = {}
+        for name, at, hundredths, offset_at in (
+            ("created", 8, 20, 22),
+            ("modified", 12, 21, 23),
+            ("accessed", 16, None, 24),
+        ):
+            offset_byte = entry[offset_at]
+            if not offset_byte & 0x80:
+                continue  # No recorded offset: the zone is unknown, keep TSK's value.
+            quarter_hours = offset_byte & 0x7F
+            if quarter_hours & 0x40:
+                quarter_hours -= 0x80
+            value = int.from_bytes(entry[at : at + 4], "little")
+            date, clock = value >> 16, value & 0xFFFF
+            try:
+                local = datetime(
+                    1980 + (date >> 9),
+                    (date >> 5) & 15,
+                    date & 31,
+                    clock >> 11,
+                    (clock >> 5) & 63,
+                    (clock & 31) * 2,
+                )
+            except ValueError:
+                continue
+            if hundredths is not None and entry[hundredths] < 200:
+                local += timedelta(milliseconds=10 * entry[hundredths])
+            minutes = quarter_hours * 15
+            utc = (local - timedelta(minutes=minutes)).replace(tzinfo=UTC)
+            times[name] = (utc, local.isoformat(), minutes)
+        return times
 
     def _open_fs(self, evidence: Evidence, volume: EvidenceVolume) -> Any:
         pytsk3 = self._pytsk3()
@@ -656,14 +741,23 @@ class PyTskFileSystemProvider:
     @staticmethod
     def _fs_type_name(fs_info: Any) -> str:
         ftype = int(fs_info.info.ftype)
+        # TSK_FS_TYPE_* values from the Sleuth Kit (16/32/64 are UFS/FFS, not ext).
         names = {
             1: "NTFS",
             2: "FAT12",
             4: "FAT16",
             8: "FAT32",
-            16: "EXT2",
-            32: "EXT3",
-            64: "EXFAT",
+            10: "EXFAT",
+            16: "FFS1",
+            32: "FFS1B",
+            64: "FFS2",
+            128: "EXT2",
+            256: "EXT3",
+            2048: "ISO9660",
+            4096: "HFS",
+            8192: "EXT4",
+            16384: "YAFFS2",
+            65536: "APFS",
         }
         return names.get(ftype, f"TSK_FS_TYPE_{ftype}")
 
