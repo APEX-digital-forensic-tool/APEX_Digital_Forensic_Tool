@@ -6,6 +6,7 @@ import { ProfileSettings } from "./setup/ProfileSettings";
 import { readExaminerName } from "./setup/profile";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup } from "./i18n/catalog";
+import { version as appVersion } from "../package.json";
 import {
   useCallback,
   useEffect,
@@ -2518,7 +2519,7 @@ export function App() {
           </span>
           <span>UTF-8</span>
           <span>{zone}</span>
-          <span>APEX 0.1</span>
+          <span>APEX {appVersion}</span>
         </footer>
         {jobsOpen && (
           <aside className="drawer">

@@ -33,6 +33,8 @@ export const ui = {
   },
   /** Engine field key → display name. */
   fieldNames: {
+    assistance_request_id: "요청 ID",
+    context_snapshot_id: "문맥 스냅샷 ID",
     id: "ID",
     case_id: "사건 ID",
     evidence_id: "증거 ID",

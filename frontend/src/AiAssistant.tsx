@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { gateway, type Row } from "./gateway";
+import { AlertCircle } from "./icons";
 import { Badge, ErrorState, Fields, Loading, Section } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
 
@@ -66,9 +67,10 @@ export function AiAssistant({
   }
   const summary = result?.execution?.result;
   return (
-    <>
-      <p className="muted">{m.ai.intro}</p>
-      <label>
+    <div className="ai-panel">
+      <p className="ai-lead">{m.ai.intro}</p>
+      {!supported && <p className="ai-note">{m.ai.selectFirst}</p>}
+      <label className="ai-field">
         {m.ai.mode}
         <select
           value={mode}
@@ -80,30 +82,43 @@ export function AiAssistant({
         </select>
       </label>
       {mode === "CONTENT" && (
-        <button
-          disabled={!supported || busy}
-          onClick={() => void analyze(true)}
-        >
-          {m.ai.prepare}
-        </button>
-      )}
-      {mode === "CONTENT" && result?.preview && (
-        <Section title={m.ai.excerpt}>
-          {/* The engine's notice is Korean-only; show the catalog's wording. */}
-          {result.preview.notice && <p>{m.ai.redactionNotice}</p>}
-          <pre className="text-view">{result.preview.payload.text}</pre>
-          {result.preview.payload.truncated && <p>{m.ai.truncated}</p>}
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={reviewed}
-              onChange={(e) => setReviewed(e.target.checked)}
-            />
-            {m.ai.consent}
-          </label>
-        </Section>
+        <section className="ai-excerpt" aria-labelledby="ai-excerpt-title">
+          <h3 id="ai-excerpt-title">{m.ai.excerpt}</h3>
+          <button
+            disabled={!supported || busy}
+            onClick={() => void analyze(true)}
+          >
+            {m.ai.prepare}
+          </button>
+          {result?.preview && (
+            <>
+              {/* The engine's notice is Korean-only; show the catalog's wording. */}
+              {result.preview.notice && (
+                <p className="ai-caution">
+                  <AlertCircle size={15} />
+                  <span>{m.ai.redactionNotice}</span>
+                </p>
+              )}
+              <pre className="text-view" tabIndex={0}>
+                {result.preview.payload.text}
+              </pre>
+              {result.preview.payload.truncated && (
+                <p className="ai-note">{m.ai.truncated}</p>
+              )}
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={reviewed}
+                  onChange={(e) => setReviewed(e.target.checked)}
+                />
+                <span>{m.ai.consent}</span>
+              </label>
+            </>
+          )}
+        </section>
       )}
       <button
+        className="primary ai-request"
         disabled={
           !caseId || !supported || busy || (mode === "CONTENT" && !reviewed)
         }
@@ -116,9 +131,15 @@ export function AiAssistant({
         <ErrorState error={error} retry={() => void analyze()} />
       )}
       {result?.status === "CONFIGURATION_REQUIRED" && (
-        <p>{m.ai.configRequired}</p>
+        <p className="ai-status-note" role="status">
+          {m.ai.configRequired}
+        </p>
       )}
-      {result?.status === "POLICY_DENIED" && <p>{m.ai.policyDenied}</p>}
+      {result?.status === "POLICY_DENIED" && (
+        <p className="ai-status-note" role="status">
+          {m.ai.policyDenied}
+        </p>
+      )}
       {result?.audit && (
         <Section title={m.ai.policyEvaluation}>
           <Fields value={result.audit.result} />
@@ -153,6 +174,6 @@ export function AiAssistant({
           />
         </Section>
       )}
-    </>
+    </div>
   );
 }
