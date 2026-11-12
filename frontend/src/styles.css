@@ -696,6 +696,133 @@ tr.selected td:first-child {
   background: none;
   border: 0;
 }
+/* AI assistant drawer: one column, the same lead / field / primary-button
+   rhythm as the first-run setup window. Every block is a grid row, so a
+   focus ring never lands on the control below it. */
+.ai-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.ai-panel ::selection {
+  background: var(--accent-selected);
+  color: var(--text-strong);
+}
+.ai-lead {
+  color: var(--text-muted);
+  font-size: var(--fs-body);
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+.ai-note {
+  color: var(--text-muted);
+  font-size: var(--fs-ui);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.ai-field {
+  color: var(--text-soft);
+}
+.ai-field select,
+.ai-panel > button,
+.ai-excerpt > button {
+  width: 100%;
+  min-height: 34px;
+}
+.ai-excerpt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.ai-excerpt h3 {
+  color: var(--text-soft);
+  font-size: var(--fs-ui);
+}
+.ai-caution {
+  display: flex;
+  gap: 8px;
+  color: var(--warn-fg);
+  font-size: var(--fs-ui);
+  line-height: 1.65;
+}
+.ai-caution .ui-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.ai-excerpt .text-view {
+  max-height: 240px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: SFMono-Regular, Consolas, monospace;
+  font-size: var(--fs-ui);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+.ai-excerpt .check {
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text);
+  line-height: 1.6;
+  cursor: pointer;
+}
+.ai-excerpt .check input {
+  flex: none;
+  margin: 2px 0 0;
+}
+.ai-panel .loading {
+  min-height: 0;
+  justify-content: flex-start;
+}
+.ai-panel .notice,
+.ai-status-note {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.ai-status-note {
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: var(--fs-ui);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.ai-panel .notice.error {
+  border-color: var(--danger-line);
+}
+/* Result sections sit closer together than the form blocks above them. */
+.ai-panel > .inspector-section + .inspector-section {
+  margin-top: -16px;
+}
+.ai-panel .inspector-section > :not(.section-title) {
+  margin-bottom: 10px;
+}
+.ai-panel .inspector-section p {
+  font-size: var(--fs-ui);
+  line-height: 1.7;
+}
+/* The drawer is narrow: a field's name sits over its value. */
+.ai-panel .fields > div {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+.ai-panel .fields > div:last-child {
+  border-bottom: 0;
+}
+.ai-panel .fields dd {
+  font-variant-numeric: tabular-nums;
+}
 .job-card {
   border: 1px solid var(--line);
   border-radius: 6px;

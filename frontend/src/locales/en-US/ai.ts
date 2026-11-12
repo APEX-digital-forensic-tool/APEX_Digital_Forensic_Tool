@@ -3,6 +3,8 @@ import type { Messages } from "../ko-KR";
 export const ai: Messages["ai"] = {
   intro:
     "Analysis runs after checking the selected material against the case policy. For content analysis, review the excerpt to be sent first.",
+  selectFirst:
+    "Select the material to analyze first. Files, artifacts, timeline events, search results and extracted candidates can be analyzed.",
   mode: "Analysis mode",
   structure: "Structure summary",
   content: "Evidence content excerpt analysis",

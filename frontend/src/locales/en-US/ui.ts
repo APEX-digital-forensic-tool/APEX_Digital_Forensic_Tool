@@ -35,6 +35,8 @@ export const ui: Messages["ui"] = {
     utcOriginal: (value: string) => `UTC original: ${value}`,
   },
   fieldNames: {
+    assistance_request_id: "Request ID",
+    context_snapshot_id: "Context snapshot ID",
     id: "ID",
     case_id: "Case ID",
     evidence_id: "Evidence ID",

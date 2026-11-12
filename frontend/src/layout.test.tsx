@@ -12,6 +12,7 @@ import {
 import { App } from "./App";
 import { createDemoBridge } from "./demoBridge";
 import core from "./__fixtures__/core.json";
+import { version } from "../package.json";
 
 afterEach(() => {
   cleanup();
@@ -92,4 +93,12 @@ it("rejects a mistyped case time zone before creating the case", async () => {
   fireEvent.click(within(dialog).getByRole("button", { name: "사건 만들기" }));
   await within(dialog).findByText(/알 수 없는 시간대 이름입니다/);
   expect(ops).not.toContain("cases.create");
+});
+
+it("shows the packaged app version in the status bar", async () => {
+  window.apex = createDemoBridge();
+  const { container } = render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  const statusbar = container.querySelector("footer.statusbar")!;
+  expect(statusbar.lastElementChild?.textContent).toBe(`APEX ${version}`);
 });
