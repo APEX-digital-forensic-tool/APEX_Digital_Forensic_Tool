@@ -235,7 +235,9 @@ export function App() {
     [searchText, setSearchText] = useState(""),
     [searchMode, setSearchMode] = useState("TERM"),
     [revision, setRevision] = useState(0),
-    [profile, setProfile] = useState("QUICK_TRIAGE"),
+    // Full analysis is the default: artifacts, search and timeline only see
+    // indexed files, and quick triage leaves most folders for later.
+    [profile, setProfile] = useState("FULL_ANALYSIS"),
     [hash, setHash] = useState("SHA256");
   const [dialog, setDialog] = useState<{
     title: string;
@@ -548,6 +550,35 @@ export function App() {
       selected_candidate_ids: [],
     });
   }
+  // Quick triage stops at a depth limit and marks those folders partial. Opening
+  // one indexes just that folder's subtree instead of showing it as empty.
+  const indexedFolders = useRef(new Set<string>());
+  async function indexFolder(id: string, node: Row | null | undefined) {
+    if (!node?.is_partial || !["ROOT", "DIRECTORY"].includes(node.node_type))
+      return;
+    const key = `${id}:${node.id}`;
+    if (indexedFolders.current.has(key)) return;
+    indexedFolders.current.add(key);
+    try {
+      await gateway.call("analysis.start", {
+        case_id: caseId,
+        evidence_id: id,
+        kind: "FILES",
+        node_id: node.id,
+      });
+      refresh();
+    } catch (err) {
+      indexedFolders.current.delete(key);
+      setError(err);
+    }
+  }
+  useEffect(() => {
+    if (route === "FILE_SYSTEM" && evidenceId)
+      void indexFolder(evidenceId, folder);
+  }, [route, evidenceId, folder?.id]);
+  const folderIndexing =
+    !!folder?.is_partial &&
+    tasks.some((t) => t.kind === "FILES" && activeTask(t));
   function openTreeNode(id: string, node: Row, trail: Row[]) {
     if (id !== evidenceId) chooseEvidence(id);
     if (route !== "FILE_SYSTEM") navigate("FILE_SYSTEM");
@@ -979,6 +1010,7 @@ export function App() {
               width: 260,
               render: (r: Row) =>
                 r.citations?.[0]?.source_path ??
+                r.raw_locator?.source_path ??
                 r.citations?.[0]?.label ??
                 r.title ?? (
                   <span className="muted" title={r.source_id}>
@@ -986,7 +1018,19 @@ export function App() {
                   </span>
                 ),
             },
-            { key: "source_type", label: m.shell.columns.sourceType },
+            {
+              key: "source_type",
+              label: m.shell.columns.sourceType,
+              // The engine's WINDOWS_ARTIFACT search source also covers media,
+              // browser and communication artifacts.
+              render: (r: Row) =>
+                lookup(
+                  m.labels,
+                  r.source_type === "WINDOWS_ARTIFACT"
+                    ? "ARTIFACT"
+                    : r.source_type,
+                ),
+            },
             { key: "matched_terms", label: m.shell.columns.matchedTerms },
           ]
         : route === "TIMELINE"
@@ -1235,6 +1279,7 @@ export function App() {
               trail={folderTrail}
               revision={revision}
               onOpen={openTreeNode}
+              onPartial={(id, node) => void indexFolder(id, node)}
               onEvidence={(id) => {
                 if (route !== "FILE_SYSTEM") navigate("FILE_SYSTEM");
                 if (id === evidenceId && roots[0])
@@ -1934,7 +1979,9 @@ export function App() {
                   >
                     {route === "FILE_SYSTEM"
                       ? folder
-                        ? m.views.empty.emptyFolder
+                        ? folderIndexing
+                          ? m.views.empty.indexingFolder
+                          : m.views.empty.emptyFolder
                         : m.views.empty.selectEvidence
                       : m.views.empty.checkStatus}
                   </Empty>

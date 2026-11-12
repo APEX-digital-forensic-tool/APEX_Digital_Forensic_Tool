@@ -618,7 +618,11 @@ export function Reports({
     }
   };
   useEffect(() => {
-    void load(selected, !selected);
+    // A report that is not listed yet (just created) also refreshes the list.
+    void load(
+      selected,
+      !selected || !reports.some((r) => r.report_id === selected),
+    );
     return () => {
       loadRevision.current++;
     };
@@ -863,8 +867,9 @@ export function Reports({
               case_id: caseId,
               ...f,
             });
+            // The selection effect loads the new report and the list together;
+            // a second load here would race it and drop the list refresh.
             setSelected(r.report_id);
-            await load(r.report_id);
           }}
         />
       )}

@@ -106,6 +106,8 @@ export const views = {
     enterQuery: "검색어를 입력해주세요",
     emptyFolder:
       "이 폴더에서 확인된 항목이 없습니다. 다른 폴더 또는 분석 범위를 확인하세요.",
+    indexingFolder:
+      "빠른 초기 분석에서 펼치지 않은 폴더입니다. 이 폴더의 파일 목록을 만드는 중입니다.",
     selectEvidence: "증거를 선택하고 파일 인덱스를 생성해주세요.",
     checkStatus: "선택한 범위의 분석·인덱스 상태를 확인해주세요.",
   },

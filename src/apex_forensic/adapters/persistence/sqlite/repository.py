@@ -9443,7 +9443,12 @@ class SQLiteRepository:
             "searchable_text": _join_search_text(text_values),
             "structured_fields": structured,
             "observed_at_utc": None,
-            "raw_locator": json.loads(str(row["raw_locator_json"])),
+            # Artifact locators carry source_path; give file hits the same, since a
+            # volume-relative tsk_path is ambiguous on multi-volume images.
+            "raw_locator": {
+                **json.loads(str(row["raw_locator_json"])),
+                "source_path": row["display_path"],
+            },
             "citations": [],
             "analyzer_id": str(row["provider_id"]),
             "analyzer_version": str(row["provider_version"]),

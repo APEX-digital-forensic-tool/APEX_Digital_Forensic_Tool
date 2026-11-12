@@ -110,6 +110,8 @@ export const views: Messages["views"] = {
     enterQuery: "Enter a search query",
     emptyFolder:
       "Nothing was found in this folder. Check another folder or the analysis scope.",
+    indexingFolder:
+      "Quick triage did not list this folder. Indexing its files now.",
     selectEvidence: "Select evidence and build the file index.",
     checkStatus: "Check the analysis and index status of the selected scope.",
   },

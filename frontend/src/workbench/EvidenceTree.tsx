@@ -13,6 +13,8 @@ type TreeProps = {
   trail: Row[];
   revision: number;
   onOpen: (evidenceId: string, node: Row, trail: Row[]) => void;
+  /** An expanded folder that quick triage left unlisted. */
+  onPartial?: (evidenceId: string, node: Row) => void;
   onEvidence: (id: string) => void;
 };
 
@@ -110,6 +112,10 @@ function Branch({
       if (version === request.current) setBusy(false);
     }
   }
+  useEffect(() => {
+    if (directory && expanded && node.is_partial)
+      props.onPartial?.(source.id, node);
+  }, [directory, expanded, node.is_partial, source.id, node.id]);
   useEffect(() => {
     if (directory && expanded) void load();
     return () => {

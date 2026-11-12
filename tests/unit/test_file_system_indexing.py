@@ -361,3 +361,58 @@ def test_scan_warning_is_recorded_without_failing_job(services, tmp_path: Path) 
     assert (
         services.repository.list_fs_scan_events(job.job_id)[0]["code"] == "FILE_CHANGED_DURING_SCAN"
     )
+
+
+def test_selected_scope_without_background_indexes_only_the_opened_folder(
+    services, tmp_path: Path
+) -> None:
+    evidence_dir = tmp_path / "lazy"
+    (evidence_dir / "dir" / "nested").mkdir(parents=True)
+    (evidence_dir / "dir" / "nested" / "deep.txt").write_text("deep", encoding="utf-8")
+    (evidence_dir / "other").mkdir()
+    (evidence_dir / "other" / "later.txt").write_text("later", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+    folder = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/dir"
+    )
+    assert folder.is_partial
+
+    job, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[folder.node_id],
+        include_background=False,
+    )
+    nodes = {
+        node.display_path: node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+    }
+
+    assert job.status == "SUCCEEDED"
+    assert "/dir/nested/deep.txt" in nodes
+    assert "/other/later.txt" not in nodes
+    # The opened folder is now fully listed, so the UI must not index it again.
+    assert nodes["/dir"].is_partial is False
+    assert nodes["/dir/nested"].is_partial is False
+
+
+def test_background_flag_is_only_for_selected_scope(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "flag"
+    evidence_dir.mkdir()
+    case, evidence = _case_and_directory(services, evidence_dir)
+
+    with pytest.raises(ValidationError):
+        services.fs.index_evidence(
+            case_id=case.case_id,
+            evidence_id=evidence.evidence_id,
+            profile_type=AnalysisProfileType.FULL_ANALYSIS,
+            include_background=False,
+        )

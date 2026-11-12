@@ -6,6 +6,7 @@
 - disk.vhd / disk.vhdx: qemu-img conversions of the same test image.
 - All three contain `문서.txt` with UTF-8 text `E01 가상 디스크의 실제 내용`.
 - streams.img: 32 MiB NTFS, created with mkntfs. `/document.txt` has default content `normal file body`, resident ADS `hidden` containing `ADS secret forensic stream`, and nonresident ADS `large` containing `bytes(range(256)) * 256`.
+- exfat-times.img: 1 MiB exFAT made with macOS `hdiutil`, holding `/when.txt`. Its directory entry was then set to local time 2024-01-02 03:04:06.50 with a +09:00 UTC offset (so 2024-01-01T18:04:06.5Z) and the entry-set checksum recomputed.
 - ocr.png: generated test text `HELLO 123`, using the existing OCR fixture helper.
 
 Regenerate in a development environment with ewfacquire, qemu-img, mkntfs and ntfscp on PATH:

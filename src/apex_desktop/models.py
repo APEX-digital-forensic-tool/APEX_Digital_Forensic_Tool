@@ -157,6 +157,8 @@ class Analysis(EvidenceInput):
     kind: Literal["FILES", "ARTIFACTS", "SEARCH", "TIMELINE", "HASH", "VERIFY"]
     profile_type: Literal["QUICK_TRIAGE", "FULL_ANALYSIS"] = "QUICK_TRIAGE"
     algorithm: Literal["SHA256", "SHA1", "MD5"] = "SHA256"
+    # FILES only: index just this folder's subtree (opening a quick-triage folder).
+    node_id: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class CandidateReview(CaseInput):

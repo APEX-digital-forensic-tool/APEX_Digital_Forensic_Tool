@@ -60,6 +60,7 @@ class IndexOptions:
     selected_paths: tuple[str, ...] = ()
     selected_node_ids: tuple[str, ...] = ()
     max_queue_size: int = 100_000
+    include_background: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +74,7 @@ class IndexOptions:
             "selected_paths": list(self.selected_paths),
             "selected_node_ids": list(self.selected_node_ids),
             "max_queue_size": self.max_queue_size,
+            "include_background": self.include_background,
             "hashing_mode": "ON_DEMAND",
             "reads_file_body": False,
         }
@@ -129,11 +131,16 @@ class FileSystemIndexService:
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
         max_queue_size: int = 100_000,
+        include_background: bool = True,
         cancellation_token: CancellationToken | None = None,
         pause_token: PauseToken | None = None,
         progress_callback: Callable[[Job], None] | None = None,
     ) -> tuple[Job, IndexCoverage]:
-        """Create and run a filesystem index job synchronously."""
+        """Create and run a filesystem index job synchronously.
+
+        ``include_background=False`` limits a SELECTED_SCOPE job to the selected
+        subtrees, which is how an analyst opens one folder after quick triage.
+        """
 
         evidence = self._get_evidence_for_case(case_id, evidence_id)
         provider = self._provider_for_evidence(evidence)
@@ -147,6 +154,7 @@ class FileSystemIndexService:
             include_patterns=tuple(include_patterns or ()),
             exclude_patterns=tuple(exclude_patterns or ()),
             max_queue_size=max_queue_size,
+            include_background=include_background,
         )
         option_fingerprint = canonical_sha256(options.to_dict())
         index_revision = self._repository.next_index_revision(
@@ -219,7 +227,7 @@ class FileSystemIndexService:
                 provider.get_root_node(evidence, index_revision=index_revision)
             )
             coverage.discovered_items = 1
-            if root.is_directory_like and root.is_traversed:
+            if root.is_directory_like and root.is_traversed and options.include_background:
                 self._enqueue(
                     job.job_id, root.node_id, priority=10, depth=0, reason="ROOT", state_sequence=0
                 )
@@ -521,7 +529,11 @@ class FileSystemIndexService:
             if not self._included(entry, state.options):
                 state.coverage.skipped_items += 1
                 continue
-            next_depth = int(item["depth"]) + 1
+            # /volume-N is a container the provider adds for disk images; depth is
+            # counted from each filesystem root so quick triage lists its entries.
+            next_depth = int(item["depth"]) + (
+                0 if entry.provider_metadata.get("source_kind") == "IMAGE_VOLUME_ROOT" else 1
+            )
             if (
                 entry.is_directory_like
                 and entry.is_traversed
@@ -581,6 +593,10 @@ class FileSystemIndexService:
             self._repository.save_fs_nodes(batch)
         self._repository.mark_fs_queue_done(str(item["queue_id"]))
         state.coverage.processed_items += 1
+        if parent.is_partial:
+            # A depth-limited folder that has now been listed completely.
+            parent.is_partial = False
+            self._repository.upsert_fs_node(parent)
 
     def _finish(
         self,
@@ -871,6 +887,7 @@ class FileSystemIndexService:
         include_patterns: tuple[str, ...],
         exclude_patterns: tuple[str, ...],
         max_queue_size: int = 100_000,
+        include_background: bool = True,
     ) -> IndexOptions:
         if batch_size < 1 or batch_size > 10_000:
             raise ValidationError("batch_size must be between 1 and 10000.", target="batch_size")
@@ -893,6 +910,11 @@ class FileSystemIndexService:
                 "SELECTED_SCOPE requires at least one selected path or node.",
                 target="selected_scope",
             )
+        if not include_background and profile_type is not AnalysisProfileType.SELECTED_SCOPE:
+            raise ValidationError(
+                "Only SELECTED_SCOPE can skip the background scope.",
+                target="include_background",
+            )
         return IndexOptions(
             profile_type=profile_type,
             max_depth=max_depth,
@@ -903,6 +925,7 @@ class FileSystemIndexService:
             include_patterns=include_patterns,
             exclude_patterns=exclude_patterns,
             max_queue_size=max_queue_size,
+            include_background=include_background,
         )
 
     @staticmethod
@@ -920,6 +943,7 @@ class FileSystemIndexService:
             selected_paths=tuple(str(item) for item in data.get("selected_paths", [])),
             selected_node_ids=tuple(str(item) for item in data.get("selected_node_ids", [])),
             max_queue_size=int(data.get("max_queue_size", 100_000)),
+            include_background=bool(data.get("include_background", True)),
         )
 
     @staticmethod

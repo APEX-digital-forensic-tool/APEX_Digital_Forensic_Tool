@@ -112,6 +112,31 @@ def test_pytsk_provider_indexes_fat_image_files_deleted_entries_extents_and_slac
     assert deleted.is_readable is False
 
 
+def test_quick_triage_depth_starts_at_each_volume_filesystem_root(
+    services,
+    tmp_path: Path,
+) -> None:
+    # A disk image adds a synthetic /volume-N layer. Quick triage must still list
+    # each filesystem's top-level entries, or every volume opens empty.
+    _requires_pytsk3()
+    image = tmp_path / "quick.img"
+    _write_fat12_image(image)
+    case = services.cases.create_case(name="Quick volume case")
+    evidence = services.evidence.register_evidence(case_id=case.case_id, source_path=image)
+
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+    paths = {
+        node.display_path
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+    }
+
+    assert "/volume-0/LIVE.TXT" in paths
+
+
 def test_deleted_file_recovery_and_range_export_create_bounded_derived_outputs(
     services,
     tmp_path: Path,
@@ -285,3 +310,40 @@ def test_pytsk_missing_dependency_is_reported_as_capability_unavailable(
         )
     assert error.value.code == "CAPABILITY_UNAVAILABLE"
     assert error.value.details["required_capability"] == "PYTSK3"
+
+
+def test_fat_times_are_not_reported_as_utc_sourced(services, tmp_path: Path) -> None:
+    # FAT stores local time without a zone; the Sleuth Kit applies the analyst
+    # computer's timezone. The timeline must not present that as a UTC source.
+    _requires_pytsk3()
+    image = tmp_path / "fat-times.img"
+    _write_fat12_image(image)
+    root_offset = (1 + 2 * 9) * 512
+    data = bytearray(image.read_bytes())
+    stamp = (2024 - 1980) << 9 | 1 << 5 | 2
+    struct.pack_into("<HH", data, root_offset + 22, 3 << 11, stamp)  # modified 03:00
+    struct.pack_into("<H", data, root_offset + 18, stamp)  # accessed: a date only
+    image.write_bytes(data)
+    case = services.cases.create_case(name="FAT time case")
+    evidence = services.evidence.register_evidence(case_id=case.case_id, source_path=image)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+    )
+    services.timeline.build(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+    )
+    events = {
+        event.event_type.value: event
+        for event in services.timeline.list_events(case_id=case.case_id, limit=100).items
+        if event.title.endswith("LIVE.TXT")
+    }
+
+    modified = events["FILE_MODIFIED"]
+    assert modified.timezone_source.value != "UTC_SOURCE"
+    assert modified.timezone_confidence.value in {"LOW", "UNKNOWN"}
+    assert modified.fields["timezone_note"] == "FAT_LOCAL_TIME_ZONE_UNRECORDED"
+    assert events["FILE_ACCESSED"].precision.value == "DAY"

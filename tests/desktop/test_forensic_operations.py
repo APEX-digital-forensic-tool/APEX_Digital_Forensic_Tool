@@ -162,3 +162,35 @@ def test_machine_task_persists_candidates_and_real_source_locator(
     assert candidates[0]["raw_locator"]["source_path"] == node["display_path"]
     if kind == "STT":
         assert candidates[0]["audio_end_ms"] == 1250
+
+
+def test_opening_a_quick_triage_folder_indexes_only_that_folder(client, tmp_path):
+    source = tmp_path / "evidence"
+    (source / "opened" / "inner").mkdir(parents=True)
+    (source / "opened" / "inner" / "deep.txt").write_text("deep", encoding="utf-8")
+    (source / "closed").mkdir()
+    (source / "closed" / "later.txt").write_text("later", encoding="utf-8")
+    cid = call(client, "cases.create", name="Lazy folder")["id"]
+    eid = wait(
+        client, cid, call(client, "evidence.register", case_id=cid, source_path=str(source))
+    )["result"]["id"]
+    start = {"case_id": cid, "evidence_id": eid, "kind": "FILES"}
+    wait(client, cid, call(client, "analysis.start", **start, profile_type="QUICK_TRIAGE"))
+    root = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]
+    top = call(client, "files.list", case_id=cid, evidence_id=eid, parent_node_id=root["id"])
+    opened = next(n for n in top["items"] if n["original_name"] == "opened")
+    assert opened["is_partial"] is True
+
+    wait(client, cid, call(client, "analysis.start", **start, node_id=opened["id"]))
+
+    paths = {
+        n["display_path"]
+        for n in call(client, "files.list", case_id=cid, evidence_id=eid, all_nodes=True)["items"]
+    }
+    assert "/opened/inner/deep.txt" in paths
+    assert "/closed/later.txt" not in paths
+    other = call(client, "cases.create", name="Other")["id"]
+    response = client.post(
+        "/v1/operations/analysis.start", json={**start, "case_id": other, "node_id": opened["id"]}
+    )
+    assert response.json()["ok"] is False

@@ -81,7 +81,8 @@ def run_benchmark(
         ["QUICK_TRIAGE", "FULL_ANALYSIS"] if profile == "BOTH" else [profile]
     )
     with tempfile.TemporaryDirectory(prefix="apex-benchmark-") as temporary_directory:
-        temporary_root = Path(temporary_directory)
+        # macOS temp paths start with the /var symlink, which registration rejects.
+        temporary_root = Path(temporary_directory).resolve()
         if evidence_path is None:
             evidence = temporary_root / "fixture"
             _create_synthetic_fixture(evidence)
