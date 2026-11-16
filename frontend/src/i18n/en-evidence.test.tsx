@@ -63,7 +63,7 @@ it("confirms an evidence source in English and names the missing reader", () => 
     kind: "file",
     capabilities: [
       {
-        id: "e01-libewf",
+        id: "e01-container",
         status: "CAPABILITY_UNAVAILABLE",
         reason: "DEPENDENCY_NOT_INSTALLED",
       },

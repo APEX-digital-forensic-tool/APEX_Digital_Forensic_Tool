@@ -23,13 +23,27 @@ afterEach(() => {
 
 it("names the readers an image needs that this runtime lacks", () => {
   const caps = [
-    { id: "e01-libewf", status: "CAPABILITY_UNAVAILABLE" },
+    { id: "e01-container", status: "CAPABILITY_UNAVAILABLE" },
     { id: "pytsk3", status: "AVAILABLE" },
   ];
   expect(missingReaders("file", "disk.E01", caps).map((c) => c.id)).toEqual([
-    "e01-libewf",
+    "e01-container",
   ]);
   expect(missingReaders("file", "notes.txt", caps)).toEqual([]);
+});
+
+it("does not warn about optional readers the engine does not use (#52)", () => {
+  const packagedRuntimeCaps = [
+    { id: "pytsk3", status: "AVAILABLE" },
+    { id: "e01-container", status: "AVAILABLE" },
+    { id: "vhd-container", status: "AVAILABLE" },
+    { id: "vhdx-container", status: "AVAILABLE" },
+    { id: "e01-libewf", status: "CAPABILITY_UNAVAILABLE" },
+    { id: "vhd-libvhdi", status: "CAPABILITY_UNAVAILABLE" },
+    { id: "vhdx-qemu-img", status: "CAPABILITY_UNAVAILABLE" },
+  ];
+  for (const name of ["disk.E01", "disk.vhd", "disk.vhdx"])
+    expect(missingReaders("file", name, packagedRuntimeCaps)).toEqual([]);
 });
 
 it("surfaces a mismatch ahead of other hashes", () => {

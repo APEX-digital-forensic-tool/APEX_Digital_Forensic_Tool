@@ -214,6 +214,8 @@ export function App() {
     [rows, setRows] = useState<Row[]>([]),
     [loading, setLoading] = useState(false),
     [error, setError] = useState<unknown>(null),
+    [actionError, setActionError] = useState<unknown>(null),
+    [pollError, setPollError] = useState<unknown>(null),
     [selected, setSelected] = useState<Row | null>(null),
     [projection, setProjection] = useState<Row | null>(null),
     [viewError, setViewError] = useState<unknown>(null),
@@ -236,6 +238,7 @@ export function App() {
     [searchText, setSearchText] = useState(""),
     [searchMode, setSearchMode] = useState("TERM"),
     [revision, setRevision] = useState(0),
+    [treeRevision, setTreeRevision] = useState(0),
     // Full analysis is the default: artifacts, search and timeline only see
     // indexed files, and quick triage leaves most folders for later.
     [profile, setProfile] = useState("FULL_ANALYSIS"),
@@ -267,7 +270,16 @@ export function App() {
   /** Screen name; routes without their own screen have none. */
   const routeName = (tab: Tab) =>
     (m.shell.routes as Partial<Record<Tab, string>>)[tab];
-  const refresh = () => setRevision((r) => r + 1);
+  const refresh = () => {
+    setTreeRevision((r) => r + 1);
+    setRevision((r) => r + 1);
+  };
+  const keepPageOnNextLoad = useRef(false);
+  const refreshInBackground = (filesChanged: boolean) => {
+    keepPageOnNextLoad.current = true;
+    if (filesChanged) setTreeRevision((r) => r + 1);
+    setRevision((r) => r + 1);
+  };
   const bootstrap = useCallback(async () => {
     try {
       // Load cases independently so a runtime failure never hides local cases.
@@ -308,6 +320,8 @@ export function App() {
     setFolderTrail([]);
     setTasks([]);
     setError(null);
+    setActionError(null);
+    setPollError(null);
     if (!caseId) return;
     let live = true;
     Promise.all([
@@ -321,7 +335,7 @@ export function App() {
         setContext(ctx);
         contextRef.current = ctx;
       })
-      .catch((err) => live && setError(err));
+      .catch((err) => live && setActionError(err));
     return () => {
       live = false;
     };
@@ -330,6 +344,7 @@ export function App() {
     if (!caseId) return;
     let live = true;
     let polling = false;
+    let firstPoll = true;
     let statuses = new Map<string, string>();
     const poll = async () => {
       if (polling) return;
@@ -342,13 +357,15 @@ export function App() {
         if (live) {
           // A short task can finish before its first poll. Refresh each newly
           // observed terminal state, even while other tasks are still running.
-          if (
-            ts.some(
-              (t) => !activeTask(t) && statuses.get(t.task_id) !== t.status,
-            )
-          )
-            refresh();
+          const ended = ts.filter(
+            (t) => !activeTask(t) && statuses.get(t.task_id) !== t.status,
+          );
+          if (ended.length && !firstPoll)
+            refreshInBackground(
+              ended.some((t) => ["FILES", "REGISTER"].includes(t.kind)),
+            );
           statuses = new Map(ts.map((t) => [t.task_id, t.status]));
+          firstPoll = false;
           for (const t of ts) {
             const algorithm = pendingHashes.current.get(t.task_id);
             if (!algorithm || activeTask(t)) continue;
@@ -361,14 +378,15 @@ export function App() {
                   kind: "HASH",
                   algorithm,
                 })
-                .catch((err) => live && setError(err));
+                .catch((err) => live && setActionError(err));
           }
+          setPollError(null);
           setTasks(ts);
           setEvidence(ev);
-          if (!evidenceId && ev.length) setEvidenceId(ev[0].id);
+          if (ev.length) setEvidenceId((current) => current || ev[0].id);
         }
       } catch (err) {
-        if (live) setError(err);
+        if (live) setPollError(err);
       } finally {
         polling = false;
       }
@@ -379,7 +397,7 @@ export function App() {
       live = false;
       clearInterval(timer);
     };
-  }, [caseId, evidenceId]);
+  }, [caseId]);
   const sync = useCallback((patch: Row) => {
     const owner = caseRef.current;
     syncQueue.current = syncQueue.current
@@ -430,10 +448,10 @@ export function App() {
             conflictRef.current = patch;
             setConflict({ ...patch });
             setNotice(messages.current.shell.notices.sessionRefreshed);
-          } else setError(err);
+          } else setActionError(err);
         }
       })
-      .catch(setError);
+      .catch(setActionError);
   }, []);
   useEffect(() => {
     if (context?.context_revision === 1)
@@ -570,7 +588,7 @@ export function App() {
       refresh();
     } catch (err) {
       indexedFolders.current.delete(key);
-      setError(err);
+      setActionError(err);
     }
   }
   useEffect(() => {
@@ -616,17 +634,21 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [route, evidenceId, caseId, revision]);
+  }, [route, evidenceId, caseId, treeRevision]);
+  const pageCursor = useRef<string | null>(null);
   const loadPage = useCallback(
-    async (cursor: string | null = null) => {
+    async (cursor: string | null = null, background = false) => {
       if (
         !caseId ||
         ["CASE_OVERVIEW", "EVIDENCE", "REPORT", "SETTINGS"].includes(route)
       )
         return;
       const rid = ++requestRevision.current;
-      setLoading(true);
-      setError(null);
+      pageCursor.current = cursor;
+      if (!background) {
+        setLoading(true);
+        setError(null);
+      }
       const input: Row = {
         case_id: caseId,
         evidence_id: evidenceId || null,
@@ -679,19 +701,23 @@ export function App() {
         // A file picked in the tree can precede its parent's list response.
         // Keep that selection while this same directory finishes loading.
         setSelected((previous) =>
-          op === "files.list" &&
-          previous?.evidence_id === evidenceId &&
-          previous?.parent_node_id === folder?.id
+          background ||
+          (op === "files.list" &&
+            previous?.evidence_id === evidenceId &&
+            previous?.parent_node_id === folder?.id)
             ? previous
             : null,
         );
+        if (background) setError(null);
         if (op === "search.query")
           sync({
             active_search_execution_id: result.execution.execution_id,
             active_filters: { query_mode: searchMode, query_text: searchText },
           });
       } catch (err) {
-        if (rid === requestRevision.current) {
+        if (rid !== requestRevision.current) return;
+        if (background) setPollError(err);
+        else {
           setError(err);
           setRows([]);
         }
@@ -710,8 +736,13 @@ export function App() {
       sync,
     ],
   );
+  const lastLoadPage = useRef(loadPage);
   useEffect(() => {
-    void loadPage();
+    const keepPage =
+      keepPageOnNextLoad.current && lastLoadPage.current === loadPage;
+    keepPageOnNextLoad.current = false;
+    lastLoadPage.current = loadPage;
+    void loadPage(keepPage ? pageCursor.current : null, keepPage);
     return () => {
       requestRevision.current++;
     };
@@ -810,7 +841,7 @@ export function App() {
       setJobsOpen(true);
       refresh();
     } catch (err) {
-      setError(err);
+      setActionError(err);
     }
   }
   async function addEvidence(kind: "file" | "directory") {
@@ -838,7 +869,7 @@ export function App() {
         }),
       );
     } catch (err) {
-      setError(err);
+      setActionError(err);
     }
   }
   function newCase() {
@@ -1278,7 +1309,7 @@ export function App() {
                   : null
               }
               trail={folderTrail}
-              revision={revision}
+              revision={treeRevision}
               onOpen={openTreeNode}
               onPartial={(id, node) => void indexFolder(id, node)}
               onEvidence={(id) => {
@@ -1391,6 +1422,13 @@ export function App() {
           {startupError != null && (
             <ErrorState error={startupError} retry={bootstrap} />
           )}{" "}
+          {actionError != null && (
+            <ErrorState
+              error={actionError}
+              dismiss={() => setActionError(null)}
+            />
+          )}
+          {pollError != null && <ErrorState error={pollError} />}
           {conflict && (
             <div className="notice">
               <span>
@@ -2355,7 +2393,7 @@ export function App() {
                                     });
                                     setJobsOpen(true);
                                   } catch (err) {
-                                    setError(err);
+                                    setActionError(err);
                                   }
                                 }}
                               >
@@ -2380,7 +2418,7 @@ export function App() {
                                     });
                                     setJobsOpen(true);
                                   } catch (err) {
-                                    setError(err);
+                                    setActionError(err);
                                   }
                                 }}
                               >
@@ -2586,7 +2624,7 @@ export function App() {
                           });
                           if (caseRef.current === owner) setTasks(next);
                         } catch (err) {
-                          if (caseRef.current === owner) setError(err);
+                          if (caseRef.current === owner) setActionError(err);
                         }
                       }}
                     />
@@ -2601,7 +2639,7 @@ export function App() {
                             task_id: t.task_id,
                           });
                         } catch (err) {
-                          setError(err);
+                          setActionError(err);
                         }
                       }}
                     >

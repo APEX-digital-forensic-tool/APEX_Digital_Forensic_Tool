@@ -2,9 +2,9 @@ import type { Messages } from "../ko-KR";
 
 export const evidence: Messages["evidence"] = {
   readers: {
-    "e01-libewf": "Read E01 images",
-    "vhd-libvhdi": "Read VHD images",
-    "vhdx-qemu-img": "Read VHDX images",
+    "e01-container": "Read E01 images",
+    "vhd-container": "Read VHD images",
+    "vhdx-container": "Read VHDX images",
     "raw-dd-img": "Read RAW/DD images",
     pytsk3: "Interpret disk image file systems",
     "filesystem-provider": "Read folders",
