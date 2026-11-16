@@ -8,10 +8,10 @@ import { lookup, type Messages } from "./i18n/catalog";
 
 /** Engine readers an image of this kind needs; the engine still probes the format. */
 const readersByExtension: Record<string, string[]> = {
-  e01: ["e01-libewf", "pytsk3"],
-  ex01: ["e01-libewf", "pytsk3"],
-  vhd: ["vhd-libvhdi", "pytsk3"],
-  vhdx: ["vhdx-qemu-img", "pytsk3"],
+  e01: ["e01-container", "pytsk3"],
+  ex01: ["e01-container", "pytsk3"],
+  vhd: ["vhd-container", "pytsk3"],
+  vhdx: ["vhdx-container", "pytsk3"],
   raw: ["raw-dd-img", "pytsk3"],
   dd: ["raw-dd-img", "pytsk3"],
   img: ["raw-dd-img", "pytsk3"],

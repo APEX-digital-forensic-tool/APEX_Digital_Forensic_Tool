@@ -1,9 +1,9 @@
 export const evidence = {
   /** Engine reader id → what the reader does. */
   readers: {
-    "e01-libewf": "E01 이미지 읽기",
-    "vhd-libvhdi": "VHD 이미지 읽기",
-    "vhdx-qemu-img": "VHDX 이미지 읽기",
+    "e01-container": "E01 이미지 읽기",
+    "vhd-container": "VHD 이미지 읽기",
+    "vhdx-container": "VHDX 이미지 읽기",
     "raw-dd-img": "RAW·DD 이미지 읽기",
     pytsk3: "디스크 이미지 파일시스템 해석",
     "filesystem-provider": "폴더 읽기",
