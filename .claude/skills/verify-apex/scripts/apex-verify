@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# Drive the APEX React workbench against the real engine, the way Electron does.
+# Usage: apex-verify up | doctor | corpus | down [--purge] | env
+set -euo pipefail
+
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO="$(cd "$SCRIPTS/../../../.." && pwd -P)"
+HOME_DIR="${APEX_VERIFY_HOME:-${TMPDIR:-/tmp}/apex-verify}"
+mkdir -p "$HOME_DIR"
+HOME_DIR="$(cd "$HOME_DIR" && pwd -P)"
+UI_PORT="${APEX_VERIFY_UI_PORT:-5174}"
+
+die() { echo "apex-verify: $*" >&2; exit 1; }
+
+current_run() {
+  [ -f "$HOME_DIR/current" ] || die "no run; start one with: apex-verify up"
+  cat "$HOME_DIR/current"
+}
+
+load_state() {
+  RUN="$(current_run)"
+  [ -f "$RUN/state.env" ] || die "run $RUN has no state.env"
+  # shellcheck disable=SC1091
+  . "$RUN/state.env"
+}
+
+alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
+
+owned() {
+  alive "$1" && ps -o command= -p "$1" | grep -qF -- "$2"
+}
+
+engine_call() {
+  local body="${2:-}"
+  [ -n "$body" ] || body='{}'
+  curl -s -X POST -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $TOKEN" \
+    "http://127.0.0.1:$ENGINE_PORT/v1/operations/$1" -d "$body"
+}
+
+cmd_up() {
+  if [ -f "$HOME_DIR/current" ] && [ -f "$(cat "$HOME_DIR/current")/state.env" ]; then
+    load_state
+    if owned "${ENGINE_PID:-}" "$RUN/data" || owned "${UI_PID:-}" "vite.verify.mjs"; then
+      die "run $RUN is still up; run apex-verify down first"
+    fi
+  fi
+  [ -x "$REPO/.venv/bin/python" ] || die "missing $REPO/.venv; run: uv sync"
+  [ -d "$REPO/frontend/node_modules" ] || die "missing frontend/node_modules; run: npm --prefix frontend ci"
+  if lsof -nP -iTCP:"$UI_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    die "port $UI_PORT is taken; set APEX_VERIFY_UI_PORT to a free port"
+  fi
+
+  RUN="$HOME_DIR/$(date +%Y%m%d-%H%M%S)-$$"
+  mkdir -p "$RUN/data" "$RUN/corpus" "$RUN/artifacts" "$RUN/logs"
+  TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+
+  (
+    cd "$REPO"
+    export PYTHONPATH="$REPO/src" APEX_DESKTOP_TOKEN="$TOKEN"
+    exec "$REPO/.venv/bin/python" -m apex_desktop --data-dir "$RUN/data" \
+      >"$RUN/logs/engine.out" 2>"$RUN/logs/engine.err"
+  ) &
+  ENGINE_PID=$!
+
+  ENGINE_PORT=""
+  for _ in $(seq 1 120); do
+    ENGINE_PORT="$(sed -n 's/.*"type": *"apex-ready".*"port": *\([0-9]*\).*/\1/p' "$RUN/logs/engine.out" | head -1)"
+    [ -n "$ENGINE_PORT" ] && break
+    alive "$ENGINE_PID" || die "engine exited; see $RUN/logs/engine.err"
+    sleep 0.5
+  done
+  [ -n "$ENGINE_PORT" ] || die "engine never printed apex-ready; see $RUN/logs"
+
+  for _ in $(seq 1 60); do
+    if curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$ENGINE_PORT/health" | grep -q '"ready":true'; then
+      break
+    fi
+    sleep 0.5
+  done
+  engine_call cases.list | grep -q '"ok":true' || die "engine is not answering operations"
+
+  (
+    cd "$REPO/frontend"
+    export APEX_VERIFY_ENGINE_PORT="$ENGINE_PORT" APEX_VERIFY_TOKEN="$TOKEN" APEX_VERIFY_UI_PORT="$UI_PORT"
+    exec node node_modules/vite/bin/vite.js --config "$SCRIPTS/vite.verify.mjs"
+  ) >"$RUN/logs/ui.out" 2>&1 &
+  UI_PID=$!
+
+  for _ in $(seq 1 120); do
+    curl -sf "http://127.0.0.1:$UI_PORT/__apex-verify/shim.js" >/dev/null 2>&1 && break
+    alive "$UI_PID" || die "vite exited; see $RUN/logs/ui.out"
+    sleep 0.5
+  done
+  curl -sf "http://127.0.0.1:$UI_PORT/__apex-verify/shim.js" >/dev/null || die "UI never came up"
+
+  cat >"$RUN/state.env" <<EOF
+RUN='$RUN'
+TOKEN='$TOKEN'
+ENGINE_PID='$ENGINE_PID'
+ENGINE_PORT='$ENGINE_PORT'
+UI_PID='$UI_PID'
+UI_PORT='$UI_PORT'
+GIT_REV='$(git -C "$REPO" rev-parse --short HEAD)'
+EOF
+  printf '%s' "$RUN" >"$HOME_DIR/current"
+  echo "ready"
+  echo "ui:        http://127.0.0.1:$UI_PORT/"
+  echo "engine:    http://127.0.0.1:$ENGINE_PORT (data $RUN/data)"
+  echo "artifacts: $RUN/artifacts"
+}
+
+cmd_doctor() {
+  load_state
+  local ok=1
+  if owned "$ENGINE_PID" "$RUN/data"; then echo "engine process: up (pid $ENGINE_PID)"; else echo "engine process: DOWN"; ok=0; fi
+  if owned "$UI_PID" "vite.verify.mjs"; then echo "ui process:     up (pid $UI_PID)"; else echo "ui process:     DOWN"; ok=0; fi
+  if curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$ENGINE_PORT/health" | grep -q '"ready":true'; then
+    echo "engine health:  ready on $ENGINE_PORT"
+  else echo "engine health:  NOT READY"; ok=0; fi
+  if curl -sf "http://127.0.0.1:$UI_PORT/__apex-verify/shim.js" >/dev/null; then
+    echo "ui shim:        served on $UI_PORT"
+  else echo "ui shim:        MISSING"; ok=0; fi
+  local head; head="$(git -C "$REPO" rev-parse --short HEAD)"
+  echo "build:          started at $GIT_REV, checkout now $head"
+  [ "$head" = "$GIT_REV" ] || echo "warning: checkout moved since up; restart to test the new code in the engine"
+  echo "data dir:       $RUN/data"
+  echo "artifacts:      $RUN/artifacts"
+  [ "$ok" = 1 ] && echo "doctor: OK" || { echo "doctor: FAIL"; exit 1; }
+}
+
+cmd_corpus() {
+  load_state
+  "$REPO/.venv/bin/python" -I "$SCRIPTS/corpus.py" "$REPO/tests/fixtures/container-images.json" "$RUN/corpus"
+}
+
+cmd_down() {
+  load_state
+  for pid in "$UI_PID" "$ENGINE_PID"; do
+    if alive "$pid"; then
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 20); do alive "$pid" || break; sleep 0.25; done
+      alive "$pid" && kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
+  rm -rf "$RUN/data" "$RUN/corpus" "$RUN/state.env"
+  rm -f "$HOME_DIR/current"
+  echo "stopped; kept $RUN/artifacts and $RUN/logs"
+  if [ "${1:-}" = "--purge" ]; then rm -rf "$RUN"; echo "purged $RUN"; fi
+}
+
+cmd_env() {
+  load_state
+  cat "$RUN/state.env"
+}
+
+case "${1:-}" in
+  up) cmd_up ;;
+  doctor) cmd_doctor ;;
+  corpus) cmd_corpus ;;
+  down) shift; cmd_down "${1:-}" ;;
+  env) cmd_env ;;
+  *) echo "usage: apex-verify up | doctor | corpus | down [--purge] | env" >&2; exit 2 ;;
+esac
