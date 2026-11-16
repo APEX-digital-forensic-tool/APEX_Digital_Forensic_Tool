@@ -13,6 +13,7 @@ import {
   ChevronRight,
   LoaderCircle,
   SearchX,
+  X,
 } from "./icons";
 import { type Row, errorText } from "./gateway";
 import { useI18n } from "./i18n/I18nProvider";
@@ -109,9 +110,11 @@ export function Empty({
 export function ErrorState({
   error,
   retry,
+  dismiss,
 }: {
   error: unknown;
   retry?: () => void;
+  dismiss?: () => void;
 }) {
   const { m } = useI18n();
   return (
@@ -119,6 +122,11 @@ export function ErrorState({
       <AlertCircle size={16} />
       <span>{errorText(error, m)}</span>
       {retry && <button onClick={retry}>{m.ui.retry}</button>}
+      {dismiss && (
+        <button aria-label={m.shell.nav.closeNotice} onClick={dismiss}>
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
 }
