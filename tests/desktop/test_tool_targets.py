@@ -112,3 +112,68 @@ def test_image_without_extension_is_accepted_by_its_bytes(client, tmp_path):
     node = file_named(client, cid, eid, "scan")
     task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
     assert task["task_id"]
+
+
+def png_bytes() -> bytes:
+    fixture = json.loads((FIXTURES / "container-images.json").read_text())
+    return gzip.decompress(base64.b64decode(fixture["ocr.png"]["gzip_base64"]))
+
+
+def test_image_with_a_misleading_extension_is_still_accepted(client, tmp_path):
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "photo.dat").write_bytes(png_bytes())
+    cid = call(client, "cases.create", name="Disguised")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "photo.dat")
+    task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    assert task["task_id"]
+
+
+def test_large_jpeg_is_accepted_for_ocr(client, tmp_path):
+    import random
+
+    from PIL import Image
+
+    root = tmp_path / "folder"
+    root.mkdir()
+    noise = random.Random(1).randbytes(2400 * 2400 * 3)
+    path = root / "big.jpg"
+    Image.frombytes("RGB", (2400, 2400), noise).save(path, "JPEG", quality=95)
+    assert path.stat().st_size > 4 * 1024 * 1024
+    cid = call(client, "cases.create", name="Large")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "big.jpg")
+    task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    assert task["task_id"]
+
+
+def test_unknown_filesystem_is_not_reported_as_not_applicable(client, tmp_path, monkeypatch):
+    from apex_forensic.adapters.filesystem.pytsk import PyTskFileSystemProvider
+
+    fixture = json.loads((FIXTURES / "container-images.json").read_text())
+    image = tmp_path / "streams.img"
+    image.write_bytes(gzip.decompress(base64.b64decode(fixture["streams.img"]["gzip_base64"])))
+    cid = call(client, "cases.create", name="Unknown fs")["id"]
+    eid = register(client, cid, image)
+    node = file_named(client, cid, eid, "document.txt")
+    monkeypatch.setattr(PyTskFileSystemProvider, "filesystem_type", lambda *_: None)
+    result = call(client, "files.streams", case_id=cid, node_id=node["id"])
+    assert result["ads_supported"] is None
+    assert result["filesystem_type"] is None
+
+
+def test_streams_filesystem_comes_from_the_volume_not_node_names(client, tmp_path):
+    root = tmp_path / "folder"
+    (root / "volume-0").mkdir(parents=True)
+    (root / "volume-0" / "a.txt").write_text("x", encoding="utf-8")
+    fixture = json.loads((FIXTURES / "container-images.json").read_text())
+    image = tmp_path / "streams.img"
+    image.write_bytes(gzip.decompress(base64.b64decode(fixture["streams.img"]["gzip_base64"])))
+    cid = call(client, "cases.create", name="Names")["id"]
+    register(client, cid, root)
+    eid = register(client, cid, image)
+    node = file_named(client, cid, eid, "document.txt")
+    result = call(client, "files.streams", case_id=cid, node_id=node["id"])
+    assert result["filesystem_type"] == "NTFS"
+    assert result["ads_supported"] is True
