@@ -946,3 +946,22 @@ def test_root_cancelled_before_its_listing_is_partial(services, tmp_path: Path) 
     (evidence_dir / "new.txt").write_text("y", encoding="utf-8")
     cancelled_full_job()
     assert root().is_partial is True
+
+
+def test_root_of_a_job_that_fails_to_start_is_partial(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "bad-start"
+    (evidence_dir / "dir").mkdir(parents=True)
+    case, evidence = _case_and_directory(services, evidence_dir)
+    with pytest.raises(ValidationError):
+        services.fs.index_evidence(
+            case_id=case.case_id,
+            evidence_id=evidence.evidence_id,
+            profile_type=AnalysisProfileType.SELECTED_SCOPE,
+            selected_node_ids=["missing-node"],
+        )
+    root = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/"
+    )
+    assert root.is_partial is True
