@@ -52,13 +52,11 @@ import sys
 import time
 from pathlib import Path
 
-if os.environ.get("APEX_STT_SLEEP"):
-    time.sleep(float(os.environ["APEX_STT_SLEEP"]))
-if os.environ.get("APEX_STT_EXIT"):
-    raise SystemExit(int(os.environ["APEX_STT_EXIT"]))
+here = Path(__file__).resolve().parent
+if (here / "sleep").exists():
+    time.sleep(float((here / "sleep").read_text()))
 output = Path(sys.argv[sys.argv.index("-of") + 1])
-if os.environ.get("APEX_STT_TEMP_RECORD"):
-    Path(os.environ["APEX_STT_TEMP_RECORD"]).write_text(str(output.parent), encoding="utf-8")
+(here / "stt-temp.txt").write_text(str(output.parent), encoding="utf-8")
 output.with_suffix(".json").write_text(
     json.dumps(
         {
@@ -152,7 +150,6 @@ def test_whisper_adapter_records_model_metadata_and_cleans_temp(
     _write_fake_whisper_cli(executable)
     model.write_bytes(b"synthetic model metadata only")
     audio.write_bytes(b"RIFFsynthetic")
-    monkeypatch.setenv("APEX_STT_TEMP_RECORD", str(temp_record))
     provider = WhisperCppCliSttProvider(
         executable=str(executable),
         model_path=model,
@@ -198,7 +195,7 @@ def test_whisper_adapter_timeout_and_cancellation_are_structured(
     with pytest.raises(ApexError) as cancelled:
         provider.analyze_audio(audio, cancellation_requested=True)
 
-    monkeypatch.setenv("APEX_STT_SLEEP", "1")
+    (tmp_path / "sleep").write_text("1")
     with pytest.raises(ApexError) as timed_out:
         provider.analyze_audio(audio)
 

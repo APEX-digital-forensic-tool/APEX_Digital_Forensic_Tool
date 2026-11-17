@@ -26,6 +26,7 @@ from apex_forensic.ports.evidence_reader import (
     EvidenceProbeResult,
     EvidenceReaderCapabilityStatement,
 )
+from apex_forensic.runtime.tool_env import external_tool_env
 
 
 class VirtualDiskEvidenceReader:
@@ -334,6 +335,7 @@ class VirtualDiskEvidenceReader:
             result = subprocess.run(
                 [executable, "--version"],
                 capture_output=True,
+                env=external_tool_env(),
                 check=False,
                 text=True,
                 timeout=10,
@@ -364,6 +366,7 @@ class VirtualDiskEvidenceReader:
                     str(path),
                 ],
                 capture_output=True,
+                env=external_tool_env(),
                 check=False,
                 text=True,
                 timeout=30,
@@ -472,6 +475,7 @@ class VirtualDiskEvidenceReader:
                     str(raw_cache_path),
                 ],
                 capture_output=True,
+                env=external_tool_env(),
                 check=False,
                 text=True,
                 timeout=120,

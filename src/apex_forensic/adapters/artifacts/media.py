@@ -40,6 +40,7 @@ from apex_forensic.domain.models import (
 )
 from apex_forensic.domain.services.canonical import canonical_sha256
 from apex_forensic.runtime.assets import media_executable
+from apex_forensic.runtime.tool_env import external_tool_env
 
 _IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "tif", "tiff", "bmp", "webp"}
 _VIDEO_EXTENSIONS = {"mp4", "m4v", "mov", "3gp", "3g2", "avi", "mkv", "webm"}
@@ -676,7 +677,9 @@ def _run_bounded_process(
     timeout: int,
     max_bytes: int,
 ) -> _BoundedProcessResult:
-    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=external_tool_env()
+    )
     stdout = bytearray()
     stderr = bytearray()
     state: dict[str, bool | str | None] = {"timed_out": False, "limit_stream": None}
