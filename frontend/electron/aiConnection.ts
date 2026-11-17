@@ -72,6 +72,24 @@ function isManaged(deps: AiDeps): boolean {
   return (deps.env[CONFIG_ENV] ?? "").trim() !== "";
 }
 
+/**
+ * Whether ai.analyze goes through the signed-in APEX server: the user's own
+ * environment decides when it is set, the stored connection otherwise.
+ */
+function serverMode(deps: AiDeps): boolean {
+  if (!isManaged(deps)) return readStored(deps)?.mode === "server";
+  try {
+    const config: unknown = JSON.parse(deps.env[CONFIG_ENV] ?? "");
+    return (
+      typeof config === "object" &&
+      config !== null &&
+      (config as Record<string, unknown>).connection === "APEX_SERVER"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function validUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   let url: URL;
@@ -206,7 +224,7 @@ export function aiConnectionStatus(deps: AiDeps): AiConnectionStatus {
 
 /**
  * Gives ai.analyze the signed-in server's LLM address and access token when the
- * APEX server mode is stored. Only the main process may set them, so a copy from
+ * APEX server mode is chosen. Only the main process may set them, so a copy from
  * the renderer is always dropped. The token travels in the request body over the
  * engine's authenticated loopback, never through the engine's environment.
  * Returns the credentials attached, or null when none were.
@@ -219,8 +237,7 @@ export async function attachServerConnection(
 ): Promise<Credentials | null> {
   if (operation !== "ai.analyze" && operation !== "ai.prepare") return null;
   delete payload.server_connection;
-  if (operation !== "ai.analyze" || isManaged(deps)) return null;
-  if (readStored(deps)?.mode !== "server") return null;
+  if (operation !== "ai.analyze" || !serverMode(deps)) return null;
   const signedIn = await credentials();
   if (signedIn)
     payload.server_connection = {

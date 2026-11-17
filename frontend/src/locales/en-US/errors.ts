@@ -114,6 +114,8 @@ export const errors: Messages["errors"] = {
     "You are already signed in. Sign out before connecting another account.",
   AUTH_LOGIN_CANCELLED:
     "You were signed out while signing in, so sign-in was cancelled. Try again.",
+  AUTH_CONTRACT_INVALID:
+    "The authentication server answered in an unexpected format. Check the server address and version.",
   AUTH_LOGIN_FAILED: "Check the email, password, or tenant ID.",
   AUTH_ORIGIN_INVALID:
     "The authentication server address must be an HTTPS address or a local HTTP address.",

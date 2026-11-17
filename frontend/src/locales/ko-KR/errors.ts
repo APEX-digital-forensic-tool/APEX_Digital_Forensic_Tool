@@ -112,6 +112,8 @@ export const errors = {
     "이미 로그인되어 있습니다. 다른 계정은 로그아웃한 뒤 연결하세요.",
   AUTH_LOGIN_CANCELLED:
     "로그인하는 동안 로그아웃되어 로그인을 취소했습니다. 다시 시도하세요.",
+  AUTH_CONTRACT_INVALID:
+    "인증 서버가 예상과 다른 형식으로 답했습니다. 서버 주소와 버전을 확인하세요.",
   AUTH_LOGIN_FAILED: "이메일, 비밀번호 또는 테넌트 ID를 확인해주세요.",
   AUTH_ORIGIN_INVALID:
     "인증 서버 주소는 HTTPS 주소 또는 로컬 HTTP 주소여야 합니다.",

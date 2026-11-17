@@ -216,12 +216,17 @@ export function createServerSession(deps: SessionDeps) {
     if (!tokens) return { ok: false, code: "AUTH_CONTRACT_INVALID" };
     if (started !== generation || latest().kind === "signed_in") {
       // Another sign-in or a logout finished first; end the session this one opened.
+      // Never report success: the session in place belongs to someone else's sign-in.
       void post(`${origin}/auth/logout`, { bearer: tokens.access }).catch(
         () => {},
       );
-      return latest().kind === "signed_in"
-        ? { ok: true, status: status() }
-        : { ok: false, code: "AUTH_LOGIN_CANCELLED" };
+      return {
+        ok: false,
+        code:
+          latest().kind === "signed_in"
+            ? "AUTH_ALREADY_SIGNED_IN"
+            : "AUTH_LOGIN_CANCELLED",
+      };
     }
     generation++;
     set(signedIn(origin, tokens));
