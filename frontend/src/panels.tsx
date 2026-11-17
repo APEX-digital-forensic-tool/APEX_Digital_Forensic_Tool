@@ -217,7 +217,7 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
     [loadFailed, setLoadFailed] = useState(false),
     [attempt, setAttempt] = useState(0),
     [busy, setBusy] = useState(false);
-  // Counts pushed changes, so a status load that answers after one does not undo it.
+  // Counts pushed changes, so a reply that answers after one does not undo it.
   const pushes = useRef(0);
   useEffect(() => {
     const before = pushes.current;
@@ -290,9 +290,11 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
                 if (!window.apex) return;
                 setBusy(true);
                 setError(null);
+                const before = pushes.current;
                 try {
                   unwrap(await window.apex.logout());
-                  setState({ ...SIGNED_OUT, reason: "LOGGED_OUT" });
+                  if (pushes.current === before)
+                    setState({ ...SIGNED_OUT, reason: "LOGGED_OUT" });
                 } catch (err) {
                   setError(err);
                   // A failed server logout still ends the session here; show what main holds now.
@@ -324,9 +326,11 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
               setLoadFailed(false);
               const form = e.currentTarget;
               const data = Object.fromEntries(new FormData(form));
+              const before = pushes.current;
               try {
                 if (window.apex) {
-                  setState(unwrap(await window.apex.login(data)));
+                  const signedIn = unwrap(await window.apex.login(data));
+                  if (pushes.current === before) setState(signedIn);
                   form.reset();
                 }
               } catch (err) {

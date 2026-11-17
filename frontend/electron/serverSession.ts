@@ -83,6 +83,11 @@ export function serverOrigin(value: unknown): string | null {
 }
 
 type Tokens = { access: string; refresh: string; ttl: number };
+/** What a refresh request came back with; null when the server could not be reached or answered nonsense. */
+type Exchange = { tokens: Tokens } | { rejected: true } | null;
+
+/** Longer-lived access tokens are a broken contract, not a long session. */
+const MAX_TTL_MS = 365 * 24 * 3_600_000;
 
 function parseTokens(body: unknown): Tokens | null {
   const b = body as Record<string, unknown> | null;
@@ -90,16 +95,12 @@ function parseTokens(body: unknown): Tokens | null {
     !b ||
     typeof b.access_token !== "string" ||
     typeof b.refresh_token !== "string" ||
-    typeof b.expires_in !== "number" ||
-    !Number.isFinite(b.expires_in) ||
-    !(b.expires_in > 0)
+    typeof b.expires_in !== "number"
   )
     return null;
-  return {
-    access: b.access_token,
-    refresh: b.refresh_token,
-    ttl: b.expires_in * 1000,
-  };
+  const ttl = b.expires_in * 1000;
+  if (!(ttl > 0 && ttl <= MAX_TTL_MS)) return null;
+  return { access: b.access_token, refresh: b.refresh_token, ttl };
 }
 
 export function createServerSession(deps: SessionDeps) {
@@ -109,6 +110,7 @@ export function createServerSession(deps: SessionDeps) {
   // The refresh in flight and the sign-in it belongs to.
   let refreshing: {
     generation: number;
+    exchange: Promise<Exchange>;
     promise: Promise<string | null>;
   } | null = null;
   let timer: unknown = null;
@@ -237,10 +239,12 @@ export function createServerSession(deps: SessionDeps) {
   }
 
   /**
-   * Ends the session here and on the server. A lapsed access token cannot end
-   * it, so the token is renewed first. The local session ends either way; a
-   * server that could not be told is reported, because its session would
-   * otherwise outlive the logout unnoticed.
+   * Ends the session here at once, then on the server. Nothing in this app can
+   * use the session after the first line: what the server revoke needs is kept
+   * aside. A lapsed access token cannot end it, so the token is renewed first
+   * (joining a renewal already in flight rather than reusing its refresh
+   * token). A server that could not be told is reported, because its session
+   * would otherwise outlive the logout unnoticed.
    */
   async function logout(): Promise<
     { ok: true } | { ok: false; code: "AUTH_LOGOUT_INCOMPLETE" }
@@ -251,17 +255,29 @@ export function createServerSession(deps: SessionDeps) {
       set({ kind: "signed_out", reason: "LOGGED_OUT" });
       return { ok: true };
     }
-    const { origin } = state;
-    const current = await credentials();
-    // A refresh the server rejected means the session is already over there.
-    const serverEnded = !current && latest().kind === "signed_out";
+    const ended = state;
+    const inFlight =
+      refreshing?.generation === generation ? refreshing.exchange : null;
     generation++;
     set({ kind: "signed_out", reason: "LOGGED_OUT" });
-    if (serverEnded) return { ok: true };
-    if (!current) return { ok: false, code: "AUTH_LOGOUT_INCOMPLETE" };
+
+    let access =
+      ended.expiresAt - ended.margin > deps.now() ? ended.access : null;
+    // Only a lapsing token needs renewing; a valid one can end the session as is.
+    const renewed = access
+      ? null
+      : (inFlight ?? exchange(ended.origin, ended.refresh));
+    if (renewed) {
+      const result = await renewed;
+      // A refresh the server rejected means the session is already over there.
+      if (result && "rejected" in result) return { ok: true };
+      if (result) access = result.tokens.access;
+      else if (ended.expiresAt <= deps.now()) access = null;
+    }
+    if (!access) return { ok: false, code: "AUTH_LOGOUT_INCOMPLETE" };
     try {
-      const response = await post(`${origin}/auth/logout`, {
-        bearer: current.access,
+      const response = await post(`${ended.origin}/auth/logout`, {
+        bearer: access,
       });
       if (response.ok) return { ok: true };
     } catch {
@@ -279,45 +295,59 @@ export function createServerSession(deps: SessionDeps) {
     if (state.kind !== "signed_in" || session !== generation)
       return Promise.resolve(null);
     if (refreshing?.generation === generation) return refreshing.promise;
+    const from = state;
+    const attempt = generation;
+    const pending = exchange(from.origin, from.refresh);
     const entry = {
-      generation,
-      promise: rotate(state, generation).finally(() => {
-        if (refreshing === entry) refreshing = null;
-      }),
+      generation: attempt,
+      exchange: pending,
+      promise: pending
+        .then((result) => adopt(from, attempt, result))
+        .finally(() => {
+          if (refreshing === entry) refreshing = null;
+        }),
     };
     refreshing = entry;
     return entry.promise;
   }
 
-  async function rotate(
+  /** Trades a refresh token for new tokens. Touches no state. */
+  async function exchange(
+    origin: string,
+    refreshToken: string,
+  ): Promise<Exchange> {
+    try {
+      const response = await post(`${origin}/auth/refresh`, {
+        body: { refresh_token: refreshToken },
+      });
+      if (response.status === 401) return { rejected: true };
+      if (!response.ok) return null;
+      const tokens = parseTokens(await response.json().catch(() => null));
+      return tokens ? { tokens } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Applies a refresh result, unless the sign-in it belongs to has ended since. */
+  function adopt(
     from: Extract<State, { kind: "signed_in" }>,
     attempt: number,
-  ): Promise<string | null> {
-    let response: Response | null = null;
-    try {
-      response = await post(`${from.origin}/auth/refresh`, {
-        body: { refresh_token: from.refresh },
-      });
-    } catch {
-      response = null;
-    }
+    result: Exchange,
+  ): string | null {
     if (attempt !== generation) return null;
-    if (response?.status === 401) {
+    if (result && "rejected" in result) {
       set({ kind: "signed_out", reason: "SESSION_EXPIRED" });
       return null;
     }
-    const tokens = response?.ok
-      ? parseTokens(await response.json().catch(() => null))
-      : null;
-    if (attempt !== generation) return null;
-    if (!tokens) {
+    if (!result) {
       // Server unreachable or misbehaving: keep the session and try again soon.
       schedule(RETRY_MS);
       deps.onChange(status());
       return from.expiresAt > deps.now() ? from.access : null;
     }
-    set(signedIn(from.origin, tokens));
-    return tokens.access;
+    set(signedIn(from.origin, result.tokens));
+    return result.tokens.access;
   }
 
   /** A usable access token and the server it belongs to, refreshing first when close to expiry. */
