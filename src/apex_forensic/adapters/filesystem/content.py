@@ -196,11 +196,6 @@ class EvidenceFileContent:
         check_cancel(cancellation_token)
 
     @classmethod
-    def read_range(cls, handle: Any, offset: int, length: int) -> bytes:
-        """Read a byte range from a handle returned by `open`."""
-        return cls._read(handle, offset, length)
-
-    @classmethod
     def sha256(cls, evidence: Evidence, node: FileSystemNode) -> str:
         digest = hashlib.sha256()
         for chunk in cls.chunks(evidence, node, limit=MAX_MATERIALIZED_BYTES):
