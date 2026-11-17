@@ -577,8 +577,10 @@ def test_folder_job_that_drains_with_skipped_items_clears_partial(services, tmp_
 
 
 class _FolderListingErrorProvider(LogicalDirectoryFileSystemProvider):
+    failing_path = "/dir"
+
     def iter_directory_entries(self, evidence, parent, *, index_revision, after_cursor=None):
-        if parent.display_path == "/dir":
+        if parent.display_path == self.failing_path:
             return [
                 ProviderScanIssue(
                     severity="ERROR",
@@ -769,3 +771,110 @@ def test_folder_selected_by_path_stays_partial_when_cancelled(services, tmp_path
     assert retry.status == "SUCCEEDED"
     assert nodes()["/dir"].is_partial is False
     assert nodes()["/dir/nested"].is_partial is False
+
+
+class _RootListingErrorProvider(_FolderListingErrorProvider):
+    failing_path = "/"
+
+
+def _service_with(services, provider):
+    return FileSystemIndexService(
+        case_repository=services.repository,
+        evidence_repository=services.repository,
+        repository=services.repository,
+        provider=provider,
+        clock=SystemClock(),
+        id_generator=UuidGenerator(),
+    )
+
+
+def _fully_indexed(services, tmp_path: Path, name: str):
+    evidence_dir = tmp_path / name
+    (evidence_dir / "dir" / "nested").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    (evidence_dir / "dir" / "nested" / "b.txt").write_text("y", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+    )
+
+    def nodes():
+        return {
+            node.display_path: node
+            for node in services.fs.list_nodes(
+                evidence_id=evidence.evidence_id, all_nodes=True
+            ).items
+        }
+
+    assert nodes()["/dir"].is_partial is False
+    assert nodes()["/"].is_partial is False
+    return case, evidence, evidence_dir, nodes
+
+
+def test_complete_folder_reopened_and_cancelled_turns_partial(services, tmp_path: Path) -> None:
+    case, evidence, evidence_dir, nodes = _fully_indexed(services, tmp_path, "reopen")
+    (evidence_dir / "dir" / "nested" / "new.txt").write_text("z", encoding="utf-8")
+    token = CancellationToken.new()
+
+    def cancel_after_dir_is_listed(job) -> None:
+        if job.progress.processed_items >= 1:
+            token.cancel()
+
+    job, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[nodes()["/dir"].node_id],
+        include_background=False,
+        cancellation_token=token,
+        progress_callback=cancel_after_dir_is_listed,
+    )
+
+    assert job.status == "CANCELLED"
+    # Being reindexed, the folder is no longer known to be complete.
+    assert nodes()["/dir"].is_partial is True
+
+    retry, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[nodes()["/dir"].node_id],
+        include_background=False,
+    )
+    assert retry.status == "SUCCEEDED"
+    assert nodes()["/dir"].is_partial is False
+
+
+def test_complete_folder_whose_new_listing_fails_turns_partial(services, tmp_path: Path) -> None:
+    case, evidence, _, nodes = _fully_indexed(services, tmp_path, "relist-fails")
+    job, _ = _service_with(services, _FolderListingErrorProvider()).index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[nodes()["/dir"].node_id],
+        include_background=False,
+    )
+    assert job.status == "PARTIAL"
+    assert nodes()["/dir"].is_partial is True
+
+
+def test_root_whose_listing_fails_stays_partial(services, tmp_path: Path) -> None:
+    case, evidence, _, nodes = _fully_indexed(services, tmp_path, "root-fails")
+    _service_with(services, _RootListingErrorProvider()).index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+    )
+    assert nodes()["/"].is_partial is True
+
+    # A later job that never lists the root has no evidence that it is complete.
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[nodes()["/dir"].node_id],
+        include_background=False,
+    )
+    assert nodes()["/"].is_partial is True

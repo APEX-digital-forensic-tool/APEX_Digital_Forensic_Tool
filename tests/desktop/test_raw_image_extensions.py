@@ -3,6 +3,8 @@
 import base64
 import gzip
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -134,3 +136,57 @@ def test_lone_numbered_file_is_not_treated_as_a_split_set(client, tmp_path, name
         json={"case_id": cid, "source_path": str(tmp_path / name)},
     )
     assert response.status_code == 200, response.text
+
+
+posix_permissions = pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod(0o111) does not block listing for root or on Windows",
+)
+
+
+def register_status(client, path):
+    cid = call(client, "cases.create", name="분할 확인")["id"]
+    response = client.post(
+        "/v1/operations/evidence.register",
+        json={"case_id": cid, "source_path": str(path)},
+    )
+    return cid, response
+
+
+# A folder the analyst can traverse but not list still shows each segment by its path.
+@posix_permissions
+@pytest.mark.parametrize(
+    ("names", "picked", "code"),
+    [
+        (("a.001", "a.002"), "a.001", "SPLIT_IMAGE_UNSUPPORTED"),
+        (("a.001", "a.003"), "a.001", "SPLIT_IMAGE_UNSUPPORTED"),
+        (("lone.001",), "lone.001", None),
+    ],
+)
+def test_split_check_works_in_a_folder_that_cannot_be_listed(
+    client, tmp_path, names, picked, code
+):
+    folder = tmp_path / "exec-only"
+    folder.mkdir()
+    for name in names:
+        (folder / name).write_bytes(b"\0" * 512)
+    folder.chmod(0o111)
+    try:
+        cid, response = register_status(client, folder / picked)
+    finally:
+        folder.chmod(0o755)
+    if code is None:
+        assert response.status_code == 200, response.text
+    else:
+        assert response.json()["error"]["code"] == code, response.text
+        assert call(client, "tasks.list", case_id=cid) == []
+
+
+# A sibling that cannot be checked is not evidence of a lone file.
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink loop")
+def test_a_sibling_that_cannot_be_checked_refuses_the_segment(client, tmp_path):
+    (tmp_path / "a.001").write_bytes(b"\0" * 512)
+    (tmp_path / "a.002").symlink_to(tmp_path / "a.002")
+    cid, response = register_status(client, tmp_path / "a.001")
+    assert response.json()["error"]["code"] == "SPLIT_IMAGE_UNVERIFIED", response.text
+    assert call(client, "tasks.list", case_id=cid) == []

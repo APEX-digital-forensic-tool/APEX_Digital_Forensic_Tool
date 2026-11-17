@@ -140,6 +140,7 @@ CONTAINERS = [
     ("tone.webm", "webm", "libopus", ()),
     ("tone.avi", "avi", "libmp3lame", ()),
     ("tone.wma", "asf", "wmav2", ()),
+    ("tone.au", "au", "pcm_s16be", ()),
     ("tone.amr", "amr", "libopencore_amrnb", ("-ar", "8000", "-ac", "1")),
 ]
 
@@ -175,55 +176,73 @@ def test_common_audio_containers_are_accepted_by_content(client, tmp_path):
     }
 
 
-UTF16_REG = "\ufeffWindows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software]\r\n"
+def silent_video(path: Path) -> bytes:
+    ffmpeg = media_executable("ffmpeg")
+    assert ffmpeg is not None
+    subprocess.run(
+        [
+            ffmpeg,
+            *("-v", "error", "-f", "lavfi", "-i", "color=size=16x16:duration=1"),
+            *("-c:v", "mpeg4", "-f", "mp4", str(path)),
+        ],
+        check=True,
+        timeout=60,
+    )
+    return path.read_bytes()
 
 
+# Refused only on positive evidence: ffprobe opened the container and found no audio,
+# or it could not open the bytes and the name also says text or image.
 @needs_ffmpeg
-def test_text_and_random_binary_are_still_rejected_for_speech(client, tmp_path):
-    root = tmp_path / "other"
+def test_speech_is_refused_only_on_positive_evidence(client, tmp_path):
+    root = tmp_path / "evidence"
     root.mkdir()
+    (root / "clip.mp4").write_bytes(silent_video(tmp_path / "silent.mp4"))
+    (root / "voice.dat").write_bytes(silent_video(tmp_path / "silent2.mp4"))
+    (root / "note.txt").write_text("just text", encoding="utf-8")
+    (root / "photo.png").write_bytes(b"\x00" * 64)
+    (root / "recording.txt").write_bytes(wav())
     (root / "note.dat").write_text("just text", encoding="utf-8")
     (root / "blob.dat").write_bytes(b"\xff\xe0\x00\x00" + b"\x00" * 40)
-    (root / "export.reg").write_bytes(UTF16_REG.encode("utf-16-le"))
     (root / "utf16.dat").write_bytes("\ufeffhello world".encode("utf-16-le"))
-    cid, nodes = nodes_of(client, root, "Not audio")
-    for name in ("note.dat", "blob.dat", "export.reg", "utf16.dat"):
+    (root / "fake.wav").write_text("just text", encoding="utf-8")
+    cid, nodes = nodes_of(client, root, "Evidence")
+    for name in ("clip.mp4", "voice.dat", "note.txt", "photo.png"):
         body = stt(client, cid, nodes[name])
         assert body["ok"] is False, name
         assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED", name
+    # Real audio whatever the name, and bytes nothing could open under a neutral or
+    # audio name: queued, so the job reports what the decoder finds.
+    for name in ("recording.txt", "note.dat", "blob.dat", "utf16.dat", "fake.wav"):
+        assert stt(client, cid, nodes[name])["ok"] is True, name
 
 
+# A size limit says nothing about the content, so the name cannot refuse it either.
 @needs_ffmpeg
-def test_speech_is_decided_by_content_whatever_the_name(client, tmp_path):
-    root = tmp_path / "content"
+def test_audio_too_large_to_probe_is_queued_whatever_the_name(client, tmp_path, monkeypatch):
+    import apex_desktop.tool_targets as targets
+
+    root = tmp_path / "large"
     root.mkdir()
     (root / "note.txt").write_bytes(wav())
-    (root / "fake.wav").write_text("just text", encoding="utf-8")
-    (root / "utf16.txt").write_bytes("\ufeffhello".encode("utf-16-le"))
-    (root / "IMG.heic").write_bytes(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 32)
-    cid, nodes = nodes_of(client, root, "Content")
+    cid, nodes = nodes_of(client, root, "Large")
+    monkeypatch.setattr(targets, "_PROBE_MAX_BYTES", 16)
     assert stt(client, cid, nodes["note.txt"])["ok"] is True
-    for name in ("fake.wav", "utf16.txt", "IMG.heic"):
-        body = stt(client, cid, nodes[name])
-        assert body["ok"] is False, name
-        assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED", name
 
 
-# Without ffprobe the bytes cannot be judged, so the name is the only evidence left.
-def test_without_ffprobe_the_name_decides(client, tmp_path, monkeypatch):
+# Without ffprobe nothing was learned about the bytes, so nothing is refused by name.
+def test_without_ffprobe_every_file_is_queued(client, tmp_path, monkeypatch):
     import apex_desktop.tool_targets as targets
 
     root = tmp_path / "named"
     root.mkdir()
-    (root / "note.txt").write_bytes("\ufeffhello".encode("utf-16-le"))
-    (root / "IMG.heic").write_bytes(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 32)
+    (root / "note.txt").write_text("just text", encoding="utf-8")
+    (root / "photo.png").write_bytes(b"\x00" * 64)
     (root / "call.wav").write_bytes(wav())
     cid, nodes = nodes_of(client, root, "Named")
     monkeypatch.setattr(targets, "media_executable", lambda _name: None)
-    for name in ("note.txt", "IMG.heic"):
-        body = stt(client, cid, nodes[name])
-        assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED", name
-    assert stt(client, cid, nodes["call.wav"])["ok"] is True
+    for name in ("note.txt", "photo.png", "call.wav"):
+        assert stt(client, cid, nodes[name])["ok"] is True, name
 
 
 # A broken ffprobe (missing library, exit 127) says nothing about the file.
@@ -241,19 +260,6 @@ def test_a_broken_ffprobe_leaves_the_decision_to_the_job(client, tmp_path, monke
     monkeypatch.setattr(targets, "media_executable", lambda _name: str(broken))
     body = stt(client, cid, nodes["tape"])
     assert body["ok"] is True, body
-
-
-def test_without_ffprobe_an_unclear_file_is_queued_for_the_decoder(
-    client, tmp_path, monkeypatch
-):
-    import apex_desktop.tool_targets as targets
-
-    root = tmp_path / "noprobe"
-    root.mkdir()
-    (root / "voice.dat").write_bytes(b"maybe audio")
-    cid, nodes = nodes_of(client, root, "No ffprobe")
-    monkeypatch.setattr(targets, "media_executable", lambda _name: None)
-    assert stt(client, cid, nodes["voice.dat"])["ok"] is True
 
 
 # A read failure is an integrity signal; it must not be reported as "not audio".

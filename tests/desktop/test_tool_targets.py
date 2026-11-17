@@ -57,8 +57,6 @@ def test_folder_evidence_rejects_carving_and_text_ocr_before_queueing(client, tm
     node = file_named(client, cid, eid, "note.txt")
     ocr = rejected(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
     assert ocr["code"] in {"MEDIA_FORMAT_UNSUPPORTED", "MEDIA_DECODE_FAILED"}
-    speech = rejected(client, "machine.run", case_id=cid, node_id=node["id"], kind="STT")
-    assert speech["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"
 
     assert len(call(client, "tasks.list", case_id=cid)) == before
 
