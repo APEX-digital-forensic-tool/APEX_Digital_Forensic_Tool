@@ -1,7 +1,6 @@
 """Read and export named NTFS data streams without conflating them with file data."""
 
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
@@ -48,23 +47,16 @@ class FileStreamService:
             )
         return result
 
-    def _filesystem_type(self, evidence_id: str, node: Any) -> str | None:
-        row = self.repository.connection.execute(
-            "SELECT fs_metadata_json FROM fs_nodes WHERE evidence_id = ? AND original_name = ?"
-            " AND parent_node_id IS NOT NULL ORDER BY node_id LIMIT 1",
-            (evidence_id, f"volume-{node.provider_metadata.get('volume_index')}"),
-        ).fetchone()
-        return None if row is None else json.loads(row[0]).get("filesystem_type")
-
     def list(self, *, case_id: str, node_id: str) -> dict[str, Any]:
         evidence, node = self.source(case_id, node_id)
         with PyTskFileSystemProvider().open_file(evidence, node) as handle:
-            fs_type = self._filesystem_type(evidence.evidence_id, node)
+            fs_type = PyTskFileSystemProvider().filesystem_type(evidence, node)
             return {
                 "node_id": node_id,
                 "streams": self._streams(handle),
-                # Only NTFS keeps alternate data streams; "none" on FAT/exFAT is not a finding.
-                "ads_supported": fs_type == "NTFS",
+                # Only NTFS keeps alternate data streams. None means the filesystem is unknown,
+                # which must not be reported as "not applicable".
+                "ads_supported": None if fs_type is None else fs_type == "NTFS",
                 "filesystem_type": fs_type,
             }
 

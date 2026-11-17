@@ -37,7 +37,8 @@ export const tools = {
       sttAuto: "음성 언어 자동",
       runOcr: "선택 파일 문자 추출",
       runStt: "선택 파일 음성 인식",
-      needsImage: "이미지 파일(PNG·JPEG·GIF·TIFF·BMP·WebP)을 선택해야 합니다.",
+      imageNameWarning:
+        "파일 이름이 이미지가 아닙니다. 파일 내용이 이미지로 열릴 때만 실행되며, 아니면 거부됩니다.",
       needsMedia: "음성 또는 영상 파일을 선택해야 합니다.",
     },
     carve: {

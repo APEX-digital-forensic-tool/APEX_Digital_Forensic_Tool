@@ -281,25 +281,35 @@ it("keeps carving available for disk images", () => {
   );
 });
 
-it("enables OCR only for images and STT only for audio or video", () => {
+it("lets OCR run on a non-image name but warns, and limits STT to media", () => {
   open({ selected: textFile });
   expect(
     (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
-  ).toBe(true);
+  ).toBe(false);
+  expect(screen.getByText(/파일 이름이 이미지가 아닙니다/)).toBeTruthy();
   expect(
     (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
   ).toBe(true);
-  expect(screen.getByText(/이미지 파일\(PNG/)).toBeTruthy();
   cleanup();
   open({
     selected: { ...textFile, extension: "PNG", mime_candidate: "image/png" },
   });
+  expect(screen.queryByText(/파일 이름이 이미지가 아닙니다/)).toBeNull();
+  expect(screen.queryByText(/음성 또는 영상 파일/)).toBeTruthy();
+});
+
+it("shows plain 'no streams' when the filesystem is unknown", async () => {
+  vi.spyOn(gateway, "call").mockResolvedValue({
+    streams: [],
+    ads_supported: null,
+    filesystem_type: null,
+  });
+  open({ selected: textFile });
+  fireEvent.click(screen.getByText("데이터 스트림 조회"));
   expect(
-    (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
-  ).toBe(false);
-  expect(
-    (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
-  ).toBe(true);
+    await screen.findByText("대체 데이터 스트림이 없습니다."),
+  ).toBeTruthy();
+  expect(screen.queryByText(/해당 없음/)).toBeNull();
 });
 
 it("explains that ADS exist only on NTFS when a FAT file has none", async () => {

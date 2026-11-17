@@ -149,6 +149,23 @@ class PyTskFileSystemProvider:
             file = filesystem = None
             image.close()
 
+    def filesystem_type(self, evidence: Evidence, node: FileSystemNode) -> str | None:
+        """Name the filesystem that holds an indexed image file, or None when it cannot be read."""
+        try:
+            self._ensure_supported(evidence)
+            index, _ = self._split_volume_path(node.original_relative_path)
+            volume = self._volume_by_index(evidence, index)
+            if volume is None:
+                return None
+            pytsk3 = self._pytsk3()
+            image = open_tsk_image(pytsk3, evidence)
+            try:
+                return self._fs_type_name(pytsk3.FS_Info(image, offset=volume.byte_offset))
+            finally:
+                image.close()
+        except Exception:
+            return None
+
     def get_root_node(self, evidence: Evidence, *, index_revision: int) -> FileSystemNode:
         self._ensure_supported(evidence)
         volumes = self._candidate_volumes(evidence)

@@ -40,7 +40,8 @@ export const tools: Messages["tools"] = {
       sttAuto: "Detect speech language",
       runOcr: "Extract text from the selected file",
       runStt: "Recognize speech in the selected file",
-      needsImage: "Select an image file (PNG, JPEG, GIF, TIFF, BMP or WebP).",
+      imageNameWarning:
+        "The file name is not an image. It runs only if the content opens as an image, otherwise it is rejected.",
       needsMedia: "Select an audio or video file.",
     },
     carve: {
