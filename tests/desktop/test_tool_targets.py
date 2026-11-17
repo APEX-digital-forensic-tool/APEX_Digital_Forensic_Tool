@@ -5,6 +5,7 @@ import gzip
 import json
 from pathlib import Path
 
+import pytest
 from test_local_api import call, wait
 from test_local_api import client as api_client
 
@@ -281,3 +282,55 @@ def test_corrupt_image_with_a_valid_signature_fails_in_the_job_with_a_media_code
         sleep(0.02)
     assert record["status"] == "FAILED", record
     assert record["error"]["code"].startswith("MEDIA_"), record
+
+
+def test_media_header_detection_is_narrow_and_covers_caf():
+    from apex_desktop.tool_targets import _is_media_header
+
+    assert _is_media_header(b"caff\x00\x01\x00\x00" + b"\x00" * 8)
+    assert _is_media_header(b"\xff\xfb\x90\x00" + b"\x00" * 12)  # MPEG-1 layer 3 frame
+    assert _is_media_header(b"\xff\xf1\x50\x80" + b"\x00" * 12)  # ADTS AAC
+    assert not _is_media_header(b"\xff\xe0\x00\x00" + b"\x00" * 12)  # arbitrary binary
+    assert not _is_media_header(b"\xff\xff\xff\xff" + b"\x00" * 12)
+
+
+def test_truncated_image_body_is_a_media_error_from_the_job(client, tmp_path):
+    from time import monotonic, sleep
+
+    root = tmp_path / "folder"
+    root.mkdir()
+    body = png_bytes()
+    (root / "cut.png").write_bytes(body[: len(body) // 2])
+    cid = call(client, "cases.create", name="Truncated")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "cut.png")
+    task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    deadline = monotonic() + 15
+    while monotonic() < deadline:
+        record = next(
+            r for r in call(client, "tasks.list", case_id=cid) if r["task_id"] == task["task_id"]
+        )
+        if record["status"] not in {"QUEUED", "RUNNING"}:
+            break
+        sleep(0.02)
+    assert record["status"] == "FAILED", record
+    assert record["error"]["code"] == "MEDIA_DECODE_FAILED", record
+
+
+def test_ocr_provider_failure_on_an_unreadable_image_is_a_media_error(tmp_path):
+    from apex_desktop import machine
+    from apex_forensic.domain.errors import ApexError, UnsupportedCapabilityError
+
+    broken = tmp_path / "x.png"
+    broken.write_bytes(b"\x89PNG\r\n\x1a\nbroken")
+
+    def failing():
+        raise UnsupportedCapabilityError(
+            "OCR provider failed to analyze the image.",
+            target="ocr_provider",
+            required_capability="OCR_RUNTIME",
+        )
+
+    with pytest.raises(ApexError) as raised:
+        machine.reclassify_ocr_failure(broken, failing)
+    assert raised.value.code == "MEDIA_DECODE_FAILED"
