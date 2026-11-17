@@ -4,7 +4,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { engineTimeoutMs, postEngine } from "./engineRequest";
 
 async function server(
@@ -71,6 +71,28 @@ describe("postEngine", () => {
       await expect(postEngine(s.url, "tok", {}, 2000)).resolves.toEqual({});
       await expect(postEngine(s.url, "tok", {}, 100)).rejects.toThrow();
     } finally {
+      s.close();
+    }
+  });
+
+  it("drops its deadline when the reply is cut off mid-body", async () => {
+    const s = await server((_req, res) => {
+      res.writeHead(200, { "Content-Length": "100" });
+      res.write("{");
+      setTimeout(() => res.socket?.destroy(), 20);
+    });
+    const set = vi.spyOn(globalThis, "setTimeout");
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      await expect(postEngine(s.url, "tok", {}, 600000)).rejects.toThrow();
+      const deadline = set.mock.results.find(
+        (_r, i) => set.mock.calls[i][1] === 600000,
+      )?.value;
+      expect(deadline).toBeDefined();
+      expect(clear).toHaveBeenCalledWith(deadline);
+    } finally {
+      set.mockRestore();
+      clear.mockRestore();
       s.close();
     }
   });
