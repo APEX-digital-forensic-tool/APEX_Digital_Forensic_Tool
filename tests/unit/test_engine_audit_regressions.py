@@ -101,6 +101,52 @@ def test_exports_remove_output_when_custody_append_fails(
     assert len(services.custody.list_events(evidence.evidence_id)) == before
 
 
+def _export(services, nodes, evidence, operation, **options):
+    if operation == "range":
+        return services.images.export_range(
+            evidence_id=evidence.evidence_id, offset=0, length=4, **options
+        )
+    if operation == "recovery":
+        deleted = next(node for node in nodes if node.is_deleted)
+        return services.images.recover_deleted_file(node_id=deleted.node_id, **options)
+    live = next(node for node in nodes if node.original_name == "LIVE.TXT")
+    return services.images.export_file_slack(node_id=live.node_id, **options)
+
+
+@pytest.mark.parametrize("operation", ["range", "recovery", "slack"])
+def test_overwriting_export_restores_previous_output_when_custody_append_fails(
+    services, image_case, operation, tmp_path, monkeypatch
+):
+    _, evidence, nodes, _ = image_case
+    output_root = tmp_path / "exports"
+    output_root.mkdir()
+    previous = output_root / "derived.bin"
+    previous.write_bytes(b"previous audited export")
+
+    def locked(_evidence_id, _build):
+        raise PersistenceError("DATABASE_LOCKED", "busy", retryable=True)
+
+    monkeypatch.setattr(services.repository, "append_custody_event", locked)
+    options = {"output_root": output_root, "filename": "derived.bin", "overwrite": True}
+    with pytest.raises(PersistenceError):
+        _export(services, nodes, evidence, operation, **options)
+    assert list(output_root.iterdir()) == [previous]
+    assert previous.read_bytes() == b"previous audited export"
+
+
+@pytest.mark.parametrize("operation", ["range", "recovery", "slack"])
+def test_overwriting_export_leaves_only_the_new_output(services, image_case, operation, tmp_path):
+    _, evidence, nodes, _ = image_case
+    output_root = tmp_path / "exports"
+    output_root.mkdir()
+    previous = output_root / "derived.bin"
+    previous.write_bytes(b"previous audited export")
+    options = {"output_root": output_root, "filename": "derived.bin", "overwrite": True}
+    result = _export(services, nodes, evidence, operation, **options)
+    assert list(output_root.iterdir()) == [previous]
+    assert hashlib.sha256(previous.read_bytes()).hexdigest() == result["sha256"]
+
+
 def test_exports_protect_other_case_sources_and_directory_before_mkdir(
     services, image_case, tmp_path
 ):
