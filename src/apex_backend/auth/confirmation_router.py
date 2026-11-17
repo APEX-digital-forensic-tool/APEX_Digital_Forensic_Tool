@@ -56,9 +56,10 @@ async def issue_confirmation(
     client cannot supply them.  case_id must be within the token's
     allowed_case_ids.
     """
-    claims = await require_active_session(credentials.credentials, verifier, db)
-    actor_id = str(claims["sub"])
-    session_id = str(claims["session_id"])
+    session = await require_active_session(credentials.credentials, verifier, db)
+    claims = session.claims
+    actor_id = session.actor_id
+    session_id = session.session_id
 
     allowed_case_ids: list[str] = claims.get("allowed_case_ids") or []
     if body.case_id not in allowed_case_ids:

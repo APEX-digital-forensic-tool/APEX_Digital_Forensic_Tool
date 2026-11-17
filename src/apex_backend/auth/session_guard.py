@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,14 +14,23 @@ from apex_backend.auth.jwt_verifier import JwtTokenVerifier
 from apex_backend.models import UserSession
 
 
+@dataclass(frozen=True)
+class ActiveSession:
+    """A verified access token whose server session is live."""
+
+    actor_id: str
+    session_id: str
+    claims: dict[str, Any]
+
+
 def _unauthorized(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
 
 
 async def require_active_session(
     token: str, verifier: JwtTokenVerifier, db: AsyncSession
-) -> dict[str, Any]:
-    """Return verified access-token claims, or raise 401.
+) -> ActiveSession:
+    """Return the verified session, or raise 401.
 
     A signature-valid token is not enough: logout, deactivation and expiry act on
     the session row, so the row must exist, be unrevoked, unexpired and belong to
@@ -53,7 +63,7 @@ async def require_active_session(
     tenant_id = str(claims.get("tenant_id", "")).strip()
     if tenant_id and db_session.tenant_id != tenant_id:
         raise _unauthorized("Session tenant mismatch.")
-    return claims
+    return ActiveSession(actor_id=actor_id, session_id=session_id, claims=claims)
 
 
-__all__ = ["require_active_session"]
+__all__ = ["ActiveSession", "require_active_session"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -75,13 +76,32 @@ def _outgoing(body: Any, upstream: LlmUpstream) -> dict[str, Any]:
         )
     ):
         raise _fail(status.HTTP_400_BAD_REQUEST, "messages must be a list of role/content objects.")
-    requested = body.get("max_tokens", upstream.max_tokens)
+    requested = body.get("max_tokens")
+    if requested is None:
+        requested = upstream.max_tokens
     if type(requested) is not int or requested < 1:
         raise _fail(status.HTTP_400_BAD_REQUEST, "max_tokens must be a positive integer.")
     outgoing = {key: body[key] for key in _FORWARDED if key in body}
     outgoing["model"] = upstream.model
     outgoing["max_tokens"] = min(requested, upstream.max_tokens)
     return outgoing
+
+
+async def _read_capped(chunks: AsyncIterator[bytes], limit: int, too_large: HTTPException) -> bytes:
+    data = bytearray()
+    async for chunk in chunks:
+        data += chunk
+        if len(data) > limit:
+            raise too_large
+    return bytes(data)
+
+
+def _parse_json(raw: bytes) -> Any:
+    """Parsed JSON, or None for anything malformed, including pathological nesting."""
+    try:
+        return json.loads(raw)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return None
 
 
 @router.post("/chat/completions")
@@ -97,57 +117,93 @@ async def chat_completions(
     The response carries the upstream's ``model`` so clients record the model
     that actually answered.
     """
-    await require_active_session(credentials.credentials, verifier, db)
+    session = await require_active_session(credentials.credentials, verifier, db)
+    # The model can take minutes; give the connection back to the pool before waiting.
+    await db.close()
+    sizes = {"request": 0, "response": 0}
+    outcome = status.HTTP_500_INTERNAL_SERVER_ERROR
+    try:
+        payload = await _complete(request, gateway, sizes)
+        outcome = status.HTTP_200_OK
+        return JSONResponse(payload)
+    except HTTPException as exc:
+        outcome = exc.status_code
+        raise
+    finally:
+        _logger.info(
+            "llm call actor=%s session=%s request_bytes=%d response_bytes=%d status=%d",
+            session.actor_id,
+            session.session_id,
+            sizes["request"],
+            sizes["response"],
+            outcome,
+        )
+
+
+async def _complete(
+    request: Request, gateway: LlmGateway, sizes: dict[str, int]
+) -> dict[str, Any]:
     upstream = gateway.upstream
     if upstream is None:
         raise _fail(status.HTTP_503_SERVICE_UNAVAILABLE, "LLM serving is not configured.")
 
-    raw = await request.body()
-    if len(raw) > MAX_REQUEST_BYTES:
-        raise _fail(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Request body is too large.")
-    try:
-        body = json.loads(raw)
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise _fail(status.HTTP_400_BAD_REQUEST, "Request body must be JSON.") from exc
+    too_large = _fail(status.HTTP_413_CONTENT_TOO_LARGE, "Request body is too large.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
+        raise too_large
+    raw = await _read_capped(request.stream(), MAX_REQUEST_BYTES, too_large)
+    sizes["request"] = len(raw)
+    body = _parse_json(raw)
+    if body is None:
+        raise _fail(status.HTTP_400_BAD_REQUEST, "Request body must be JSON.")
     outgoing = _outgoing(body, upstream)
 
     try:
-        response = await gateway.client.post(
+        async with gateway.client.stream(
+            "POST",
             upstream.completions_url,
             json=outgoing,
             headers={"Authorization": f"Bearer {upstream.api_key}"},
             timeout=upstream.timeout,
-        )
+        ) as response:
+            code = response.status_code
+            _check_upstream_status(code)
+            content = await _read_capped(
+                response.aiter_bytes(),
+                MAX_RESPONSE_BYTES,
+                _fail(status.HTTP_502_BAD_GATEWAY, "The model answer is too large."),
+            )
     except httpx.TimeoutException as exc:
         raise _fail(status.HTTP_504_GATEWAY_TIMEOUT, "The model did not answer in time.") from exc
     except httpx.HTTPError as exc:
         _logger.warning("LLM upstream unreachable: %s", type(exc).__name__)
         raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service is unreachable.") from exc
 
-    # Upstream bodies are never echoed: they may quote the request or name the account.
-    code = response.status_code
-    if code == status.HTTP_429_TOO_MANY_REQUESTS:
-        raise _fail(code, "The model service is rate limited. Try again later.")
-    if code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
-        # A 401 here would read as "your login expired" to the client.
-        _logger.error("LLM upstream rejected the server credentials (HTTP %d).", code)
-        raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service rejected the server.")
-    if 400 <= code < 500:
-        _logger.warning("LLM upstream rejected a request (HTTP %d).", code)
-        raise _fail(status.HTTP_400_BAD_REQUEST, "The model service rejected the request.")
-    if code >= 300:
-        _logger.warning("LLM upstream failed (HTTP %d).", code)
-        raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service failed.")
-    if len(response.content) > MAX_RESPONSE_BYTES:
-        raise _fail(status.HTTP_502_BAD_GATEWAY, "The model answer is too large.")
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
+    sizes["response"] = len(content)
+    payload = _parse_json(content)
     if not isinstance(payload, dict):
         raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service returned invalid JSON.")
     payload.setdefault("model", upstream.model)
-    return JSONResponse(payload)
+    return payload
+
+
+def _check_upstream_status(code: int) -> None:
+    """Map an upstream failure to what the client should hear. Bodies are never echoed:
+    they may quote the request or name the account."""
+    if code < 300:
+        return
+    if code == status.HTTP_429_TOO_MANY_REQUESTS:
+        raise _fail(code, "The model service is rate limited. Try again later.")
+    if code in (401, 402, 403, 404):
+        # Server-side problems (key, balance, model or URL). A 401 here would also
+        # read as "your login expired" to the client.
+        _logger.error("LLM upstream refused the server's request (HTTP %d).", code)
+        raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service refused the server.")
+    if 400 <= code < 500:
+        _logger.warning("LLM upstream rejected a request (HTTP %d).", code)
+        raise _fail(status.HTTP_400_BAD_REQUEST, "The model service rejected the request.")
+    _logger.warning("LLM upstream failed (HTTP %d).", code)
+    raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service failed.")
 
 
 __all__ = ["LlmGateway", "router"]

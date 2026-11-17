@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import FastAPI
@@ -31,7 +31,7 @@ from apex_backend.llm.upstream import LlmUpstream
 def create_app(
     database_url: str,
     *,
-    llm_upstream: LlmUpstream | None = None,
+    llm_upstream: LlmUpstream | Literal["env"] | None = "env",
     llm_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
@@ -39,8 +39,8 @@ def create_app(
     Args:
         database_url: Async SQLAlchemy URL
             e.g. ``postgresql+asyncpg://user:pass@host/db``
-        llm_upstream: Model the LLM route serves. Defaults to the APEX_LLM_* env;
-            with neither, the route answers 503.
+        llm_upstream: Model the LLM route serves. ``"env"`` (the default) reads the
+            APEX_LLM_* variables; ``None`` turns serving off, and the route answers 503.
         llm_transport: Replaces the network transport to the upstream (tests).
     """
     engine = create_async_engine(database_url)
@@ -59,7 +59,9 @@ def create_app(
     jwt_verifier._fetched_at = _time.monotonic()
 
     llm_client = httpx.AsyncClient(transport=llm_transport, follow_redirects=False)
-    llm_gateway = LlmGateway(llm_upstream or LlmUpstream.from_env(), llm_client)
+    llm_gateway = LlmGateway(
+        LlmUpstream.from_env() if llm_upstream == "env" else llm_upstream, llm_client
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -70,6 +72,7 @@ def create_app(
         await engine.dispose()
 
     app = FastAPI(title="APEX Backend", lifespan=lifespan)
+    app.state.db_engine = engine
 
     async def _db_dep() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:

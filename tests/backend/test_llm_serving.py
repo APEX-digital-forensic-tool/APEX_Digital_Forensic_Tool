@@ -235,3 +235,107 @@ def test_upstream_settings_come_from_env_with_kimi_defaults() -> None:
     assert custom.max_tokens == 1000
     with pytest.raises(ValueError):
         LlmUpstream.from_env({"APEX_LLM_UPSTREAM_API_KEY": "k", "APEX_LLM_UPSTREAM_BASE_URL": "x"})
+
+
+@pytest.mark.asyncio
+async def test_no_database_connection_is_held_while_the_model_answers(tmp_path) -> None:
+    held: list[int] = []
+    url = f"sqlite+aiosqlite:///{tmp_path / 'backend.db'}"
+    await _seed_user(url)
+    app = None
+
+    async def slow_kimi(request: httpx.Request) -> httpx.Response:
+        held.append(app.state.db_engine.pool.checkedout())
+        return httpx.Response(200, json={"model": "kimi-k3", "choices": []})
+
+    app = create_app(url, llm_upstream=UPSTREAM, llm_transport=httpx.MockTransport(slow_kimi))
+    async with app.router.lifespan_context(app), AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        token = await _login(client)
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+    assert response.status_code == 200
+    assert held == [0]
+
+
+@pytest.mark.asyncio
+async def test_none_upstream_means_off_even_when_the_env_names_a_key(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APEX_LLM_UPSTREAM_API_KEY", "from-env")
+    kimi = FakeKimi()
+    app = await _client(tmp_path, kimi, upstream=None)
+    async with app.router.lifespan_context(app), AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        token = await _login(client)
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+    assert response.status_code == 503
+    assert kimi.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [402, 404])
+async def test_upstream_account_or_route_problems_are_server_faults(served, code, caplog) -> None:
+    client, kimi = served
+    token = await _login(client)
+    kimi.reply = httpx.Response(code, json={"error": {"message": "no"}})
+
+    with caplog.at_level("ERROR", logger="apex_backend.llm.router"):
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+
+    assert response.status_code == 502
+    assert f"HTTP {code}" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_each_call_is_logged_with_who_asked_and_the_outcome(served, caplog) -> None:
+    client, _kimi = served
+    token = await _login(client)
+    with caplog.at_level("INFO", logger="apex_backend.llm.router"):
+        await client.post("/llm/v1/chat/completions", json=CHAT, headers=_bearer(token))
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
+    assert "actor=" in line and "session=" in line and "status=200" in line
+    assert "request_bytes=" in line
+    assert token not in caplog.text and KIMI_KEY not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_declared_oversized_body_is_refused_before_reading(served) -> None:
+    client, kimi = served
+    token = await _login(client)
+    response = await client.post(
+        "/llm/v1/chat/completions",
+        content=b"{}",
+        headers={**_bearer(token), "Content-Length": str(3 * 1024 * 1024)},
+    )
+    assert response.status_code == 413
+    assert kimi.requests == []
+
+
+@pytest.mark.asyncio
+async def test_deeply_nested_json_is_a_bad_request(served) -> None:
+    client, kimi = served
+    token = await _login(client)
+    response = await client.post(
+        "/llm/v1/chat/completions",
+        content=b"[" * 100_000 + b"]" * 100_000,
+        headers={**_bearer(token), "Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert kimi.requests == []
+
+
+@pytest.mark.asyncio
+async def test_null_max_tokens_uses_the_server_limit(served) -> None:
+    client, kimi = served
+    token = await _login(client)
+    response = await client.post(
+        "/llm/v1/chat/completions", json={**CHAT, "max_tokens": None}, headers=_bearer(token)
+    )
+    assert response.status_code == 200
+    assert json.loads(kimi.requests[0].content)["max_tokens"] == UPSTREAM.max_tokens
