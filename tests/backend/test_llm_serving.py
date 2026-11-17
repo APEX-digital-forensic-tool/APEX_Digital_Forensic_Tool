@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -176,6 +178,8 @@ async def test_serving_without_an_upstream_key_answers_503(tmp_path) -> None:
         ({**CHAT, "stream": True}, 400),
         ({**CHAT, "messages": []}, 400),
         ({**CHAT, "messages": [{"role": "boss", "content": "x"}]}, 400),
+        ({**CHAT, "messages": [{"role": [], "content": "x"}]}, 400),
+        ({**CHAT, "messages": [{"role": {}, "content": "x"}]}, 400),
         ({**CHAT, "max_tokens": "lots"}, 400),
         ([1, 2], 400),
         ({**CHAT, "messages": [{"role": "user", "content": "x" * (2 * 1024 * 1024)}]}, 413),
@@ -340,3 +344,50 @@ async def test_null_max_tokens_uses_the_server_limit(served) -> None:
     )
     assert response.status_code == 200
     assert json.loads(kimi.requests[0].content)["max_tokens"] == UPSTREAM.max_tokens
+
+
+@pytest.mark.asyncio
+async def test_an_upstream_that_keeps_dribbling_is_cut_off_at_the_deadline(tmp_path) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'backend.db'}"
+    await _seed_user(url)
+
+    async def dribble():
+        yield b'{"model": "kimi-k3.1-pro", '
+        for _ in range(20):
+            await asyncio.sleep(0.1)
+            yield b" "
+        yield b'"choices": []}'
+
+    async def slow_kimi(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=dribble())
+
+    upstream = LlmUpstream(
+        base_url="https://kimi.test/v1", api_key=KIMI_KEY, model="kimi-k3.1-pro", timeout=0.5
+    )
+    app = create_app(url, llm_upstream=upstream, llm_transport=httpx.MockTransport(slow_kimi))
+    async with app.router.lifespan_context(app), AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        token = await _login(client)
+        started = time.monotonic()
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+        elapsed = time.monotonic() - started
+    assert response.status_code == 504
+    assert elapsed < 1.5
+
+
+@pytest.mark.asyncio
+async def test_an_oversized_answer_logs_the_bytes_read(served, caplog) -> None:
+    client, kimi = served
+    token = await _login(client)
+    kimi.reply = httpx.Response(200, content=b"x" * (4 * 1024 * 1024 + 1))
+    with caplog.at_level("INFO", logger="apex_backend.llm.router"):
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+    assert response.status_code == 502
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
+    assert "response_bytes=0" not in line
+    assert "request_bytes=0" not in line

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { callWithServerConnection, saveAiConnection } from "./aiConnection";
 import {
   createServerSession,
   serverOrigin,
@@ -27,6 +28,8 @@ function harness() {
     logoutStatus: 200 as number | "down",
     pendingRefresh: null as null | Promise<unknown>,
   };
+  // Per-path gates: each call to that path waits on the next one queued.
+  const holds = new Map<string, Promise<void>[]>();
   const changes: AccountStatus[] = [];
   const session = createServerSession({
     now: () => now,
@@ -53,6 +56,8 @@ function harness() {
             : server.logoutStatus;
       if (path === "/auth/refresh" && server.pendingRefresh)
         await server.pendingRefresh;
+      const gate = holds.get(path)?.shift();
+      if (gate) await gate;
       if (status === "down") throw new TypeError("fetch failed");
       if (status !== 200 || path === "/auth/logout")
         return new Response("{}", { status });
@@ -78,6 +83,13 @@ function harness() {
         }
     },
     pendingTimers: () => timers.size,
+    /** Holds the next call to `path` until the returned function is called. */
+    hold(path: string) {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      holds.set(path, [...(holds.get(path) ?? []), gate]);
+      return release;
+    },
   };
 }
 
@@ -289,6 +301,93 @@ describe("server session", () => {
       path: "/auth/logout",
       auth: expect.stringMatching(/^Bearer access-[2-9]/),
     });
+  });
+
+  it("cancels a sign-in that is still waiting when logout runs", async () => {
+    const h = harness();
+    const release = h.hold("/auth/login");
+    const pending = h.session.login(LOGIN);
+    expect(await h.session.logout()).toEqual({ ok: true });
+    release();
+    expect(await pending).toEqual({
+      ok: false,
+      code: "AUTH_LOGIN_CANCELLED",
+    });
+    expect(h.session.status()).toMatchObject({
+      state: "signed_out",
+      reason: "LOGGED_OUT",
+    });
+    expect(h.calls.at(-1)).toEqual({
+      path: "/auth/logout",
+      body: null,
+      auth: "Bearer access-1",
+    });
+  });
+
+  it("keeps one refresh at a time when an earlier session's refresh lands late", async () => {
+    const h = harness();
+    await h.session.login(LOGIN);
+    const releaseOld = h.hold("/auth/refresh");
+    const old = h.session.refresh();
+    await h.session.logout();
+    await h.session.login({ ...LOGIN, origin: "https://other.example/" });
+    const releaseNew = h.hold("/auth/refresh");
+    const current = h.session.refresh();
+    releaseOld();
+    expect(await old).toBeNull();
+    const again = h.session.refresh();
+    releaseNew();
+    await Promise.all([current, again]);
+    const rotated = h.calls.filter(
+      (c) => c.path === "/auth/refresh" && c.body.refresh_token === "refresh-2",
+    );
+    expect(rotated).toHaveLength(1);
+  });
+
+  it("does not retry an AI call with another session's token", async () => {
+    const h = harness();
+    await h.session.login(LOGIN);
+    let text: string | null = null;
+    const deps = {
+      file: {
+        read: () => text,
+        write: (t: string) => void (text = t),
+        remove: () => void (text = null),
+      },
+      crypto: {
+        available: () => true,
+        encrypt: (s: string) => Buffer.from(s),
+        decrypt: (b: Buffer) => b.toString(),
+      },
+      env: {},
+    };
+    saveAiConnection({ mode: "server" }, deps);
+    const sent: unknown[] = [];
+    let answer!: (reply: unknown) => void;
+    const rejected = { ok: false, error: { code: "AUTHENTICATION_FAILED" } };
+    const call = (payload: Record<string, unknown>) => {
+      sent.push(payload.server_connection);
+      return sent.length === 1
+        ? new Promise<unknown>((r) => (answer = r))
+        : Promise.resolve({ ok: true, data: null });
+    };
+    const result = callWithServerConnection(
+      "ai.analyze",
+      {},
+      deps,
+      h.session,
+      call,
+    );
+    await flush();
+    expect(sent).toHaveLength(1);
+    await h.session.logout();
+    await h.session.login({ ...LOGIN, origin: "https://other.example/" });
+    answer(rejected);
+    expect(await result).toEqual(rejected);
+    expect(sent).toEqual([
+      { base_url: `${ORIGIN}/llm/v1`, access_token: "access-1" },
+    ]);
+    expect(h.calls.filter((c) => c.path === "/auth/refresh")).toEqual([]);
   });
 
   it.each([401, 500, "down"] as const)(
