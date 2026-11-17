@@ -135,6 +135,11 @@ export function AiAssistant({
           {m.ai.configRequired}
         </p>
       )}
+      {result?.status === "LOGIN_REQUIRED" && (
+        <p className="ai-status-note" role="status">
+          {m.ai.loginRequired}
+        </p>
+      )}
       {result?.status === "POLICY_DENIED" && (
         <p className="ai-status-note" role="status">
           {m.ai.policyDenied}

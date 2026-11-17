@@ -17,8 +17,12 @@ export interface AiDeps {
   crypto: KeyCrypto;
   env: Record<string, string | undefined>;
 }
+/** `server`: AI through the signed-in APEX server. `custom`: an OpenAI-compatible endpoint and key. */
+export type AiMode = "server" | "custom";
 export interface AiConnectionStatus {
   configured: boolean;
+  /** The stored mode; null when nothing is stored or the user's own environment manages AI. */
+  mode: AiMode | null;
   managed: boolean;
   has_key: boolean;
   storage_available: boolean;
@@ -43,15 +47,24 @@ export type AiSaveResult =
     };
 
 const DEFAULTS = { temperature: 0, max_output: 4096, timeout: 30 };
+/** Above the server's own 90 s upstream wait, so the engine never gives up on an answer still being billed. */
+const SERVER_TIMEOUT = 120;
+/** The engine must outlast the server's own wait; a shorter one is raised to this. */
+const SERVER_TIMEOUT_FLOOR = 100;
 
-interface Stored {
-  base_url: string;
-  model_id: string;
+interface Params {
   temperature: number;
   max_output: number;
   timeout: number;
-  key: string;
 }
+type Stored =
+  | (Params & { mode: "server" })
+  | (Params & {
+      mode: "custom";
+      base_url: string;
+      model_id: string;
+      key: string;
+    });
 
 function isManaged(deps: AiDeps): boolean {
   return (deps.env[CONFIG_ENV] ?? "").trim() !== "";
@@ -96,6 +109,15 @@ function validKey(value: unknown): value is string {
   );
 }
 
+function validParams(s: Record<string, unknown>): boolean {
+  return (
+    inRange(s.temperature, 0, 2) &&
+    inRange(s.max_output, 1, 200000) &&
+    Number.isInteger(s.max_output) &&
+    inRange(s.timeout, 1, 600)
+  );
+}
+
 function readStored(deps: AiDeps): Stored | null {
   const text = deps.file.read();
   if (text === null) return null;
@@ -103,23 +125,41 @@ function readStored(deps: AiDeps): Stored | null {
     const v: unknown = JSON.parse(text);
     if (typeof v !== "object" || v === null) return null;
     const s = v as Record<string, unknown>;
+    if (!validParams(s)) return null;
+    const params = {
+      temperature: s.temperature,
+      max_output: s.max_output,
+      timeout: s.timeout,
+    } as Params;
+    if (s.mode === "server")
+      return {
+        mode: "server",
+        ...params,
+        timeout: Math.max(params.timeout, SERVER_TIMEOUT_FLOOR),
+      };
+    // Files written before modes existed hold a custom connection.
     if (
+      (s.mode !== undefined && s.mode !== "custom") ||
       !validUrl(s.base_url) ||
       !validModel(s.model_id) ||
-      !inRange(s.temperature, 0, 2) ||
-      !inRange(s.max_output, 1, 200000) ||
-      !Number.isInteger(s.max_output) ||
-      !inRange(s.timeout, 1, 600) ||
       typeof s.key !== "string"
     )
       return null;
-    return s as unknown as Stored;
+    return {
+      mode: "custom",
+      ...params,
+      base_url: s.base_url,
+      model_id: s.model_id,
+      key: s.key,
+    };
   } catch {
     return null;
   }
 }
 
-function decryptKey(stored: Stored, deps: AiDeps): string | null {
+type CustomStored = Extract<Stored, { mode: "custom" }>;
+
+function decryptKey(stored: CustomStored, deps: AiDeps): string | null {
   try {
     const plain = deps.crypto.decrypt(Buffer.from(stored.key, "base64"));
     return plain === "" ? null : plain;
@@ -128,10 +168,16 @@ function decryptKey(stored: Stored, deps: AiDeps): string | null {
   }
 }
 
-/** A stored connection whose key can be decrypted by this account. */
-function usable(deps: AiDeps): { stored: Stored; key: string } | null {
+/** The stored connection, with a custom one's key decrypted; null when unusable. */
+function usable(
+  deps: AiDeps,
+):
+  | { stored: Extract<Stored, { mode: "server" }>; key: null }
+  | { stored: CustomStored; key: string }
+  | null {
   const stored = readStored(deps);
   if (!stored) return null;
+  if (stored.mode === "server") return { stored, key: null };
   const key = decryptKey(stored, deps);
   return key === null ? null : { stored, key };
 }
@@ -140,17 +186,44 @@ export function aiConnectionStatus(deps: AiDeps): AiConnectionStatus {
   const managed = isManaged(deps);
   const found = usable(deps);
   const stored = found?.stored;
+  const custom = stored?.mode === "custom" ? stored : null;
   return {
     configured: managed || found !== null,
+    mode: managed ? null : (stored?.mode ?? null),
     managed,
-    has_key: found !== null,
+    has_key: found?.key != null,
     storage_available: deps.crypto.available(),
-    base_url: stored?.base_url ?? null,
-    model_id: stored?.model_id ?? null,
+    base_url: custom?.base_url ?? null,
+    model_id: custom?.model_id ?? null,
     temperature: stored?.temperature ?? DEFAULTS.temperature,
     max_output: stored?.max_output ?? DEFAULTS.max_output,
-    timeout: stored?.timeout ?? DEFAULTS.timeout,
+    // Nothing stored: a new connection starts in server mode.
+    timeout: stored?.timeout ?? SERVER_TIMEOUT,
   };
+}
+
+/**
+ * Gives ai.analyze the signed-in server's LLM address and access token when the
+ * APEX server mode is stored. Only the main process may set them, so a copy from
+ * the renderer is always dropped. The token travels in the request body over the
+ * engine's authenticated loopback, never through the engine's environment.
+ */
+export async function attachServerConnection(
+  operation: string,
+  payload: Record<string, unknown>,
+  deps: AiDeps,
+  credentials: () => Promise<{ origin: string; access: string } | null>,
+): Promise<void> {
+  if (operation !== "ai.analyze" && operation !== "ai.prepare") return;
+  delete payload.server_connection;
+  if (operation !== "ai.analyze" || isManaged(deps)) return;
+  if (readStored(deps)?.mode !== "server") return;
+  const signedIn = await credentials();
+  if (signedIn)
+    payload.server_connection = {
+      base_url: `${signedIn.origin}/llm/v1`,
+      access_token: signedIn.access,
+    };
 }
 
 const INVALID: AiSaveResult = { ok: false, code: "AI_CONNECTION_INVALID" };
@@ -159,11 +232,14 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
   if (isManaged(deps)) return { ok: false, code: "AI_CONNECTION_MANAGED" };
   if (typeof input !== "object" || input === null) return INVALID;
   const i = input as Record<string, unknown>;
-
-  if (!validUrl(i.base_url) || !validModel(i.model_id)) return INVALID;
+  const mode = i.mode ?? "custom";
+  if (mode !== "server" && mode !== "custom") return INVALID;
+  if (mode === "custom" && (!validUrl(i.base_url) || !validModel(i.model_id)))
+    return INVALID;
   const temperature = i.temperature ?? DEFAULTS.temperature;
   const max_output = i.max_output ?? DEFAULTS.max_output;
-  const timeout = i.timeout ?? DEFAULTS.timeout;
+  const timeout =
+    i.timeout ?? (mode === "server" ? SERVER_TIMEOUT : DEFAULTS.timeout);
   if (
     !inRange(temperature, 0, 2) ||
     !inRange(max_output, 1, 200000) ||
@@ -171,12 +247,23 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
     !inRange(timeout, 1, 600)
   )
     return INVALID;
+  const params = { temperature, max_output, timeout } as Params;
+  if (mode === "server") {
+    deps.file.write(
+      JSON.stringify({
+        mode: "server",
+        ...params,
+        timeout: Math.max(params.timeout, SERVER_TIMEOUT_FLOOR),
+      }),
+    );
+    return { ok: true };
+  }
 
   // An empty or omitted key keeps the one already stored.
   let key: string;
   if (i.api_key === undefined || i.api_key === "") {
     const existing = usable(deps);
-    if (!existing) return INVALID;
+    if (!existing?.key) return INVALID;
     key = existing.key;
   } else if (validKey(i.api_key)) {
     key = i.api_key;
@@ -188,11 +275,10 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
     return { ok: false, code: "AI_KEY_STORAGE_UNAVAILABLE" };
 
   const stored: Stored = {
-    base_url: i.base_url,
-    model_id: i.model_id,
-    temperature,
-    max_output,
-    timeout,
+    mode: "custom",
+    ...params,
+    base_url: i.base_url as string,
+    model_id: i.model_id as string,
     key: deps.crypto.encrypt(key).toString("base64"),
   };
   deps.file.write(JSON.stringify(stored));
@@ -205,11 +291,58 @@ export function clearAiConnection(deps: AiDeps): AiSaveResult {
   return { ok: true };
 }
 
+export interface ServerAuth {
+  credentials(): Promise<{ origin: string; access: string } | null>;
+  /** A forced renewal; null when the server refused it. */
+  refresh(): Promise<string | null>;
+}
+
+/**
+ * Runs an engine call with the server connection attached. When the server
+ * rejects the token (revoked or rotated since it was issued), the token is
+ * renewed once and the call retried once; any other outcome is returned as is.
+ */
+export async function callWithServerConnection<R>(
+  operation: string,
+  payload: Record<string, unknown>,
+  deps: AiDeps,
+  auth: ServerAuth,
+  call: (payload: Record<string, unknown>) => Promise<R>,
+): Promise<R> {
+  await attachServerConnection(operation, payload, deps, auth.credentials);
+  const first = await call(payload);
+  const connection = payload.server_connection as
+    { base_url: string; access_token: string } | undefined;
+  const failure = first as { ok?: boolean; error?: { code?: string } } | null;
+  if (
+    !connection ||
+    failure?.ok !== false ||
+    failure.error?.code !== "AUTHENTICATION_FAILED"
+  )
+    return first;
+  const access = await auth.refresh();
+  if (!access || access === connection.access_token) return first;
+  payload.server_connection = { ...connection, access_token: access };
+  return call(payload);
+}
+
 /** Variables to add to the engine's environment; {} when managed by the user's own env, unset, or undecryptable. */
 export function aiEnvironment(deps: AiDeps): Record<string, string> {
   if (isManaged(deps)) return {};
   const found = usable(deps);
   if (!found) return {};
+  if (found.key === null) {
+    const { temperature, max_output, timeout } = found.stored;
+    // No secret here: the access token reaches the engine with each ai.analyze request.
+    return {
+      [CONFIG_ENV]: JSON.stringify({
+        connection: "APEX_SERVER",
+        temperature,
+        max_output,
+        timeout,
+      }),
+    };
+  }
   const { stored, key } = found;
   return {
     [CONFIG_ENV]: JSON.stringify({

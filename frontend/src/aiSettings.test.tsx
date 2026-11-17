@@ -14,8 +14,14 @@ afterEach(() => {
   delete window.apex;
 });
 
+async function chooseDirect() {
+  await userEvent.click(await screen.findByRole("radio", { name: /^Direct/ }));
+  return screen.getByLabelText("Base URL");
+}
+
 const none = {
   configured: false,
+  mode: null as "server" | "custom" | null,
   managed: false,
   has_key: false,
   storage_available: true,
@@ -115,10 +121,7 @@ it("explains a save refused because analysis is running", async () => {
     }),
   });
   await openSettings();
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "http://127.0.0.1:9/v1",
-  );
+  await userEvent.type(await chooseDirect(), "http://127.0.0.1:9/v1");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(
     await screen.findByText(

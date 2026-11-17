@@ -18,6 +18,8 @@ export const ai: Messages["ai"] = {
   request: "Request analysis of the current selection",
   configRequired:
     "The analysis request was saved. An AI provider connection needs to be set up.",
+  loginRequired:
+    "The analysis request was saved. To use AI through the APEX server, sign in under Settings › APEX account.",
   policyDenied:
     "The case's AI data policy did not allow sending. Check the evaluation reason in Settings.",
   policyEvaluation: "Data policy evaluation",

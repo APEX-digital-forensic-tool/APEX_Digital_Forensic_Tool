@@ -27,6 +27,7 @@ import { messagesFor } from "../src/i18n/catalog";
 import {
   aiConnectionStatus,
   aiEnvironment,
+  callWithServerConnection,
   clearAiConnection,
   saveAiConnection,
   type AiDeps,
@@ -528,7 +529,13 @@ else {
                 picked.delete(String(payload[key]));
             return result;
           }
-          return local(operation, payload);
+          return callWithServerConnection(
+            operation,
+            payload,
+            aiDeps,
+            session,
+            (p) => local(operation, p),
+          );
         },
       );
       handle(
