@@ -7,12 +7,12 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apex_backend.auth.jwt_verifier import JwtTokenVerifier
 from apex_backend.auth.schemas import ConfirmationRequest, ConfirmationResponse
-from apex_backend.models import ConfirmationGrantRow, UserSession
+from apex_backend.auth.session_guard import require_active_session
+from apex_backend.models import ConfirmationGrantRow
 from apex_mcp.frontend_security import (
     _APPROVAL_ROLES,
     _APPROVAL_TOOLS,
@@ -56,59 +56,9 @@ async def issue_confirmation(
     client cannot supply them.  case_id must be within the token's
     allowed_case_ids.
     """
-    access_token = await verifier.verify_token(credentials.credentials)
-    if access_token is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired access token.",
-        )
-
-    claims = access_token.claims or {}
-    actor_id = str(claims.get("sub") or access_token.subject or "").strip()
-    session_id = str(claims.get("session_id", "")).strip()
-
-    if not actor_id or not session_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing required claims.",
-        )
-
-    # Require the session row to exist and be active.
-    # A missing row means the session was never created or was hard-deleted;
-    # either way the token should not be honoured.
-    db_session = (
-        await db.execute(select(UserSession).where(UserSession.session_id == session_id))
-    ).scalar_one_or_none()
-    if db_session is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session not found.",
-        )
-    if not db_session.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session revoked.",
-        )
-    now = datetime.now(UTC)
-    expires_at = db_session.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= now:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired.",
-        )
-    if db_session.actor_id != actor_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session actor mismatch.",
-        )
-    tenant_id = str(claims.get("tenant_id", "")).strip()
-    if tenant_id and db_session.tenant_id != tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session tenant mismatch.",
-        )
+    claims = await require_active_session(credentials.credentials, verifier, db)
+    actor_id = str(claims["sub"])
+    session_id = str(claims["session_id"])
 
     allowed_case_ids: list[str] = claims.get("allowed_case_ids") or []
     if body.case_id not in allowed_case_ids:
