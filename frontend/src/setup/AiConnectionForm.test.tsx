@@ -183,9 +183,8 @@ it("shows which server the AI requests go through when signed in", async () => {
         reason: null,
       }),
   });
-  expect(
-    await screen.findByText("Signed in to https://apex.example."),
-  ).toBeTruthy();
+  expect(await screen.findByText("https://apex.example")).toBeTruthy();
+  expect(screen.getByText("Signed in")).toBeTruthy();
 });
 
 it("offers Try again when the status fails to load", async () => {

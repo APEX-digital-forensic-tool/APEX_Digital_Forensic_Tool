@@ -55,7 +55,7 @@ export const setup: Messages["setup"] = {
       "The APEX server you sign in to handles AI requests. No API key needed.",
     modeCustom: "Direct",
     modeCustomHint: "Call an OpenAI-compatible endpoint with your own API key.",
-    serverSignedIn: (origin: string) => `Signed in to ${origin}.`,
+    loginNeeded: "Sign-in needed",
     serverSignedOut: "Sign in to your APEX account to use AI.",
   },
   examiner: {

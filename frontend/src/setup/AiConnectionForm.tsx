@@ -3,6 +3,7 @@ import type { AiConnectionStatus, AiMode } from "../../electron/aiConnection";
 import type { AccountStatus } from "../../electron/serverSession";
 import { unwrap, type Reply } from "../gateway";
 import { useI18n } from "../i18n/I18nProvider";
+import { Check } from "../icons";
 import { ErrorState, Loading } from "../ui";
 
 export type AiFormState = {
@@ -202,14 +203,29 @@ export function AiConnectionForm({
                 {value === "server" ? t.modeServerHint : t.modeCustomHint}
               </small>
             </span>
+            <Check size={16} className="setup-choice-check" />
           </label>
         ))}
       </fieldset>
       {mode === "server" ? (
-        <p className="setup-note" role="status">
-          {account?.state === "signed_in" && account.origin
-            ? t.serverSignedIn(account.origin)
-            : t.serverSignedOut}
+        <p className="ai-server-state" role="status">
+          {account && account.state !== "signed_out" && account.origin ? (
+            <>
+              <span
+                className={`badge ${account.state === "signed_in" ? "green" : "amber"}`}
+              >
+                {account.state === "signed_in"
+                  ? m.panels.account.signedIn
+                  : m.panels.account.reconnecting}
+              </span>
+              <span className="ai-server-origin">{account.origin}</span>
+            </>
+          ) : (
+            <>
+              <span className="badge amber">{t.loginNeeded}</span>
+              <span>{t.serverSignedOut}</span>
+            </>
+          )}
         </p>
       ) : !status.storage_available ? (
         <p className="setup-note">{t.storageUnavailable}</p>

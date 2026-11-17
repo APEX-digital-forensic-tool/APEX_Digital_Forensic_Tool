@@ -56,7 +56,7 @@ export const setup = {
       "로그인한 APEX 서버가 AI 요청을 처리합니다. API 키가 필요 없습니다.",
     modeCustom: "직접 연결",
     modeCustomHint: "OpenAI 호환 주소와 내 API 키로 직접 호출합니다.",
-    serverSignedIn: (origin: string) => `${origin}에 로그인되어 있습니다.`,
+    loginNeeded: "로그인 필요",
     serverSignedOut: "APEX 계정에 로그인해야 AI를 쓸 수 있습니다.",
   },
   examiner: {
