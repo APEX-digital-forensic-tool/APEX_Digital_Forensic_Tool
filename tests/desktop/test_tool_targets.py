@@ -259,3 +259,25 @@ def test_large_tiff_with_trailing_directory_is_accepted_for_ocr(client, tmp_path
     node = file_named(client, cid, eid, "scan.tif")
     task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
     assert task["task_id"]
+
+
+def test_corrupt_image_with_a_valid_signature_fails_in_the_job_with_a_media_code(client, tmp_path):
+    from time import monotonic, sleep
+
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "broken.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"not a real png body")
+    cid = call(client, "cases.create", name="Corrupt")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "broken.png")
+    task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    deadline = monotonic() + 15
+    while monotonic() < deadline:
+        record = next(
+            r for r in call(client, "tasks.list", case_id=cid) if r["task_id"] == task["task_id"]
+        )
+        if record["status"] not in {"QUEUED", "RUNNING"}:
+            break
+        sleep(0.02)
+    assert record["status"] == "FAILED", record
+    assert record["error"]["code"].startswith("MEDIA_"), record

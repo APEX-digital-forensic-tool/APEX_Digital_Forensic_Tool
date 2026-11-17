@@ -1,7 +1,5 @@
 """Which targets each analysis tool can work on, checked before a task is queued."""
 
-import importlib
-from io import BytesIO
 from typing import Any
 
 from apex_forensic.adapters.filesystem.content import EvidenceFileContent
@@ -12,9 +10,6 @@ AUDIO_VIDEO_EXTENSIONS = frozenset(
     {"wav", "mp3", "m4a", "aac", "flac", "ogg", "oga", "opus", "wma", "amr"}
     | {"mp4", "m4v", "mov", "mkv", "avi", "webm", "wmv", "3gp"}
 )
-
-
-_HEADER_BYTES = 4 * 1024 * 1024
 
 
 def _extension(node: Any) -> str:
@@ -61,24 +56,28 @@ def _looks_like_media(evidence: Any, node: Any) -> bool:
     )
 
 
+def _is_known_image(head: bytes) -> bool:
+    return (
+        head.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"BM"))
+        or head[:4] in {b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+"}
+        or (head[:4] == b"RIFF" and head[8:12] == b"WEBP")
+    )
+
+
 def _require_decodable_image(evidence: Any, node: Any) -> None:
-    """Open only the header; files larger than the header window are not rejected for size."""
-    pillow = importlib.import_module("PIL.Image")
+    """Prove only that the bytes start like an image format we know.
+
+    A header window cannot decode every format (a TIFF's directory may sit at the end of the
+    file), so real decode failures are left to the job, which reports them as MEDIA_* codes.
+    """
     size = node.file_size or 0
     with EvidenceFileContent.open(evidence, node) as handle:
-        head = EvidenceFileContent._read(handle, 0, min(size, _HEADER_BYTES))
-    try:
-        with pillow.open(BytesIO(head)):
-            pass
-    except pillow.DecompressionBombError as error:
-        raise ApexError(
-            "MEDIA_LIMIT_EXCEEDED", "error.media_limit_exceeded", target="node_id"
-        ) from error
-    except Exception as error:  # Pillow raises UnidentifiedImageError, OSError or ValueError.
+        head = EvidenceFileContent._read(handle, 0, min(size, 16))
+    if not _is_known_image(head):
         # A name that does not claim to be an image gets the format message, not a decode one.
         code = (
             "MEDIA_DECODE_FAILED"
             if _extension(node) in IMAGE_EXTENSIONS
-            else ("MEDIA_FORMAT_UNSUPPORTED")
+            else "MEDIA_FORMAT_UNSUPPORTED"
         )
-        raise ApexError(code, f"error.{code.lower()}", target="node_id") from error
+        raise ApexError(code, f"error.{code.lower()}", target="node_id")
