@@ -28,21 +28,25 @@ def _timeline(connection: Any, case_id: str, evidence_id: str) -> dict[str, Any]
         "SELECT COUNT(*) FROM timeline_events WHERE case_id = ? AND evidence_id = ?",
         (case_id, evidence_id),
     ).fetchone()[0]
-    statuses = {
-        row[0]
-        for row in connection.execute(
-            "SELECT status FROM timeline_jobs WHERE case_id = ?"
-            " AND (evidence_id = ? OR evidence_id IS NULL)",
-            (case_id, evidence_id),
-        )
-    }
-    if "SUCCEEDED" in statuses:
-        state = CURRENT
-    elif statuses & {"PARTIAL", "PAUSED", "CANCELLED", "FAILED"} or events:
-        state = PARTIAL
-    else:
-        state = NONE
-    return {"state": state, "events": events}
+    registered = connection.execute(
+        "SELECT created_at FROM evidence WHERE evidence_id = ?", (evidence_id,)
+    ).fetchone()[0]
+    # A case-wide build only covers evidence that existed when it started.
+    latest = connection.execute(
+        "SELECT status, updated_at FROM timeline_jobs WHERE case_id = ?"
+        " AND (evidence_id = ? OR (evidence_id IS NULL AND created_at >= ?))"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (case_id, evidence_id, registered),
+    ).fetchone()
+    if latest is None:
+        return {"state": PARTIAL if events else NONE, "events": events, "stale": False}
+    changed = connection.execute(
+        "SELECT MAX(updated_at) FROM fs_nodes WHERE case_id = ? AND evidence_id = ?",
+        (case_id, evidence_id),
+    ).fetchone()[0]
+    stale = latest[0] == "SUCCEEDED" and changed is not None and changed > latest[1]
+    state = CURRENT if latest[0] == "SUCCEEDED" and not stale else PARTIAL
+    return {"state": state, "events": events, "stale": stale}
 
 
 def index_state(

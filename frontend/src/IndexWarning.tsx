@@ -50,7 +50,11 @@ export function IndexWarning({
         const message =
           route === "SEARCH"
             ? (none ? t.searchNone : t.searchPartial)(e.display_name)
-            : (none ? t.timelineNone : t.timelinePartial)(e.display_name);
+            : (none
+                ? t.timelineNone
+                : e.timeline.stale
+                  ? t.timelineStale
+                  : t.timelinePartial)(e.display_name);
         const kind = needsFiles ? "FILES" : route;
         return (
           <div className="notice" role="status" key={e.evidence_id}>
