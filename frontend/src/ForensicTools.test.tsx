@@ -281,13 +281,10 @@ it("keeps carving available for disk images", () => {
   );
 });
 
-it("enables OCR only for images and STT only for audio or video", () => {
+it("enables OCR only for images", () => {
   open({ selected: textFile });
   expect(
     (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
-  ).toBe(true);
-  expect(
-    (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
   ).toBe(true);
   expect(screen.getByText(/이미지 파일\(PNG/)).toBeTruthy();
   cleanup();
@@ -297,9 +294,26 @@ it("enables OCR only for images and STT only for audio or video", () => {
   expect(
     (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
   ).toBe(false);
+});
+
+// The engine judges speech by the bytes, so a recording named voice.dat or
+// note.txt must reach it; it refuses non-audio before queueing any task.
+it.each([
+  ["voice.dat", "dat", null],
+  ["memo.3ga", "3ga", null],
+  ["note.txt", "txt", "text/plain"],
+])("lets speech recognition judge %s by its content", (name, extension, mime) => {
+  open({
+    selected: {
+      ...textFile,
+      original_name: name,
+      extension,
+      mime_candidate: mime,
+    },
+  });
   expect(
     (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
-  ).toBe(true);
+  ).toBe(false);
 });
 
 it("explains that ADS exist only on NTFS when a FAT file has none", async () => {
