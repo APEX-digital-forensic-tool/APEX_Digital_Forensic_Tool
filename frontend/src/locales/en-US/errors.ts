@@ -49,7 +49,8 @@ export const errors: Messages["errors"] = {
     "Select a PNG, JPEG, GIF, TIFF, BMP or WebP image file.",
   CARVING_REQUIRES_IMAGE:
     "Carving is not available for folder evidence. Select a disk image.",
-  MEDIA_AUDIO_FORMAT_UNSUPPORTED: "Select an audio or video file.",
+  MEDIA_AUDIO_FORMAT_UNSUPPORTED:
+    "No audio was found in this file. Select an audio or video file.",
   MEDIA_OFFSET_OUT_OF_RANGE: "The start pixel is outside the image.",
   DESKTOP_REQUIRED: "Analysis runs in the Windows or macOS desktop app.",
   SERVICE_NOT_READY: "Starting the local analysis engine.",

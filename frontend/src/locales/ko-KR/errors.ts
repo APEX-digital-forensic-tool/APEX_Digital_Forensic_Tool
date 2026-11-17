@@ -47,7 +47,8 @@ export const errors = {
     "PNG·JPEG·GIF·TIFF·BMP·WebP 이미지 파일을 선택해주세요.",
   CARVING_REQUIRES_IMAGE:
     "폴더 증거에는 카빙을 사용할 수 없습니다. 디스크 이미지 증거를 선택해주세요.",
-  MEDIA_AUDIO_FORMAT_UNSUPPORTED: "음성 또는 영상 파일을 선택해주세요.",
+  MEDIA_AUDIO_FORMAT_UNSUPPORTED:
+    "이 파일에서 음성을 찾지 못했습니다. 음성 또는 영상 파일을 선택해주세요.",
   MEDIA_OFFSET_OUT_OF_RANGE: "시작 픽셀이 이미지 범위를 벗어났습니다.",
   DESKTOP_REQUIRED:
     "실제 분석은 Windows 또는 macOS 데스크톱 앱에서 사용할 수 있습니다.",
