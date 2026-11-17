@@ -101,15 +101,20 @@ export function AiConnectionForm({
   useEffect(() => {
     if (!bridge) return;
     let live = true;
+    // A change pushed before the first load answers is newer than that answer.
+    let pushed = false;
     bridge
       .account()
       .then((reply) => {
-        if (live && reply.ok) setAccount(reply.data);
+        if (live && !pushed && reply.ok) setAccount(reply.data);
       })
       .catch(() => {
         /* The hint is optional; the AI request reports a missing sign-in itself. */
       });
-    const stop = bridge.onAccountChange?.(setAccount);
+    const stop = bridge.onAccountChange?.((next) => {
+      pushed = true;
+      setAccount(next);
+    });
     return () => {
       live = false;
       stop?.();

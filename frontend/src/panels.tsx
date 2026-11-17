@@ -217,18 +217,30 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
     [loadFailed, setLoadFailed] = useState(false),
     [attempt, setAttempt] = useState(0),
     [busy, setBusy] = useState(false);
+  // Counts pushed changes, so a status load that answers after one does not undo it.
+  const pushes = useRef(0);
   useEffect(() => {
+    const before = pushes.current;
     window.apex
       ?.account()
       .then(unwrap)
-      .then(setState)
+      .then((loaded) => {
+        if (pushes.current === before) setState(loaded);
+      })
       .catch((err) => {
         setError(err);
         setLoadFailed(true);
       });
   }, [attempt]);
   // Refresh, expiry and logout happen in the main process; it pushes each change.
-  useEffect(() => window.apex?.onAccountChange?.(setState), []);
+  useEffect(
+    () =>
+      window.apex?.onAccountChange?.((pushed) => {
+        pushes.current++;
+        setState(pushed);
+      }),
+    [],
+  );
   return (
     <div className={compact ? "account-panel" : "card"}>
       {!compact && (
