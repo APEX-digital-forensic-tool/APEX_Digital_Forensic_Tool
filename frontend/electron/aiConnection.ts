@@ -1,3 +1,5 @@
+import type { Credentials } from "./serverSession";
+
 export const STORED_KEY_ENV = "APEX_DESKTOP_AI_STORED_KEY";
 const CONFIG_ENV = "APEX_DESKTOP_AI_CONFIG";
 const PROVIDER_ID = "apex-desktop";
@@ -207,23 +209,25 @@ export function aiConnectionStatus(deps: AiDeps): AiConnectionStatus {
  * APEX server mode is stored. Only the main process may set them, so a copy from
  * the renderer is always dropped. The token travels in the request body over the
  * engine's authenticated loopback, never through the engine's environment.
+ * Returns the credentials attached, or null when none were.
  */
 export async function attachServerConnection(
   operation: string,
   payload: Record<string, unknown>,
   deps: AiDeps,
-  credentials: () => Promise<{ origin: string; access: string } | null>,
-): Promise<void> {
-  if (operation !== "ai.analyze" && operation !== "ai.prepare") return;
+  credentials: () => Promise<Credentials | null>,
+): Promise<Credentials | null> {
+  if (operation !== "ai.analyze" && operation !== "ai.prepare") return null;
   delete payload.server_connection;
-  if (operation !== "ai.analyze" || isManaged(deps)) return;
-  if (readStored(deps)?.mode !== "server") return;
+  if (operation !== "ai.analyze" || isManaged(deps)) return null;
+  if (readStored(deps)?.mode !== "server") return null;
   const signedIn = await credentials();
   if (signedIn)
     payload.server_connection = {
       base_url: `${signedIn.origin}/llm/v1`,
       access_token: signedIn.access,
     };
+  return signedIn;
 }
 
 const INVALID: AiSaveResult = { ok: false, code: "AI_CONNECTION_INVALID" };
@@ -292,15 +296,16 @@ export function clearAiConnection(deps: AiDeps): AiSaveResult {
 }
 
 export interface ServerAuth {
-  credentials(): Promise<{ origin: string; access: string } | null>;
-  /** A forced renewal; null when the server refused it. */
-  refresh(): Promise<string | null>;
+  credentials(): Promise<Credentials | null>;
+  /** A forced renewal of that sign-in; null when the server refused it or another sign-in replaced it. */
+  refresh(session: number): Promise<string | null>;
 }
 
 /**
  * Runs an engine call with the server connection attached. When the server
  * rejects the token (revoked or rotated since it was issued), the token is
- * renewed once and the call retried once; any other outcome is returned as is.
+ * renewed once and the call retried once, against the same server and sign-in;
+ * any other outcome is returned as is.
  */
 export async function callWithServerConnection<R>(
   operation: string,
@@ -309,20 +314,26 @@ export async function callWithServerConnection<R>(
   auth: ServerAuth,
   call: (payload: Record<string, unknown>) => Promise<R>,
 ): Promise<R> {
-  await attachServerConnection(operation, payload, deps, auth.credentials);
+  const attached = await attachServerConnection(
+    operation,
+    payload,
+    deps,
+    auth.credentials,
+  );
   const first = await call(payload);
-  const connection = payload.server_connection as
-    { base_url: string; access_token: string } | undefined;
   const failure = first as { ok?: boolean; error?: { code?: string } } | null;
   if (
-    !connection ||
+    !attached ||
     failure?.ok !== false ||
     failure.error?.code !== "AUTHENTICATION_FAILED"
   )
     return first;
-  const access = await auth.refresh();
-  if (!access || access === connection.access_token) return first;
-  payload.server_connection = { ...connection, access_token: access };
+  const access = await auth.refresh(attached.session);
+  if (!access || access === attached.access) return first;
+  payload.server_connection = {
+    base_url: `${attached.origin}/llm/v1`,
+    access_token: access,
+  };
   return call(payload);
 }
 

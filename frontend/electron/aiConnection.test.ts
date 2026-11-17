@@ -196,10 +196,15 @@ describe("aiConnection", () => {
 });
 
 describe("APEX server mode", () => {
-  type Credentials = () => Promise<{ origin: string; access: string } | null>;
+  type Credentials = () => Promise<{
+    origin: string;
+    access: string;
+    session: number;
+  } | null>;
   const signedIn: Credentials = async () => ({
     origin: "https://apex.example",
     access: "access-token-1",
+    session: 1,
   });
   const signedOut: Credentials = async () => null;
   const server = {

@@ -36,6 +36,14 @@ export type LoginError =
   | "AUTH_SERVER_UNAVAILABLE"
   | "AUTH_CONTRACT_INVALID";
 
+/** A usable access token, its server, and which sign-in issued it. */
+export interface Credentials {
+  origin: string;
+  access: string;
+  /** Opaque; changes on every login and logout. Pass it to `refresh` to renew only this sign-in. */
+  session: number;
+}
+
 export interface SessionDeps {
   fetch: typeof fetch;
   now(): number;
@@ -95,7 +103,9 @@ export function createServerSession(deps: SessionDeps) {
   let state: State = { kind: "signed_out", reason: null };
   // Bumped on login and logout so a refresh that started earlier cannot revive or overwrite the session.
   let generation = 0;
-  let refreshing: Promise<string | null> | null = null;
+  // The refresh in flight and the sign-in it belongs to.
+  let refreshing: { generation: number; promise: Promise<string | null> } | null =
+    null;
   let timer: unknown = null;
   // The state as of now; after an await it may differ from what a caller narrowed.
   const latest = (): State => state;
@@ -226,6 +236,8 @@ export function createServerSession(deps: SessionDeps) {
     { ok: true } | { ok: false; code: "AUTH_LOGOUT_INCOMPLETE" }
   > {
     if (state.kind !== "signed_in") {
+      // Cancels a sign-in still waiting on the server.
+      generation++;
       set({ kind: "signed_out", reason: "LOGGED_OUT" });
       return { ok: true };
     }
@@ -234,7 +246,6 @@ export function createServerSession(deps: SessionDeps) {
     // A refresh the server rejected means the session is already over there.
     const serverEnded = !current && latest().kind === "signed_out";
     generation++;
-    refreshing = null;
     set({ kind: "signed_out", reason: "LOGGED_OUT" });
     if (serverEnded) return { ok: true };
     if (!current) return { ok: false, code: "AUTH_LOGOUT_INCOMPLETE" };
@@ -249,13 +260,23 @@ export function createServerSession(deps: SessionDeps) {
     return { ok: false, code: "AUTH_LOGOUT_INCOMPLETE" };
   }
 
-  /** One refresh at a time: the server revokes the whole session when a rotated refresh token is reused. */
-  function refresh(): Promise<string | null> {
-    if (state.kind !== "signed_in") return Promise.resolve(null);
-    refreshing ??= rotate(state, generation).finally(() => {
-      refreshing = null;
-    });
-    return refreshing;
+  /**
+   * One refresh at a time: the server revokes the whole session when a rotated
+   * refresh token is reused. With `session`, renews only that sign-in and
+   * resolves null once another has replaced it.
+   */
+  function refresh(session: number = generation): Promise<string | null> {
+    if (state.kind !== "signed_in" || session !== generation)
+      return Promise.resolve(null);
+    if (refreshing?.generation === generation) return refreshing.promise;
+    const entry = {
+      generation,
+      promise: rotate(state, generation).finally(() => {
+        if (refreshing === entry) refreshing = null;
+      }),
+    };
+    refreshing = entry;
+    return entry.promise;
   }
 
   async function rotate(
@@ -290,22 +311,19 @@ export function createServerSession(deps: SessionDeps) {
   }
 
   /** A usable access token and the server it belongs to, refreshing first when close to expiry. */
-  async function credentials(): Promise<{
-    origin: string;
-    access: string;
-  } | null> {
+  async function credentials(): Promise<Credentials | null> {
     if (state.kind !== "signed_in") return null;
     const { origin } = state;
+    const session = generation;
     const access =
       state.expiresAt - state.margin > deps.now()
         ? state.access
-        : await refresh();
-    return access ? { origin, access } : null;
+        : await refresh(session);
+    return access ? { origin, access, session } : null;
   }
 
   function dispose() {
     generation++;
-    refreshing = null;
     state = { kind: "signed_out", reason: null };
     if (timer !== null) deps.clearTimer(timer);
     timer = null;

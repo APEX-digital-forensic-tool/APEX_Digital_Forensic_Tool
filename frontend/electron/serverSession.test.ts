@@ -160,7 +160,7 @@ describe("server session", () => {
       path: "/auth/refresh",
       body: { refresh_token: "refresh-1" },
     });
-    expect(await h.session.credentials()).toEqual({
+    expect(await h.session.credentials()).toMatchObject({
       origin: ORIGIN,
       access: "access-2",
     });
@@ -223,7 +223,7 @@ describe("server session", () => {
     });
     expect(await h.session.credentials()).toBeNull();
     h.server.refreshStatus = 200;
-    expect(await h.session.credentials()).toEqual({
+    expect(await h.session.credentials()).toMatchObject({
       origin: ORIGIN,
       access: expect.stringMatching(/^access-/),
     });
@@ -275,7 +275,7 @@ describe("server session", () => {
     h.server.pendingRefresh = null;
     await flush();
     await flush();
-    expect(await h.session.credentials()).toEqual({
+    expect(await h.session.credentials()).toMatchObject({
       origin: ORIGIN,
       access: "access-2",
     });
