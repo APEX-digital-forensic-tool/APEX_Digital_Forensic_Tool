@@ -629,3 +629,21 @@ def test_report_snapshot_provenance_survives_desktop_edit(client, tmp_path):
     })
     assert denied.status_code == 409
     assert denied.json()["error"]["code"] == "REPORT_REFERENCE_CASE_MISMATCH"
+
+
+def test_custody_event_opens_in_view_and_raw_read(client, tmp_path):
+    source = tmp_path / "custody.dd"
+    source.write_bytes(b"custody evidence bytes" * 64)
+    cid = call(client, "cases.create", name="Custody view")["id"]
+    evidence = wait(
+        client, cid, call(client, "evidence.register", case_id=cid, source_path=str(source))
+    )["result"]
+    event = call(client, "custody.list", case_id=cid, evidence_id=evidence["id"])[0]
+    args = {"case_id": cid, "resource_type": "CUSTODY_EVENT", "resource_id": event["event_id"]}
+    view = call(client, "view", **args)
+    assert view["source_revision"] == 1
+    assert view["primary_fields"]["event_type"] == "RECEIVED"
+    assert "view.raw-read" not in view["available_actions"]
+    raw = client.post("/v1/operations/raw.read", json=args)
+    assert raw.status_code == 409, raw.text
+    assert raw.json()["error"]["code"] == "RAW_LOCATOR_UNSUPPORTED"
