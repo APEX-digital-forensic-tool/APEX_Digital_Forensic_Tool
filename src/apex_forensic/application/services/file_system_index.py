@@ -96,6 +96,8 @@ class _RunState:
     sequence: int = 0
     # Folders whose own listing reported an error; they are never marked complete.
     failed_listings: set[str] = field(default_factory=set)
+    # Folders the analyst opened, by node id or path; they clear only when the job drains.
+    selected: frozenset[str] = frozenset()
 
 
 class FileSystemIndexService:
@@ -321,8 +323,37 @@ class FileSystemIndexService:
             cancellation_token=cancellation_token,
             pause_token=pause_token,
             progress_callback=progress_callback,
+            failed_listings=self._failed_listings(job_id),
         )
         return self._run(state)
+
+    def _failed_listings(self, job_id: str) -> set[str]:
+        """Folders whose listing failed in an earlier run of this job, from its scan events."""
+        failed: set[str] = set()
+        for event in self._repository.list_fs_scan_events(job_id):
+            node_id = event.get("node_id")
+            if node_id is None or node_id in failed:
+                continue
+            if event["severity"] != "WARNING":
+                failed.add(node_id)
+                continue
+            node = self._repository.get_fs_node(node_id)
+            if node is not None and event.get("path") == node.display_path:
+                failed.add(node_id)
+        return failed
+
+    def _selected_node_ids(self, state: _RunState) -> frozenset[str]:
+        selected = set(state.options.selected_node_ids)
+        for selected_path in state.options.selected_paths:
+            node = self._repository.get_fs_node_by_relative_path(
+                state.evidence.evidence_id,
+                state.provider.provider_id,
+                state.provider.provider_version,
+                self._clean_relative_path(selected_path),
+            )
+            if node is not None:
+                selected.add(node.node_id)
+        return frozenset(selected)
 
     def index_status(self, job_id: str) -> dict[str, Any]:
         """Return job, coverage, and scan events for a filesystem index job."""
@@ -465,6 +496,7 @@ class FileSystemIndexService:
         )
 
     def _run(self, state: _RunState) -> tuple[Job, IndexCoverage]:
+        state.selected = self._selected_node_ids(state)
         state.job.status = JobStatus.RUNNING
         state.job.started_at = state.job.started_at or self._clock.now()
         state.job.job_revision += 1
@@ -612,7 +644,7 @@ class FileSystemIndexService:
         state.coverage.processed_items += 1
         if (
             parent.is_partial
-            and parent.node_id not in state.options.selected_node_ids
+            and parent.node_id not in state.selected
             and parent.node_id not in state.failed_listings
         ):
             # A depth-limited folder that has now been listed completely. A folder
@@ -621,7 +653,7 @@ class FileSystemIndexService:
             self._repository.upsert_fs_node(parent)
 
     def _clear_selected_partial(self, state: _RunState) -> None:
-        for node_id in state.options.selected_node_ids:
+        for node_id in state.selected:
             node = self._repository.get_fs_node(node_id)
             if node is not None and node.is_partial and node_id not in state.failed_listings:
                 node.is_partial = False
