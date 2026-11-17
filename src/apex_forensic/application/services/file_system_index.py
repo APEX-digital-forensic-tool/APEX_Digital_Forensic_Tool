@@ -94,6 +94,8 @@ class _RunState:
     run_started: float = field(default_factory=time.monotonic)
     indexed_this_run: int = 0
     sequence: int = 0
+    # Folders whose own listing reported an error; they are never marked complete.
+    failed_listings: set[str] = field(default_factory=set)
 
 
 class FileSystemIndexService:
@@ -486,6 +488,10 @@ class FileSystemIndexService:
                     if final_status is IndexCoverageStatus.COMPLETE
                     else JobStatus.PARTIAL
                 )
+                # The queue drained: skipped items are recorded in the coverage, so
+                # the opened folder is not indexed again. Cancel, failure, pause and
+                # budget exhaustion return earlier and keep it partial.
+                self._clear_selected_partial(state)
                 return self._finish(state, final_job_status, final_status)
             node = self._repository.get_fs_node(str(item["node_id"]))
             if node is None:
@@ -520,6 +526,10 @@ class FileSystemIndexService:
                 self._record_issue(state, entry)
                 if entry.severity == "WARNING":
                     state.coverage.skipped_items += 1
+                # An error, or any issue on the folder itself such as a denied
+                # read, means its listing is not known to be complete.
+                if entry.severity != "WARNING" or entry.path == parent.display_path:
+                    state.failed_listings.add(parent.node_id)
                 if self._budget_reached(state):
                     self._repository.update_fs_queue_cursor(
                         str(item["queue_id"]), item.get("cursor_key")
@@ -570,6 +580,10 @@ class FileSystemIndexService:
                         ),
                     )
                 else:
+                    # Not listed yet: stays partial until its own listing finishes,
+                    # so a cancelled or failed job does not leave it looking empty.
+                    stored.is_partial = True
+                    self._repository.upsert_fs_node(stored)
                     self._enqueue(
                         state.job.job_id,
                         stored.node_id,
@@ -593,10 +607,22 @@ class FileSystemIndexService:
             self._repository.save_fs_nodes(batch)
         self._repository.mark_fs_queue_done(str(item["queue_id"]))
         state.coverage.processed_items += 1
-        if parent.is_partial:
-            # A depth-limited folder that has now been listed completely.
+        if (
+            parent.is_partial
+            and parent.node_id not in state.options.selected_node_ids
+            and parent.node_id not in state.failed_listings
+        ):
+            # A depth-limited folder that has now been listed completely. A folder
+            # the analyst opened clears only when its job drains the queue.
             parent.is_partial = False
             self._repository.upsert_fs_node(parent)
+
+    def _clear_selected_partial(self, state: _RunState) -> None:
+        for node_id in state.options.selected_node_ids:
+            node = self._repository.get_fs_node(node_id)
+            if node is not None and node.is_partial and node_id not in state.failed_listings:
+                node.is_partial = False
+                self._repository.upsert_fs_node(node)
 
     def _finish(
         self,
@@ -648,9 +674,7 @@ class FileSystemIndexService:
                     ancestor,
                 )
                 if node is None:
-                    node = provider.get_metadata(
-                        evidence, ancestor, index_revision=index_revision
-                    )
+                    node = provider.get_metadata(evidence, ancestor, index_revision=index_revision)
                     self._repository.upsert_fs_node(node)
                     inserted += 1
             node = self._repository.get_fs_node_by_relative_path(
