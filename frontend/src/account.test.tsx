@@ -121,3 +121,13 @@ it("shows the sign-in error and keeps the form", async () => {
   );
   expect(container.querySelector("form")).toBeTruthy();
 });
+
+it("keeps a pushed change when the first status load answers later", async () => {
+  const { b, push } = bridge(SIGNED_IN);
+  let answer!: (reply: { ok: true; data: AccountStatus }) => void;
+  b.account = () => new Promise((r) => (answer = r));
+  render(<AccountPanel />);
+  push({ ...SIGNED_IN, state: "reconnecting", connected: false });
+  await act(async () => answer({ ok: true, data: SIGNED_IN }));
+  expect(screen.getByText("다시 연결 중")).toBeTruthy();
+});

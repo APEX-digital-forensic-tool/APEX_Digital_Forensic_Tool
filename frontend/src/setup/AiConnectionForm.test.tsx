@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { act, cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderInEnglish } from "../i18n/testing";
 import { createDemoBridge } from "../demoBridge";
@@ -216,6 +216,33 @@ it("shows which server the AI requests go through when signed in", async () => {
   });
   expect(await screen.findByText("https://apex.example")).toBeTruthy();
   expect(screen.getByText("Signed in")).toBeTruthy();
+});
+
+it("keeps a pushed sign-out when the first account load answers later", async () => {
+  let answer!: (reply: unknown) => void;
+  let push!: (status: unknown) => void;
+  const signedIn = {
+    state: "signed_in" as const,
+    connected: true,
+    origin: "https://apex.example",
+    expires_at: Date.now() + 60000,
+    reason: null,
+  };
+  mount({
+    aiConnection: async () =>
+      ok({ ...none, configured: true, mode: "server" as const }),
+    account: () => new Promise((r) => (answer = r)) as never,
+    onAccountChange: (listener) => {
+      push = listener as never;
+      return () => {};
+    },
+  });
+  await screen.findByRole("radio", { name: /^APEX server/ });
+  act(() =>
+    push({ ...signedIn, state: "signed_out", origin: null, reason: "LOGGED_OUT" }),
+  );
+  await act(async () => answer(ok(signedIn)));
+  expect(screen.queryByText("https://apex.example")).toBeNull();
 });
 
 it("offers Try again when the status fails to load", async () => {
