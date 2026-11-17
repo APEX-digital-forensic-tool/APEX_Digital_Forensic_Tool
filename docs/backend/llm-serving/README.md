@@ -34,9 +34,9 @@ Kimi의 오류 본문은 클라이언트에 그대로 보내지 않는다.
 | `APEX_LLM_UPSTREAM_API_KEY` | 없음 | Kimi API 키. 없으면 LLM 서빙이 꺼지고 503을 돌려준다. |
 | `APEX_LLM_UPSTREAM_BASE_URL` | `https://api.moonshot.ai/v1` | 중국 플랫폼은 `https://api.moonshot.cn/v1`. 두 플랫폼의 키는 서로 호환되지 않는다. |
 | `APEX_LLM_MODEL` | `kimi-k3.1-pro` | Moonshot 공식 quickstart가 쓰는 모델. 다른 모델은 이 변수로 바꾼다. |
-| `APEX_LLM_TIMEOUT` | `90` | Kimi 응답 대기 초. |
+| `APEX_LLM_TIMEOUT` | `90` | Kimi 응답 전체를 기다리는 초. 연결부터 마지막 바이트까지 합친 시간이다. 넘으면 504. |
 | `APEX_LLM_MAX_TOKENS` | `8192` | 요청 하나의 `max_tokens` 상한. |
 
-앱의 'APEX 서버' AI 연결은 기본 제한 시간이 120초다. 앱의 제한 시간은 `APEX_LLM_TIMEOUT`보다 길어야 한다. 짧으면 서버가 아직 Kimi 응답을 기다리는 동안 앱이 먼저 포기하고, Kimi 호출 비용은 그대로 나간다.
+앱의 'APEX 서버' AI 연결은 기본 제한 시간이 120초이고, 100초보다 짧게 설정할 수 없다. 앱의 제한 시간은 `APEX_LLM_TIMEOUT`보다 길어야 하므로 `APEX_LLM_TIMEOUT`은 100 미만으로 둔다. 앱의 제한 시간이 더 짧으면 서버가 아직 Kimi 응답을 기다리는 동안 앱이 먼저 포기하고, Kimi 호출 비용은 그대로 나간다.
 
 기본 URL과 모델은 2026-11-17에 Moonshot 문서 검색 결과로 정했다. 실제 Kimi 키로는 아직 호출해 보지 않았다.
