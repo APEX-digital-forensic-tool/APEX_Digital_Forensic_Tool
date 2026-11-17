@@ -16,6 +16,16 @@ client = api_client
 FRONTEND_FIXTURES = Path(__file__).parents[2] / "frontend/src/__fixtures__"
 
 
+def tiny_png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(buffer, "PNG")
+    return buffer.getvalue()
+
+
 def shape(value):
     """Key structure of a JSON value, ignoring run-specific ids, timestamps and sizes."""
     if isinstance(value, dict):
@@ -112,7 +122,7 @@ def test_machine_task_persists_candidates_and_real_source_locator(
     client, tmp_path, monkeypatch, kind
 ):
     source = tmp_path / ("image.png" if kind == "OCR" else "audio.wav")
-    payload = b"synthetic local source"
+    payload = tiny_png() if kind == "OCR" else b"synthetic local source"
     source.write_bytes(payload)
     cid, eid = registered(client, source)
     node = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]

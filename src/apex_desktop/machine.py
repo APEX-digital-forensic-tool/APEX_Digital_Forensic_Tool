@@ -1,5 +1,6 @@
 """Local OCR/STT selection, bounded source extraction and candidate persistence."""
 
+import importlib
 import json
 import os
 import tempfile
@@ -213,10 +214,10 @@ def _capabilities(root: Path) -> dict[str, Any]:
 
 def _undecodable_image_errors() -> tuple[type[Exception], ...]:
     try:
-        from PIL import UnidentifiedImageError
+        pillow = importlib.import_module("PIL")
     except ImportError:
         return ()
-    return (UnidentifiedImageError,)
+    return (pillow.UnidentifiedImageError,)
 
 
 def run(

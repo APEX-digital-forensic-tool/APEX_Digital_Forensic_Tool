@@ -23,8 +23,11 @@ const mime = (node: Row | null) =>
   String(node?.mime_candidate ?? "").toLowerCase();
 
 export const isImageFile = (node: Row | null) =>
-  IMAGE.has(extension(node)) || mime(node).startsWith("image/");
+  extension(node) === "" ||
+  IMAGE.has(extension(node)) ||
+  mime(node).startsWith("image/");
 export const isAudioVideoFile = (node: Row | null) =>
+  extension(node) === "" ||
   AUDIO_VIDEO.has(extension(node)) ||
   mime(node).startsWith("audio/") ||
   mime(node).startsWith("video/");
