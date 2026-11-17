@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hasActiveTasks, stopChild, type StoppableChild } from "./engineGuard";
+import {
+  hasActiveTasks,
+  mayQuit,
+  stopChild,
+  type StoppableChild,
+} from "./engineGuard";
 
 type Reply = { ok: boolean; data?: unknown; error?: { code: string } };
 
@@ -103,10 +108,13 @@ class FakeChild implements StoppableChild {
     if (this.exitsOn.includes(signal)) {
       setTimeout(() => {
         this.signalCode = signal ?? "SIGTERM";
-        for (const listener of this.listeners.splice(0)) listener();
+        this.emitExit();
       }, 50);
     }
     return true;
+  }
+  protected emitExit() {
+    for (const listener of this.listeners.splice(0)) listener();
   }
   once(_event: "exit", listener: () => void) {
     this.listeners.push(listener);
@@ -164,5 +172,56 @@ describe("stopChild", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(result).toBe(false);
     expect(child.signals).toEqual([undefined, "SIGKILL"]);
+  });
+});
+
+class PipedChild extends FakeChild {
+  ended = 0;
+  stdin = {
+    end: () => {
+      this.ended++;
+      setTimeout(() => {
+        this.exitCode = 0;
+        this.emitExit();
+      }, 50);
+    },
+  };
+}
+
+describe("stopChild with a stdin pipe", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("closes stdin instead of signalling, so Windows never hard-kills it", async () => {
+    vi.useFakeTimers();
+    const child = new PipedChild([]);
+    const stopped = stopChild(child, { graceMs: 10000, killMs: 5000 });
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(stopped).resolves.toBe(true);
+    expect(child.ended).toBe(1);
+    expect(child.signals).toEqual([]);
+  });
+});
+
+describe("mayQuit", () => {
+  it("quits without asking when nothing is running", async () => {
+    const confirm = vi.fn(async () => false);
+    await expect(mayQuit(async () => false, confirm)).resolves.toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("asks when a task is running and follows the answer", async () => {
+    await expect(mayQuit(async () => true, async () => false)).resolves.toBe(false);
+    await expect(mayQuit(async () => true, async () => true)).resolves.toBe(true);
+  });
+
+  it("quits when the engine cannot say", async () => {
+    const confirm = vi.fn(async () => false);
+    const busy = async () => {
+      throw new Error("SERVICE_NOT_READY");
+    };
+    await expect(mayQuit(busy, confirm)).resolves.toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
