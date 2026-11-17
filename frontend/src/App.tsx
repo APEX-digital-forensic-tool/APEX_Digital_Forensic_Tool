@@ -268,16 +268,19 @@ export function App() {
   const zone = currentCase?.timezone ?? "Asia/Seoul";
   /** Last sub-tab opened in each navigation group, restored on return. */
   const lastTab = useRef<Record<string, Tab>>({});
-  /** Registration task id → hash algorithm to start once the task succeeds. */
+  /** The open evidence, folder and path as of the last render, for async callbacks. */
   const folderView = useRef<{
     evidenceId: string;
     folder: Row | null;
     trail: Row[];
   }>({ evidenceId: "", folder: null, trail: [] });
   folderView.current = { evidenceId, folder, trail: folderTrail };
+  /** Index jobs whose folder has been fetched again after they ended. */
   const reloadedFolderJobs = useRef(new Set<string>());
+  /** The selected evidence as of the last render, for the status poll. */
   const evidenceIdRef = useRef(evidenceId);
   evidenceIdRef.current = evidenceId;
+  /** Registration task id → hash algorithm to start once the task succeeds. */
   const pendingHashes = useRef(new Map<string, string>());
   // Folder key → the job indexing it. A job that ends cancelled or failed
   // frees the key so opening the folder again retries.
@@ -390,7 +393,9 @@ export function App() {
               indexedFolders.current.delete(key);
             if (!reloadedFolderJobs.current.has(taskId)) {
               reloadedFolderJobs.current.add(taskId);
-              void reloadFolder(key);
+              void reloadFolder(key).then((done) => {
+                if (!done) reloadedFolderJobs.current.delete(taskId);
+              });
             }
           }
           for (const t of ts) {
@@ -598,14 +603,16 @@ export function App() {
       selected_candidate_ids: [],
     });
   }
-  // Quick triage stops at a depth limit and marks those folders partial. Opening
-  // one indexes just that folder's subtree instead of showing it as empty.
-  // The open folder object is not part of any list reload. Fetch it again when
-  // its own index job ends so its partial flag matches the engine.
-  async function reloadFolder(key: string) {
+  // The folder objects the screen holds are not part of any list reload. Fetch
+  // one again when its own index job ends so its partial flag matches the
+  // engine. Resolves false when the folder is not on the open path yet.
+  async function reloadFolder(key: string): Promise<boolean> {
     const view = folderView.current;
-    const node = view.folder;
-    if (!node || key !== `${view.evidenceId}:${node.id}`) return;
+    if (!key.startsWith(`${view.evidenceId}:`)) return false;
+    const id = key.slice(view.evidenceId.length + 1);
+    const index = view.trail.findIndex((item) => item.id === id);
+    if (index < 0) return false;
+    const node = view.trail[index];
     const owner = caseRef.current;
     try {
       let fresh: Row | undefined;
@@ -614,9 +621,9 @@ export function App() {
           case_id: owner,
           evidence_id: view.evidenceId,
         });
-        fresh = roots.find((r) => r.id === node.id);
+        fresh = roots.find((r) => r.id === id);
       } else {
-        const parent = view.trail.at(-2);
+        const parent = view.trail[index - 1];
         let cursor: string | null = null;
         for (let pages = 0; parent && !fresh && pages < 50; pages++) {
           const result: Row = await gateway.call("files.list", {
@@ -626,22 +633,25 @@ export function App() {
             cursor,
             limit: 100,
           });
-          fresh = (result.items ?? []).find((n: Row) => n.id === node.id);
+          fresh = (result.items ?? []).find((n: Row) => n.id === id);
           cursor = result.page?.has_more ? result.page.next_cursor : null;
           if (!cursor) break;
         }
       }
-      const current = folderView.current;
-      if (!fresh || caseRef.current !== owner || current.folder?.id !== node.id)
-        return;
-      setFolder(fresh);
-      setFolderTrail((trail) =>
-        trail.map((item) => (item.id === fresh.id ? fresh : item)),
-      );
-    } catch (err) {
-      if (caseRef.current === owner) setActionError(err);
+      if (fresh && caseRef.current === owner) {
+        const next = fresh;
+        setFolder((prev) => (prev?.id === id ? next : prev));
+        setFolderTrail((trail) =>
+          trail.map((item) => (item.id === id ? next : item)),
+        );
+      }
+    } catch {
+      // Background refresh only: the next list load shows the engine's state.
     }
+    return true;
   }
+  // Quick triage stops at a depth limit and marks those folders partial. Opening
+  // one indexes just that folder's subtree instead of showing it as empty.
   async function indexFolder(id: string, node: Row | null | undefined) {
     if (!node?.is_partial || !["ROOT", "DIRECTORY"].includes(node.node_type))
       return;

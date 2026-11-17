@@ -467,7 +467,10 @@ it("counts an interrupted job in the attention badge (#67)", async () => {
   await screen.findByText("확인 1");
 });
 
-async function openPartialFolder(bridge: ReturnType<typeof createDemoBridge>) {
+async function openPartialFolder(
+  bridge: ReturnType<typeof createDemoBridge>,
+  isPartial: () => boolean = () => true,
+) {
   const original = bridge.invoke.bind(bridge);
   const listed: Row[] = [];
   bridge.invoke = async (op, payload) => {
@@ -476,7 +479,7 @@ async function openPartialFolder(bridge: ReturnType<typeof createDemoBridge>) {
       listed.push(payload);
       if (reply.ok && payload.parent_node_id)
         for (const node of reply.data.items)
-          if (node.node_type === "DIRECTORY") node.is_partial = true;
+          if (node.node_type === "DIRECTORY") node.is_partial = isPartial();
     }
     return reply;
   };
@@ -519,6 +522,143 @@ it("does not call a folder 'indexing' because another job is running (#67)", asy
   await new Promise((resolve) => setTimeout(resolve, 2000));
   expect(document.body.textContent).not.toContain(
     koKR.views.empty.indexingFolder,
+  );
+});
+
+const folderJobBridge = () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const state = { started: false, done: false };
+  bridge.invoke = async (op, payload) => {
+    if (op === "analysis.start") {
+      state.started = true;
+      return { ok: true, data: { task_id: "mine", status: "QUEUED" } };
+    }
+    if (op === "tasks.list")
+      return {
+        ok: true,
+        data: state.started
+          ? [
+              {
+                task_id: "mine",
+                case_id: payload.case_id,
+                kind: "FILES",
+                status: state.done ? "SUCCEEDED" : "RUNNING",
+                actions: [],
+              },
+            ]
+          : [],
+      };
+    return original(op, payload);
+  };
+  return { bridge, state };
+};
+const properties = () =>
+  within(screen.getByRole("complementary", { name: koKR.shell.pane.label }));
+
+/** Lists nothing under the opened folder so the empty state shows. */
+const emptyUnderFolder = (bridge: ReturnType<typeof createDemoBridge>) => {
+  const original = bridge.invoke.bind(bridge);
+  let root = "";
+  bridge.invoke = async (op, payload) => {
+    const reply = await original(op, payload);
+    if (op === "files.list" && reply.ok) {
+      root ||= payload.parent_node_id;
+      if (payload.parent_node_id !== root) reply.data.items = [];
+    }
+    return reply;
+  };
+};
+
+it("shows a folder as indexing only while its own job runs (#67)", async () => {
+  const { bridge, state } = folderJobBridge();
+  emptyUnderFolder(bridge);
+  await openPartialFolder(bridge, () => !state.done);
+  await screen.findByText(
+    koKR.views.empty.indexingFolder,
+    {},
+    { timeout: 3000 },
+  );
+  state.done = true;
+  await waitFor(
+    () =>
+      expect(screen.queryByText(koKR.views.empty.indexingFolder)).toBeNull(),
+    { timeout: 4000 },
+  );
+});
+
+it("reloads the open folder when its index job ends (#67)", async () => {
+  const { bridge, state } = folderJobBridge();
+  await openPartialFolder(bridge, () => !state.done);
+  await waitFor(() => expect(state.started).toBe(true));
+  await waitFor(() =>
+    expect(
+      properties().queryAllByText(koKR.labels.PARTIAL).length,
+    ).toBeGreaterThan(0),
+  );
+  state.done = true;
+  await waitFor(
+    () => expect(properties().queryAllByText(koKR.labels.PARTIAL)).toEqual([]),
+    { timeout: 4000 },
+  );
+});
+
+it("updates a folder that finished indexing while the analyst was in a subfolder (#67)", async () => {
+  const { bridge, state } = folderJobBridge();
+  const original = bridge.invoke.bind(bridge);
+  let root = "";
+  let folderId = "";
+  let template: Row = {};
+  bridge.invoke = async (op, payload) => {
+    const reply = await original(op, payload);
+    if (op === "files.list" && reply.ok) {
+      root ||= payload.parent_node_id;
+      if (payload.parent_node_id === root) template = reply.data.items[0];
+      else {
+        folderId ||= payload.parent_node_id;
+        reply.data.items =
+          payload.parent_node_id === folderId
+            ? [
+                {
+                  ...template,
+                  id: "5a1c0000-0000-4000-8000-000000000001",
+                  original_name: "하위",
+                  node_type: "DIRECTORY",
+                  is_partial: false,
+                },
+              ]
+            : [];
+      }
+    }
+    return reply;
+  };
+  await openPartialFolder(bridge, () => !state.done);
+  await waitFor(() => expect(state.started).toBe(true));
+  fireEvent.doubleClick(
+    (
+      await within(await screen.findByRole("table")).findByText(
+        "하위",
+        {},
+        { timeout: 3000 },
+      )
+    ).closest("tr") as HTMLElement,
+  );
+  await waitFor(() =>
+    expect(
+      within(
+        screen.getByRole("navigation", { name: koKR.views.folder.pathLabel }),
+      ).getAllByRole("button").length,
+    ).toBe(3),
+  );
+  state.done = true;
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  fireEvent.click(
+    within(
+      screen.getByRole("navigation", { name: koKR.views.folder.pathLabel }),
+    ).getAllByRole("button")[1],
+  );
+  await waitFor(() =>
+    expect(properties().queryAllByText(koKR.labels.PARTIAL)).toEqual([]),
   );
 });
 
