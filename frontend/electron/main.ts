@@ -39,7 +39,7 @@ import {
   markSetupComplete,
 } from "./appState";
 import { Engine, operationTimeoutMs, postEngine } from "./engine";
-import { hasActiveTasks } from "./engineGuard";
+import { hasActiveTasks, mayQuit } from "./engineGuard";
 import { authOrigin, PickedPaths } from "./shellGuards";
 import { pickAllowed } from "../src/pickKinds";
 
@@ -102,6 +102,8 @@ const operations = new Set([
 ]);
 let window: BrowserWindow | undefined;
 let setupWindow: BrowserWindow | undefined;
+// Set once quitting is confirmed; hidden windows stay hidden and close without asking again.
+let quitting = false;
 const token = randomBytes(32).toString("hex");
 const picked = new PickedPaths();
 let account:
@@ -207,6 +209,8 @@ const engine = new Engine(token, () => {
       ...(app.isPackaged ? [] : ["-m", "apex_desktop"]),
       "--data-dir",
       join(app.getPath("userData"), "local"),
+      // The engine exits when its stdin closes, including when Electron dies.
+      "--exit-with-parent",
     ],
     cwd: app.isPackaged ? process.resourcesPath : repo,
     env: {
@@ -247,6 +251,12 @@ async function createMainWindow() {
     webPreferences,
   });
   window = created;
+  // Closing the main window quits the app; route it through the quit check first.
+  created.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    app.quit();
+  });
   created.on("closed", () => {
     if (window === created) window = undefined;
   });
@@ -304,6 +314,8 @@ if (!app.requestSingleInstanceLock()) {
       .then(() => quitWith(nativeText().userDataUnwritable(folder)));
 } else {
   app.on("second-instance", () => {
+    // Windows hidden while the engine stops must stay hidden.
+    if (quitting) return;
     const open = window ?? setupWindow;
     open?.show();
     open?.focus();
@@ -540,15 +552,57 @@ if (!app.requestSingleInstanceLock()) {
       } catch {
         // Never emit backend stderr, tokens, evidence paths, or account details.
         console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: false }));
-        engine.child?.kill();
+        engine.stop();
         app.exit(1);
       }
     }
   }).catch(() => quitWith(nativeText().startFailed));
 }
-app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => {
+async function confirmQuit() {
+  const parent = window ?? setupWindow;
+  // A frozen renderer must not block quitting; fall back to the system language.
+  const lang = await Promise.race([
+    parent?.webContents
+      .executeJavaScript("document.documentElement.lang")
+      .catch(() => ""),
+    new Promise<string>((r) => setTimeout(() => r(""), 1000)),
+  ]);
+  const text = messagesFor(
+    resolveInitialLocale(null, [
+      String(lang ?? ""),
+      ...app.getPreferredSystemLanguages(),
+    ]),
+  ).native;
+  const options = {
+    type: "warning" as const,
+    buttons: [text.quitAnyway, text.keepWorking],
+    defaultId: 1,
+    cancelId: 1,
+    message: text.quitBusyMessage,
+    detail: text.quitBusyDetail,
+  };
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options);
+  return response === 0;
+}
+// Set once the engine has stopped; the next before-quit lets the app exit.
+let engineStopped = false;
+let quitRequest: Promise<void> | undefined;
+async function quitAfterEngine() {
+  const busy = async () => !!engine.url && (await hasActiveTasks(local));
+  if (!(await mayQuit(busy, confirmQuit))) return;
+  quitting = true;
   account = undefined;
-  engine.stop();
+  for (const open of BrowserWindow.getAllWindows()) open.hide();
+  // A running evidence registration cannot be cancelled; give it time to finish.
+  await engine.shutdown({ graceMs: 60000, killMs: 5000 });
+  engineStopped = true;
+  app.quit();
+}
+app.on("window-all-closed", () => app.quit());
+app.on("before-quit", (event) => {
+  if (engineStopped) return;
+  event.preventDefault();
+  quitRequest ??= quitAfterEngine().finally(() => (quitRequest = undefined));
 });
-

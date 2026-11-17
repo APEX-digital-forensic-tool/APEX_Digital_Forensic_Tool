@@ -91,12 +91,14 @@ const dead = (engine: Engine) =>
   !!engine.child &&
   (engine.child.exitCode !== null || engine.child.signalCode !== null);
 
-const serve = (health: string) => `
+/** Like the real engine with --exit-with-parent, it exits when its stdin closes unless told not to. */
+const serve = (health: string, exitWithParent = true) => `
 const http = require("node:http");
 const server = http.createServer((req, res) => { ${health} });
 server.listen(0, "127.0.0.1", () => {
   console.log(JSON.stringify({ type: "apex-ready", port: server.address().port }));
 });
+${exitWithParent ? 'process.stdin.on("end", () => process.exit(0)); process.stdin.resume();' : ""}
 `;
 
 describe("Engine startup failures", () => {
@@ -147,6 +149,7 @@ server.stdout.once("data", (line) => {
           {
             "server.cjs": serve(
               "setTimeout(() => { res.end('{}'); server.close(); process.exit(0); }, 600);",
+              false,
             ),
           },
         ),

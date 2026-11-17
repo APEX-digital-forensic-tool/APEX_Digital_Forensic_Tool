@@ -306,8 +306,12 @@ class Tasks:
             return record.copy()
 
     def close(self) -> None:
-        for token in list(self.tokens.values()):
-            token.cancel()
+        with self.lock:
+            for task_id, token in self.tokens.items():
+                record = self.records[task_id]
+                # A started non-cancellable task runs to its real outcome.
+                if record["status"] == "QUEUED" or "CANCEL" in record["actions"]:
+                    token.cancel()
         self.pool.shutdown(wait=True, cancel_futures=False)
         with self.lock:
             if any(r.get("receipt_error") for r in self.records.values()):

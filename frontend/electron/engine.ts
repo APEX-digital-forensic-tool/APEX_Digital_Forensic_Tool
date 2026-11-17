@@ -119,7 +119,8 @@ export class Engine {
         cwd,
         windowsHide: true,
         env: { ...env, APEX_DESKTOP_TOKEN: this.token },
-        stdio: ["ignore", "pipe", "pipe"],
+        // The engine exits when this pipe closes (--exit-with-parent), including when Electron dies.
+        stdio: ["pipe", "pipe", "pipe"],
       });
     } catch {
       // ENOEXEC, ELOOP, EPERM and the like throw here instead of emitting "error".
@@ -165,6 +166,7 @@ export class Engine {
       child.on("exit", () => ended("BACKEND_STOPPED"));
       // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
       child.stderr?.on("data", () => {});
+      child.stdin?.on("error", () => {});
       const lines = createInterface({ input: child.stdout! });
       lines.on("line", async (line) => {
         let data;
@@ -229,7 +231,15 @@ export class Engine {
     return this.start();
   }
 
-  /** On quit: kill the engine and never start another. */
+  /** On quit: refuse requests, never start another engine, and wait for this one to exit. */
+  async shutdown(limits: { graceMs: number; killMs: number }) {
+    this.stopped = true;
+    this.url = "";
+    this.error = "BACKEND_STOPPED";
+    if (this.child) await stopChild(this.child, limits);
+  }
+
+  /** Kill the engine at once and never start another. */
   stop() {
     this.stopped = true;
     this.child?.kill();
