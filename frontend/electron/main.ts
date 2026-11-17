@@ -479,8 +479,8 @@ else {
       return result.ok ? { ok: true, data: result.status } : fail(result.code);
     });
     handle("apex:logout", async () => {
-      await session.logout();
-      return { ok: true, data: null };
+      const result = await session.logout();
+      return result.ok ? { ok: true, data: null } : fail(result.code);
     });
     // Responses carry only the status; the key never leaves the main process.
     handle("apex:ai-connection", () => ({

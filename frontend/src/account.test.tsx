@@ -70,18 +70,29 @@ it("follows refresh trouble and expiry pushed from the main process", async () =
   expect(screen.getByRole("button", { name: /계정 연결/ })).toBeTruthy();
 });
 
-it("keeps the session on screen and shows why when logout fails", async () => {
+it("says when the server could not be told about the logout", async () => {
   const { b } = bridge(SIGNED_IN);
   b.logout = async () => ({
     ok: false,
-    error: { code: "DESKTOP_CONNECTION_FAILED" },
+    error: { code: "AUTH_LOGOUT_INCOMPLETE" },
   });
   render(<AccountPanel />);
-  fireEvent.click(
-    await screen.findByRole("button", { name: /앱에서 로그아웃/ }),
+  await screen.findByText("로그인됨");
+  b.account = async () => ({
+    ok: true,
+    data: {
+      state: "signed_out",
+      connected: false,
+      origin: null,
+      expires_at: null,
+      reason: "LOGGED_OUT",
+    },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /앱에서 로그아웃/ }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /서버에 세션 종료를 알리지 못했습니다/,
   );
-  expect(await screen.findByRole("alert")).toBeTruthy();
-  expect(screen.getByText("로그인됨")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /계정 연결/ })).toBeTruthy();
 });
 
 it("shows the sign-in error and keeps the form", async () => {

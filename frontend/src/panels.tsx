@@ -283,6 +283,9 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
                   setState({ ...SIGNED_OUT, reason: "LOGGED_OUT" });
                 } catch (err) {
                   setError(err);
+                  // A failed server logout still ends the session here; show what main holds now.
+                  const now = await window.apex.account().catch(() => null);
+                  if (now?.ok) setState(now.data);
                 } finally {
                   setBusy(false);
                 }

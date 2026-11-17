@@ -24,6 +24,7 @@ function harness() {
     ttl: 3600,
     refreshStatus: 200 as number | "down",
     loginStatus: 200 as number | "down",
+    logoutStatus: 200 as number | "down",
     pendingRefresh: null as null | Promise<unknown>,
   };
   const changes: AccountStatus[] = [];
@@ -49,7 +50,7 @@ function harness() {
           ? server.loginStatus
           : path === "/auth/refresh"
             ? server.refreshStatus
-            : 200;
+            : server.logoutStatus;
       if (path === "/auth/refresh" && server.pendingRefresh)
         await server.pendingRefresh;
       if (status === "down") throw new TypeError("fetch failed");
@@ -246,4 +247,64 @@ describe("server session", () => {
     expect(h.session.status().state).toBe("signed_out");
     expect(await h.session.credentials()).toBeNull();
   });
+
+  it("refuses a second sign-in and keeps the token an in-flight refresh rotated", async () => {
+    const h = harness();
+    await h.session.login(LOGIN);
+    let release!: () => void;
+    h.server.pendingRefresh = new Promise<void>((r) => (release = r));
+    h.advance(3_600_000 - 60_000);
+    h.server.loginStatus = 401;
+    expect(await h.session.login(LOGIN)).toEqual({
+      ok: false,
+      code: "AUTH_ALREADY_SIGNED_IN",
+    });
+    release();
+    h.server.pendingRefresh = null;
+    await flush();
+    await flush();
+    expect(await h.session.credentials()).toEqual({
+      origin: ORIGIN,
+      access: "access-2",
+    });
+    h.advance(3_600_000);
+    await flush();
+    const refreshes = h.calls.filter((c) => c.path === "/auth/refresh");
+    expect(refreshes.map((c) => c.body.refresh_token)).toEqual([
+      "refresh-1",
+      "refresh-2",
+    ]);
+  });
+
+  it("renews a lapsed access token before asking the server to end the session", async () => {
+    const h = harness();
+    await h.session.login(LOGIN);
+    h.server.refreshStatus = "down";
+    h.advance(3_600_000);
+    await flush();
+    expect(h.session.status().state).toBe("reconnecting");
+    h.server.refreshStatus = 200;
+    expect(await h.session.logout()).toEqual({ ok: true });
+    expect(h.calls.at(-1)).toMatchObject({
+      path: "/auth/logout",
+      auth: expect.stringMatching(/^Bearer access-[2-9]/),
+    });
+  });
+
+  it.each([401, 500, "down"] as const)(
+    "reports an incomplete logout when the server answers %s",
+    async (answer) => {
+      const h = harness();
+      await h.session.login(LOGIN);
+      h.server.logoutStatus = answer;
+      expect(await h.session.logout()).toEqual({
+        ok: false,
+        code: "AUTH_LOGOUT_INCOMPLETE",
+      });
+      expect(h.session.status()).toMatchObject({
+        state: "signed_out",
+        reason: "LOGGED_OUT",
+      });
+    },
+  );
 });

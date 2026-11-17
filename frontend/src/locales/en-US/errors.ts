@@ -96,6 +96,12 @@ export const errors: Messages["errors"] = {
   RAW_SOURCE_UNAVAILABLE:
     "The source file cannot be read. Check the evidence path and permissions.",
   RAW_RANGE_NOT_SATISFIABLE: "The range is outside the source data.",
+  AUTH_LOGOUT_INCOMPLETE:
+    "You are signed out of this app, but the server could not be told. The server session may stay until it expires.",
+  AUTH_ALREADY_SIGNED_IN:
+    "You are already signed in. Sign out before connecting another account.",
+  AUTH_LOGIN_CANCELLED:
+    "You were signed out while signing in, so sign-in was cancelled. Try again.",
   AUTH_LOGIN_FAILED: "Check the email, password, or tenant ID.",
   AUTH_ORIGIN_INVALID:
     "The authentication server address must be an HTTPS address or a local HTTP address.",

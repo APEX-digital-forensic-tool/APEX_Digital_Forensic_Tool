@@ -29,6 +29,8 @@ export interface AccountStatus {
 
 export type LoginError =
   | "VALIDATION_ERROR"
+  | "AUTH_ALREADY_SIGNED_IN"
+  | "AUTH_LOGIN_CANCELLED"
   | "AUTH_ORIGIN_INVALID"
   | "AUTH_LOGIN_FAILED"
   | "AUTH_SERVER_UNAVAILABLE"
@@ -95,6 +97,8 @@ export function createServerSession(deps: SessionDeps) {
   let generation = 0;
   let refreshing: Promise<string | null> | null = null;
   let timer: unknown = null;
+  // The state as of now; after an await it may differ from what a caller narrowed.
+  const latest = (): State => state;
 
   function status(): AccountStatus {
     if (state.kind === "signed_out")
@@ -176,7 +180,10 @@ export function createServerSession(deps: SessionDeps) {
       return { ok: false, code: "VALIDATION_ERROR" };
     const origin = serverOrigin(i.origin);
     if (!origin) return { ok: false, code: "AUTH_ORIGIN_INVALID" };
-    const attempt = ++generation;
+    // A second sign-in would race the current session's refresh rotation.
+    if (state.kind === "signed_in")
+      return { ok: false, code: "AUTH_ALREADY_SIGNED_IN" };
+    const started = generation;
     let response: Response;
     try {
       response = await post(`${origin}/auth/login`, {
@@ -195,24 +202,51 @@ export function createServerSession(deps: SessionDeps) {
       };
     const tokens = parseTokens(await response.json().catch(() => null));
     if (!tokens) return { ok: false, code: "AUTH_CONTRACT_INVALID" };
-    if (attempt !== generation)
-      return { ok: false, code: "AUTH_SERVER_UNAVAILABLE" };
+    if (started !== generation || latest().kind === "signed_in") {
+      // Another sign-in or a logout finished first; end the session this one opened.
+      void post(`${origin}/auth/logout`, { bearer: tokens.access }).catch(
+        () => {},
+      );
+      return latest().kind === "signed_in"
+        ? { ok: true, status: status() }
+        : { ok: false, code: "AUTH_LOGIN_CANCELLED" };
+    }
+    generation++;
     set(signedIn(origin, tokens));
     return { ok: true, status: status() };
   }
 
-  /** Ends the session here at once, then asks the server to revoke it. */
-  async function logout(): Promise<void> {
-    const previous = state;
+  /**
+   * Ends the session here and on the server. A lapsed access token cannot end
+   * it, so the token is renewed first. The local session ends either way; a
+   * server that could not be told is reported, because its session would
+   * otherwise outlive the logout unnoticed.
+   */
+  async function logout(): Promise<
+    { ok: true } | { ok: false; code: "AUTH_LOGOUT_INCOMPLETE" }
+  > {
+    if (state.kind !== "signed_in") {
+      set({ kind: "signed_out", reason: "LOGGED_OUT" });
+      return { ok: true };
+    }
+    const { origin } = state;
+    const current = await credentials();
+    // A refresh the server rejected means the session is already over there.
+    const serverEnded = !current && latest().kind === "signed_out";
     generation++;
     refreshing = null;
     set({ kind: "signed_out", reason: "LOGGED_OUT" });
-    if (previous.kind !== "signed_in") return;
+    if (serverEnded) return { ok: true };
+    if (!current) return { ok: false, code: "AUTH_LOGOUT_INCOMPLETE" };
     try {
-      await post(`${previous.origin}/auth/logout`, { bearer: previous.access });
+      const response = await post(`${origin}/auth/logout`, {
+        bearer: current.access,
+      });
+      if (response.ok) return { ok: true };
     } catch {
-      // Unreachable server: the access token lapses on its own and the refresh token is gone.
+      // Unreachable server: reported below.
     }
+    return { ok: false, code: "AUTH_LOGOUT_INCOMPLETE" };
   }
 
   /** One refresh at a time: the server revokes the whole session when a rotated refresh token is reused. */
