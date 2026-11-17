@@ -1908,6 +1908,7 @@ export function App() {
                 <IndexWarning
                   route={route}
                   caseId={caseId}
+                  evidenceId={evidenceId}
                   state={page?.index_state}
                   tasks={tasks}
                   onStarted={() => {

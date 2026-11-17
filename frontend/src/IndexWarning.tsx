@@ -10,12 +10,14 @@ import { useI18n } from "./i18n/I18nProvider";
 export function IndexWarning({
   route,
   caseId,
+  evidenceId,
   state,
   tasks,
   onStarted,
 }: {
   route: "SEARCH" | "TIMELINE";
   caseId: string;
+  evidenceId?: string;
   state: Row[] | undefined;
   tasks: Row[];
   onStarted: () => void;
@@ -31,6 +33,22 @@ export function IndexWarning({
     setError(null);
     setStarted({});
   }, [route, caseId]);
+  // Before any query or after a build finishes the page has no fresh state: ask the engine.
+  const [fetched, setFetched] = useState<Row[] | undefined>();
+  const settled = tasks.filter(
+    (task) => !["QUEUED", "RUNNING", "CANCELLING"].includes(task.status),
+  ).length;
+  useEffect(() => {
+    if (state !== undefined || !caseId) return;
+    let live = true;
+    gateway
+      .call("index.state", { case_id: caseId, evidence_id: evidenceId || null })
+      .then((rows) => live && setFetched(rows))
+      .catch(() => live && setFetched(undefined));
+    return () => {
+      live = false;
+    };
+  }, [state, caseId, evidenceId, route, settled]);
   const running = (evidenceId: string) => {
     const s = started[evidenceId];
     if (!s) return false;
@@ -46,7 +64,9 @@ export function IndexWarning({
     );
   };
   const key = route === "SEARCH" ? "search" : "timeline";
-  const pending = (state ?? []).filter((e) => e[key]?.state !== "CURRENT");
+  const pending = (state ?? fetched ?? []).filter(
+    (e) => e[key]?.state !== "CURRENT",
+  );
   if (!pending.length) return null;
   async function build(evidenceId: string, kind: string) {
     setStarted((all) => ({
