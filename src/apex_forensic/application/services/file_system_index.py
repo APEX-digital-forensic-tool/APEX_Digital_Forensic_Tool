@@ -486,8 +486,10 @@ class FileSystemIndexService:
                     if final_status is IndexCoverageStatus.COMPLETE
                     else JobStatus.PARTIAL
                 )
-                if final_job_status is JobStatus.SUCCEEDED:
-                    self._clear_selected_partial(state)
+                # The queue drained: skipped items are recorded in the coverage, so
+                # the opened folder is not indexed again. Cancel, failure, pause and
+                # budget exhaustion return earlier and keep it partial.
+                self._clear_selected_partial(state)
                 return self._finish(state, final_job_status, final_status)
             node = self._repository.get_fs_node(str(item["node_id"]))
             if node is None:
@@ -601,7 +603,7 @@ class FileSystemIndexService:
         state.coverage.processed_items += 1
         if parent.is_partial and parent.node_id not in state.options.selected_node_ids:
             # A depth-limited folder that has now been listed completely. A folder
-            # the analyst opened clears only when its whole job succeeds.
+            # the analyst opened clears only when its job drains the queue.
             parent.is_partial = False
             self._repository.upsert_fs_node(parent)
 

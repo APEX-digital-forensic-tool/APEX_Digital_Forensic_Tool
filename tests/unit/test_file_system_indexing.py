@@ -505,3 +505,41 @@ def test_discovered_folder_stays_partial_until_it_is_listed(services, tmp_path: 
 
     unlisted = [n for p, n in nodes.items() if p.endswith("/b") and n.is_directory_like]
     assert not unlisted or unlisted[0].is_partial is True
+
+
+def test_folder_job_that_drains_with_skipped_items_clears_partial(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "skipped"
+    (evidence_dir / "dir" / "locked").mkdir(parents=True)
+    (evidence_dir / "dir" / "ok.txt").write_text("x", encoding="utf-8")
+    (evidence_dir / "dir" / "locked" / "hidden.txt").write_text("y", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+    folder = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/dir"
+    )
+    assert folder.is_partial
+    (evidence_dir / "dir" / "locked").chmod(0)
+    try:
+        job, _ = services.fs.index_evidence(
+            case_id=case.case_id,
+            evidence_id=evidence.evidence_id,
+            profile_type=AnalysisProfileType.SELECTED_SCOPE,
+            selected_node_ids=[folder.node_id],
+            include_background=False,
+        )
+    finally:
+        (evidence_dir / "dir" / "locked").chmod(0o755)
+    nodes = {
+        node.display_path: node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+    }
+
+    assert job.status == "PARTIAL"
+    # The queue drained, so reopening the folder must not index it again.
+    assert nodes["/dir"].is_partial is False
