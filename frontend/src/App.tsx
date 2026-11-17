@@ -1,4 +1,5 @@
 import { ForensicTools } from "./ForensicTools";
+import { IndexWarning } from "./IndexWarning";
 import { MachineSettings } from "./MachineSettings";
 import { LanguageSettings } from "./LanguageSettings";
 import { AiConnectionForm } from "./setup/AiConnectionForm";
@@ -1903,6 +1904,17 @@ export function App() {
                 <ErrorState error={error} retry={() => loadPage()} />
               )}
               <ResultState data={page?.execution ?? page} />
+              {(route === "SEARCH" || route === "TIMELINE") && (
+                <IndexWarning
+                  route={route}
+                  caseId={caseId}
+                  state={page?.index_state}
+                  onStarted={() => {
+                    setJobsOpen(true);
+                    refresh();
+                  }}
+                />
+              )}
               {communication && (
                 <div className="notice">
                   <span>{m.views.notices.kakao}</span>

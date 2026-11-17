@@ -56,6 +56,7 @@ const operations = new Set([
   "artifacts.list",
   "search.query",
   "search.history",
+  "index.state",
   "timeline.list",
   "candidates.list",
   "candidates.review",
