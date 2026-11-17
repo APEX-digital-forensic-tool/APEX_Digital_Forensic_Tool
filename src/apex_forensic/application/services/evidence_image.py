@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import os
 import re
@@ -169,11 +170,12 @@ class EvidenceImageService:
                 details={"offset": offset, "length": length},
             )
         sha256 = hashlib.sha256(data).hexdigest()
-        self._write_output(output_path, data, overwrite=overwrite)
+        replaced = self._write_output(output_path, data, overwrite=overwrite)
         self._audit_export(
             evidence_id=evidence_id,
             output_path=output_path,
             sha256=sha256,
+            replaced=replaced,
             action="Raw range exported",
             notes=f"offset={offset}; requested_length={length}; exported_bytes={len(data)}",
         )
@@ -243,6 +245,7 @@ class EvidenceImageService:
         hasher = hashlib.sha256()
         reader_info: dict[str, str] | None = None
         temp_path: Path | None = None
+        replaced: Path | None = None
         try:
             temp_path = self._temporary_output_path(output_path)
             with self._reader_for_evidence(evidence) as reader, temp_path.open("wb") as output:
@@ -286,7 +289,7 @@ class EvidenceImageService:
                     target="node_id",
                 )
             check_cancel()
-            self._publish_output(temp_path, output_path, overwrite=overwrite)
+            replaced = self._publish_output(temp_path, output_path, overwrite=overwrite)
             temp_path = None
         except FileExistsError as error:
             raise StateConflictError(
@@ -301,6 +304,7 @@ class EvidenceImageService:
             evidence_id=node.evidence_id,
             output_path=output_path,
             sha256=sha256,
+            replaced=replaced,
             action="Deleted file recovered",
             notes=(
                 f"node_id={node.node_id}; recovered_bytes={recovered_bytes}; "
@@ -388,11 +392,12 @@ class EvidenceImageService:
                 target="node_id",
             )
         sha256 = hashlib.sha256(data).hexdigest()
-        self._write_output(output_path, data, overwrite=overwrite)
+        replaced = self._write_output(output_path, data, overwrite=overwrite)
         self._audit_export(
             evidence_id=node.evidence_id,
             output_path=output_path,
             sha256=sha256,
+            replaced=replaced,
             action="File slack exported",
             notes=(
                 f"node_id={node.node_id}; slack_offset={byte_offset}; "
@@ -497,14 +502,15 @@ class EvidenceImageService:
                         target="output_root",
                     )
 
-    def _write_output(self, output_path: Path, data: bytes, *, overwrite: bool) -> None:
+    def _write_output(self, output_path: Path, data: bytes, *, overwrite: bool) -> Path | None:
         temp_path: Path | None = None
         try:
             temp_path = EvidenceImageService._temporary_output_path(output_path)
             with temp_path.open("wb") as stream:
                 stream.write(data)
-            self._publish_output(temp_path, output_path, overwrite=overwrite)
+            replaced = self._publish_output(temp_path, output_path, overwrite=overwrite)
             temp_path = None
+            return replaced
         except FileExistsError as error:
             raise StateConflictError(
                 "Derived output already exists; overwrite is disabled.",
@@ -524,13 +530,27 @@ class EvidenceImageService:
         ) as stream:
             return Path(stream.name)
 
-    def _publish_output(self, temp_path: Path, output_path: Path, *, overwrite: bool) -> None:
+    def _publish_output(
+        self, temp_path: Path, output_path: Path, *, overwrite: bool
+    ) -> Path | None:
+        """Publish temp_path; return where a replaced output was kept until its audit."""
+
         self._assert_derived_path(output_path)
-        if overwrite:
+        if not overwrite:
+            os.link(temp_path, output_path)
+            temp_path.unlink()
+            return None
+        replaced = None
+        if os.path.lexists(output_path):
+            replaced = self._temporary_output_path(output_path)
+            os.replace(output_path, replaced)
+        try:
             temp_path.replace(output_path)
-            return
-        os.link(temp_path, output_path)
-        temp_path.unlink()
+        except BaseException:
+            if replaced is not None:
+                os.replace(replaced, output_path)
+            raise
+        return replaced
 
     def _audit_export(
         self,
@@ -540,18 +560,31 @@ class EvidenceImageService:
         sha256: str,
         action: str,
         notes: str,
+        replaced: Path | None = None,
     ) -> None:
         if self._custody_ledger is None:
+            if replaced is not None:
+                replaced.unlink(missing_ok=True)
             return
-        self._custody_ledger.add_event(
-            evidence_id=evidence_id,
-            event_type=CustodyEventType.EXPORTED,
-            actor_name="SYSTEM",
-            action=action,
-            destination_location=str(output_path),
-            current_hash={"algorithm": "SHA256", "digest_hex": sha256},
-            notes=notes,
-        )
+        try:
+            self._custody_ledger.add_event(
+                evidence_id=evidence_id,
+                event_type=CustodyEventType.EXPORTED,
+                actor_name="SYSTEM",
+                action=action,
+                destination_location=str(output_path),
+                current_hash={"algorithm": "SHA256", "digest_hex": sha256},
+                notes=notes,
+            )
+        except Exception:
+            with contextlib.suppress(OSError):
+                if replaced is None:
+                    output_path.unlink(missing_ok=True)
+                else:
+                    os.replace(replaced, output_path)
+            raise
+        if replaced is not None:
+            replaced.unlink(missing_ok=True)
 
 
 def _safe_filename(value: str) -> str:

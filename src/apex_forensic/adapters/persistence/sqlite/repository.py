@@ -6,6 +6,7 @@ import base64
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -3160,28 +3161,50 @@ class SQLiteRepository:
     def save_custody_event(self, event: CustodyEvent) -> None:
         """Append a custody event."""
 
-        data = event.to_schema_dict()
         with self.connection:
-            self.connection.execute(
-                """
-                INSERT INTO custody_events (
-                    event_id, case_id, evidence_id, event_type, immutable_revision,
-                    previous_event_hash, event_hash, occurred_at_utc, created_at, event_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    data["event_id"],
-                    data["case_id"],
-                    data["evidence_id"],
-                    data["event_type"],
-                    data["immutable_revision"],
-                    data["previous_event_hash"],
-                    data["event_hash"],
-                    data["occurred_at_utc"],
-                    data["created_at"],
-                    self._json(data),
-                ),
-            )
+            self._insert_custody_event(event)
+
+    def append_custody_event(
+        self, evidence_id: str, build: Callable[[CustodyEvent | None], CustodyEvent]
+    ) -> CustodyEvent:
+        """Read the ledger tail and insert the event built from it in one write transaction."""
+
+        self._begin_write()
+        try:
+            events = self.list_custody_events(evidence_id)
+            event = build(events[-1] if events else None)
+            self._insert_custody_event(event)
+        except BaseException:
+            self.connection.rollback()
+            raise
+        self.connection.commit()
+        return event
+
+    def _begin_write(self) -> None:
+        self.connection.execute("BEGIN IMMEDIATE")
+
+    def _insert_custody_event(self, event: CustodyEvent) -> None:
+        data = event.to_schema_dict()
+        self.connection.execute(
+            """
+            INSERT INTO custody_events (
+                event_id, case_id, evidence_id, event_type, immutable_revision,
+                previous_event_hash, event_hash, occurred_at_utc, created_at, event_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data["event_id"],
+                data["case_id"],
+                data["evidence_id"],
+                data["event_type"],
+                data["immutable_revision"],
+                data["previous_event_hash"],
+                data["event_hash"],
+                data["occurred_at_utc"],
+                data["created_at"],
+                self._json(data),
+            ),
+        )
 
     def list_custody_events(self, evidence_id: str) -> list[CustodyEvent]:
         """Return custody events ordered by immutable revision."""
