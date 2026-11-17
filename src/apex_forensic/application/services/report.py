@@ -1712,7 +1712,10 @@ class ReportService:
         )
         return {
             "decision": None if latest is None else latest.decision,
-            "approval_revision": report_approvals[-1].approval_revision if report_approvals else 0,
+            "approval_revision": 0 if latest is None else latest.approval_revision,
+            "report_approval_revision": (
+                report_approvals[-1].approval_revision if report_approvals else 0
+            ),
             "approval_id": None if latest is None else latest.approval_id,
             "approval_hash": None if latest is None else latest.approval_hash,
         }

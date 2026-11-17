@@ -916,7 +916,9 @@ export function Reports({
                 section_id: sectionId,
                 expected_review_revision: version.review_state.review_revision,
                 expected_approval_revision:
-                  version.approval_state?.approval_revision ?? null,
+                  version.approval_state?.report_approval_revision ??
+                  version.approval_state?.approval_revision ??
+                  null,
               });
               await load();
             } catch (err) {

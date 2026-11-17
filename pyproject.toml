@@ -98,7 +98,7 @@ apex-local-api = "apex_desktop.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-apex_forensic = ["py.typed", "domain/raw_image_extensions.json"]
+apex_forensic = ["py.typed"]
 apex_mcp = ["py.typed"]
 apex_backend = ["py.typed"]
 

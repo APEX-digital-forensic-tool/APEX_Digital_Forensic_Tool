@@ -195,7 +195,7 @@ def test_new_version_reports_the_revision_that_approval_compares_against(
     try:
         base = _base_fixture(services, tmp_path)
         first = _create_version(services, base)
-        assert first.approval_state["approval_revision"] == 0
+        assert first.approval_state["report_approval_revision"] == 0
         rejected = services.reports.reject(
             report_version_id=first.report_version_id,
             approver_id="approver-1",
@@ -205,7 +205,8 @@ def test_new_version_reports_the_revision_that_approval_compares_against(
         second = _create_version(services, base, content="rewritten after rejection")
         state = services.reports.get_version(second.report_version_id).approval_state
         assert state["decision"] is None
-        assert state["approval_revision"] == rejected.approval_revision == 1
+        assert state["approval_revision"] == 0
+        assert state["report_approval_revision"] == rejected.approval_revision == 1
 
         services.reports.submit_review(
             report_version_id=second.report_version_id, actor_id="reviewer-1", reason="Submit."
@@ -228,7 +229,7 @@ def test_new_version_reports_the_revision_that_approval_compares_against(
             approver_id="approver-1",
             reason="Approved.",
             expected_review_revision=3,
-            expected_approval_revision=state["approval_revision"],
+            expected_approval_revision=state["report_approval_revision"],
         )
         assert approval.approval_revision == 2
         assert approval.previous_approval_hash == rejected.approval_hash

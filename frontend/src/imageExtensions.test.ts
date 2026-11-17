@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSIONS } from "./imageExtensions";
 import { missingReaders } from "./EvidenceIntake";
 
-it("offers the engine's raw image extensions, split segments included", () => {
+it("offers the engine's raw image extensions, .001 included", () => {
   expect(RAW_IMAGE_EXTENSIONS).toEqual(
     expect.arrayContaining(["dd", "img", "raw", "001"]),
   );
