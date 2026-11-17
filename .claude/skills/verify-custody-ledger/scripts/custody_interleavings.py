@@ -2,13 +2,16 @@
 
 Each appender runs in its own thread with its own ServiceBundle (one SQLite
 connection each, like concurrent desktop requests and the task worker). The
-scheduler gates the two real steps of CustodyLedger.add_event: reading the
-ledger tail (SQLiteRepository.list_custody_events) and inserting the new event
-(SQLiteRepository.save_custody_event). It runs every ordering of those steps,
-then checks the properties below against the stored ledger.
+scheduler gates the two real steps of SQLiteRepository.append_custody_event:
+opening the write transaction (_begin_write, BEGIN IMMEDIATE, followed by the
+tail read) and inserting the new event (_insert_custody_event). It runs every
+ordering of those steps. A granted step that is still running after
+BLOCK_WAIT is waiting for SQLite's write lock; the scheduler then runs the next
+step whose appender is ready, so the executed order is the nearest one the lock
+allows. It then checks the properties below against the stored ledger.
 
 Usage:
-  custody_interleavings.py [--appenders N] [--mutant no-unique|swallow-insert-error]
+  custody_interleavings.py [--appenders N] [--mutant no-lock|no-unique|swallow-insert-error]
 
 Exit code 0 when every property holds in every interleaving, 1 otherwise.
 """
@@ -40,30 +43,44 @@ PROPERTIES = {
         "an append that raises stores nothing."
     ),
     "audited-export": "An exported file never exists without its EXPORTED custody event.",
+    "appends-succeed": "Every concurrent append returns; none fails because another got there first.",
 }
 STEP_TIMEOUT = 15
+BLOCK_WAIT = 0.2
+# Every mutant also drops the write lock. While the lock spans the tail read and insert,
+# appends never collide, so UNIQUE and the insert error path are never reached.
+UNLOCKED = {"no-lock", "no-unique", "swallow-insert-error"}
 
 
 class Scheduler:
-    def __init__(self, size: int) -> None:
+    def __init__(self, labels: list[str]) -> None:
+        size = len(labels)
+        self.labels = labels
         self.cv = threading.Condition()
         self.waiting: dict[int, str] = {}
-        self.granted: tuple[int, str] | None = None
-        self.completed: tuple[int, str] | None = None
+        self.released: set[int] = set()
+        self.running: set[int] = set()
         self.finished = [False] * size
+        self.log: list[str] = []
+
+    def note(self, line: str) -> None:
+        with self.cv:
+            self.log.append(line)
 
     def run_step(self, index: int, step: str, operation):
         with self.cv:
             self.waiting[index] = step
             self.cv.notify_all()
-            if not self.cv.wait_for(lambda: self.granted == (index, step), STEP_TIMEOUT):
+            if not self.cv.wait_for(lambda: index in self.released, STEP_TIMEOUT):
                 raise TimeoutError(f"appender {index} never got {step}")
+            self.released.discard(index)
             del self.waiting[index]
+            self.running.add(index)
         try:
             return operation()
         finally:
             with self.cv:
-                self.completed = (index, step)
+                self.running.discard(index)
                 self.cv.notify_all()
 
     def finish(self, index: int) -> None:
@@ -71,23 +88,42 @@ class Scheduler:
             self.finished[index] = True
             self.cv.notify_all()
 
-    def grant(self, index: int, step: str) -> bool:
+    def _settled(self) -> bool:
+        return all(
+            done or index in self.waiting or index in self.running
+            for index, done in enumerate(self.finished)
+        )
+
+    def drive(self, order) -> None:
+        remaining = list(order)
         with self.cv:
-            self.cv.wait_for(
-                lambda: self.waiting.get(index) == step or self.finished[index], STEP_TIMEOUT
-            )
-            if self.waiting.get(index) != step:
-                return False
-            self.completed = None
-            self.granted = (index, step)
-            self.cv.notify_all()
-            done = self.cv.wait_for(
-                lambda: self.completed == (index, step) or self.finished[index], STEP_TIMEOUT
-            )
-            self.granted = None
-            if not done:
-                raise TimeoutError(f"appender {index} hung in {step}")
-            return True
+            while True:
+                if not self.cv.wait_for(self._settled, STEP_TIMEOUT):
+                    raise TimeoutError("an appender never reached a gate")
+                remaining = [(i, s) for i, s in remaining if not self.finished[i]]
+                if not remaining:
+                    break
+                ready = [
+                    (i, s)
+                    for i, s in remaining
+                    if self.waiting.get(i) == s and i not in self.released
+                ]
+                if not ready:
+                    if not self.running:
+                        raise TimeoutError(f"no appender can take {remaining}")
+                    self.cv.wait(STEP_TIMEOUT)
+                    continue
+                index, step = ready[0]
+                remaining.remove((index, step))
+                self.released.add(index)
+                self.cv.notify_all()
+                if not self.cv.wait_for(
+                    lambda: index not in self.released and index not in self.running,
+                    BLOCK_WAIT,
+                ):
+                    self.log.append(f"{self.labels[index]} {step} waits for the write lock")
+            if not self.cv.wait_for(lambda: all(self.finished), STEP_TIMEOUT):
+                raise TimeoutError("an appender never finished")
 
 
 @dataclass
@@ -137,24 +173,33 @@ def make_template(base: Path, mutant: str | None) -> tuple[Path, str]:
 def run_appender(index, outcome, database, evidence_id, exports, scheduler, mutant):
     bundle = build_services(database, initialize=False)
     repository = bundle.repository
+    real_begin = repository._begin_write
     real_list = repository.list_custody_events
-    real_save = repository.save_custody_event
+    real_insert = repository._insert_custody_event
 
-    def gated_list(evidence: str):
-        events = scheduler.run_step(index, "read", lambda: real_list(evidence))
+    def gated_begin():
+        if mutant in UNLOCKED:
+            scheduler.run_step(index, "begin", lambda: None)
+            scheduler.note(f"{outcome.label} starts its append without a write lock")
+        else:
+            scheduler.run_step(index, "begin", real_begin)
+            scheduler.note(f"{outcome.label} holds the write lock (BEGIN IMMEDIATE)")
+
+    def traced_list(evidence: str):
+        events = real_list(evidence)
         tail = events[-1].immutable_revision if events else 0
-        outcome.trace.append(f"{outcome.label} reads the ledger tail: revision {tail}")
+        scheduler.note(f"{outcome.label} reads the ledger tail: revision {tail}")
         return events
 
-    def gated_save(event):
+    def gated_insert(event):
         revision = event.to_schema_dict()["immutable_revision"]
 
         def insert():
             try:
-                real_save(event)
-                outcome.trace.append(f"{outcome.label} inserts revision {revision}")
+                real_insert(event)
+                scheduler.note(f"{outcome.label} inserts revision {revision}")
             except sqlite3.IntegrityError:
-                outcome.trace.append(
+                scheduler.note(
                     f"{outcome.label} insert of revision {revision} fails: sqlite3.IntegrityError"
                 )
                 if mutant != "swallow-insert-error":
@@ -162,8 +207,9 @@ def run_appender(index, outcome, database, evidence_id, exports, scheduler, muta
 
         scheduler.run_step(index, "write", insert)
 
-    repository.list_custody_events = gated_list
-    repository.save_custody_event = gated_save
+    repository._begin_write = gated_begin
+    repository.list_custody_events = traced_list
+    repository._insert_custody_event = gated_insert
     try:
         if outcome.kind == "export":
             result = bundle.images.export_range(
@@ -220,6 +266,8 @@ def check(database, evidence_id, outcomes, exports) -> dict[str, str | None]:
             failures["no-silent-loss"] = (
                 f"{outcome.label} raised {outcome.error} but its event is stored"
             )
+        if not outcome.returned:
+            failures["appends-succeed"] = f"{outcome.label} raised {outcome.error}"
         if outcome.kind == "export":
             path = exports / f"export-{outcomes.index(outcome)}.bin"
             if path.exists() and not stored:
@@ -231,16 +279,16 @@ def check(database, evidence_id, outcomes, exports) -> dict[str, str | None]:
 
 
 def schedules(size: int):
-    steps = [(i, s) for i in range(size) for s in ("read", "write")]
+    steps = [(i, s) for i in range(size) for s in ("begin", "write")]
     for order in itertools.permutations(steps):
-        if all(order.index((i, "read")) < order.index((i, "write")) for i in range(size)):
+        if all(order.index((i, "begin")) < order.index((i, "write")) for i in range(size)):
             yield order
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--appenders", type=int, default=3, choices=(2, 3))
-    parser.add_argument("--mutant", choices=("no-unique", "swallow-insert-error"))
+    parser.add_argument("--mutant", choices=("no-lock", "no-unique", "swallow-insert-error"))
     args = parser.parse_args()
 
     base = Path(tempfile.mkdtemp(prefix="custody-interleavings-")).resolve()
@@ -264,8 +312,7 @@ def main() -> int:
                     Outcome(kind, f"{'custody.add' if kind == 'analyst' else 'export_range'} #{i}")
                     for i, kind in enumerate(kinds)
                 ]
-                scheduler = Scheduler(args.appenders)
-                trace: list[str] = []
+                scheduler = Scheduler([outcome.label for outcome in outcomes])
                 threads = [
                     threading.Thread(
                         target=run_appender,
@@ -283,11 +330,10 @@ def main() -> int:
                 ]
                 for thread in threads:
                     thread.start()
-                for index, step in order:
-                    if scheduler.grant(index, step):
-                        trace.append(outcomes[index].trace[-1])
+                scheduler.drive(order)
                 for thread in threads:
                     thread.join(STEP_TIMEOUT)
+                trace = list(scheduler.log)
                 for outcome in outcomes:
                     if outcome.error:
                         trace.append(f"{outcome.label} raises {outcome.error}")
