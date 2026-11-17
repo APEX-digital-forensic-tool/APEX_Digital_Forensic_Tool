@@ -149,6 +149,8 @@ const communicationTypes = [
   "COMMUNICATION_ATTACHMENT",
   "COMMUNICATION_UNSUPPORTED_STORE",
 ];
+/** Job ends that leave the work undone, so a retry must be allowed. */
+const ENDED_UNDONE = ["CANCELLED", "FAILED", "INTERRUPTED"];
 const activeTask = (t: Row) =>
   ["QUEUED", "RUNNING", "CANCELLING"].includes(t.status);
 // HASH_VERIFIED and CORRECTION are recorded by the engine, not typed by analysts.
@@ -371,10 +373,7 @@ export function App() {
           firstPoll = false;
           for (const [key, taskId] of indexedFolders.current) {
             const job = ts.find((t) => t.task_id === taskId);
-            if (
-              job &&
-              ["CANCELLED", "FAILED", "INTERRUPTED"].includes(job.status)
-            )
+            if (job && ENDED_UNDONE.includes(job.status))
               indexedFolders.current.delete(key);
           }
           for (const t of ts) {

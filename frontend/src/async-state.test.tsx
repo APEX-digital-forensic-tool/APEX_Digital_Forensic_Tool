@@ -585,59 +585,70 @@ it("indexes a quick-triage folder when it is opened instead of showing it empty"
   expect(starts.filter((s) => s.node_id).length).toBe(count);
 });
 
-it("indexes a quick-triage folder again after its job is cancelled (#49)", async () => {
-  const bridge = createDemoBridge();
-  const original = bridge.invoke.bind(bridge);
-  const starts: Row[] = [];
-  let ended = false;
-  bridge.invoke = async (op, payload) => {
-    if (op === "analysis.start") {
-      starts.push(payload);
-      return {
-        ok: true,
-        data: { task_id: `folder-${starts.length}`, status: "QUEUED" },
-      };
-    }
-    if (op === "tasks.list")
-      return {
-        ok: true,
-        data: starts.map((_, i) => ({
-          task_id: `folder-${i + 1}`,
-          case_id: payload.case_id,
-          kind: "FILES",
-          status: i + 1 < starts.length || ended ? "CANCELLED" : "RUNNING",
-          actions: [],
-        })),
-      };
-    const reply = await original(op, payload);
-    if (
-      op === "files.list" &&
-      reply.ok &&
-      !payload.parent_node_id?.startsWith("x")
-    )
-      for (const node of reply.data.items)
-        if (node.node_type === "DIRECTORY") node.is_partial = true;
-    return reply;
-  };
-  window.apex = bridge;
-  await openFiles();
-  const row = async () =>
-    (
-      await within(await screen.findByRole("table")).findAllByText(
-        (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+it.each(["CANCELLED", "FAILED", "INTERRUPTED"])(
+  "indexes a quick-triage folder again after its job is %s (#49)",
+  async (endStatus) => {
+    const bridge = createDemoBridge();
+    const original = bridge.invoke.bind(bridge);
+    const starts: Row[] = [];
+    let polls = 0;
+    let ended = false;
+    bridge.invoke = async (op, payload) => {
+      if (op === "analysis.start") {
+        starts.push(payload);
+        return {
+          ok: true,
+          data: { task_id: `folder-${starts.length}`, status: "QUEUED" },
+        };
+      }
+      if (op === "tasks.list") {
+        if (ended) polls++;
+        return {
+          ok: true,
+          data: starts.map((_, i) => ({
+            task_id: `folder-${i + 1}`,
+            case_id: payload.case_id,
+            kind: "FILES",
+            status: i + 1 < starts.length || ended ? endStatus : "RUNNING",
+            actions: [],
+          })),
+        };
+      }
+      const reply = await original(op, payload);
+      if (
+        op === "files.list" &&
+        reply.ok &&
+        !payload.parent_node_id?.startsWith("x")
       )
-    )
-      .find((el) => el.closest("tr")?.textContent?.includes("폴더"))!
-      .closest("tr")!;
-  fireEvent.doubleClick(await row());
-  await waitFor(() => expect(starts.length).toBe(1));
-  ended = true;
-  // Let the poll observe the cancelled job, then go up and open the folder again.
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  fireEvent.click(screen.getByRole("button", { name: "상위 폴더로 이동" }));
-  fireEvent.doubleClick(await row());
-  await waitFor(() => expect(starts.length).toBe(2), { timeout: 3000 });
-});
+        for (const node of reply.data.items)
+          if (node.node_type === "DIRECTORY") node.is_partial = true;
+      return reply;
+    };
+    window.apex = bridge;
+    await openFiles();
+    const row = async () =>
+      (
+        await within(await screen.findByRole("table")).findAllByText(
+          (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+        )
+      )
+        .find((el) => el.closest("tr")?.textContent?.includes("폴더"))!
+        .closest("tr")!;
+    fireEvent.doubleClick(await row());
+    await waitFor(() => expect(starts.length).toBe(1));
+    // While the job runs, opening the folder again must not start a second one.
+    fireEvent.click(screen.getByRole("button", { name: "상위 폴더로 이동" }));
+    fireEvent.doubleClick(await row());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(starts.length).toBe(1);
+    ended = true;
+    // Wait until a poll has seen the ended job, then open the folder again.
+    await waitFor(() => expect(polls).toBeGreaterThan(0), { timeout: 4000 });
+    fireEvent.click(screen.getByRole("button", { name: "상위 폴더로 이동" }));
+    fireEvent.doubleClick(await row());
+    await waitFor(() => expect(starts.length).toBe(2), { timeout: 3000 });
+  },
+);
 
 it("lists a report right after it is created", async () => {
   const created = { ...reportFixture.report, title: "새로 만든 보고서" };
