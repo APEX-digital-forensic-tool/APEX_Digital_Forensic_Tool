@@ -8,6 +8,8 @@ import {
   FolderOpen,
   Plus,
   Check,
+  AlertCircle,
+  Clock3,
 } from "./icons";
 import { gateway, unwrap, errorText, type Row } from "./gateway";
 import type { AccountStatus } from "../electron/serverSession";
@@ -239,51 +241,65 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
       )}
       {state.state !== "signed_out" ? (
         <>
-          <p className="account-status">
-            <span
-              className={`badge ${state.state === "signed_in" ? "green" : "amber"}`}
+          <div className="account-session" role="status">
+            <div className="account-session-head">
+              <span
+                className={`badge ${state.state === "signed_in" ? "green" : "amber"}`}
+              >
+                {state.state === "signed_in" ? t.signedIn : t.reconnecting}
+              </span>
+              <span className="account-origin">{state.origin}</span>
+            </div>
+            <p
+              className={`account-session-meta${state.state === "reconnecting" ? " warn" : ""}`}
             >
-              {state.state === "signed_in" ? t.signedIn : t.reconnecting}
-            </span>{" "}
-            {state.origin}
-          </p>
-          <p className="muted small" role="status">
-            {state.state === "reconnecting"
-              ? t.reconnectingBody
-              : state.expires_at != null &&
-                t.renewsAt(
-                  new Date(state.expires_at).toLocaleTimeString(locale, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                )}
-          </p>
-          <button
-            disabled={busy}
-            onClick={async () => {
-              if (!window.apex) return;
-              setBusy(true);
-              setError(null);
-              try {
-                unwrap(await window.apex.logout());
-                setState({ ...SIGNED_OUT, reason: "LOGGED_OUT" });
-              } catch (err) {
-                setError(err);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <LogOut size={14} /> {t.logout}
-          </button>
-          <p className="muted small">{t.logoutHint}</p>
+              {state.state === "reconnecting" ? (
+                <AlertCircle size={14} />
+              ) : (
+                <Clock3 size={14} />
+              )}
+              <span>
+                {state.state === "reconnecting"
+                  ? t.reconnectingBody
+                  : state.expires_at != null &&
+                    t.renewsAt(
+                      new Date(state.expires_at).toLocaleTimeString(locale, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }),
+                    )}
+              </span>
+            </p>
+          </div>
+          <div className="account-actions">
+            <button
+              disabled={busy}
+              onClick={async () => {
+                if (!window.apex) return;
+                setBusy(true);
+                setError(null);
+                try {
+                  unwrap(await window.apex.logout());
+                  setState({ ...SIGNED_OUT, reason: "LOGGED_OUT" });
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <LogOut size={14} /> {t.logout}
+            </button>
+            <p className="muted small">{t.logoutHint}</p>
+          </div>
         </>
       ) : (
         <>
           {state.reason === "SESSION_EXPIRED" && (
-            <p className="ai-status-note" role="status">
-              {t.sessionExpired}
-            </p>
+            <div className="account-notice" role="status">
+              <AlertCircle size={15} />
+              <span>{t.sessionExpired}</span>
+            </div>
           )}
           <form
             onSubmit={async (e) => {
