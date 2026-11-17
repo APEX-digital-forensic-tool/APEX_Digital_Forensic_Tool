@@ -44,7 +44,7 @@ export const errors = {
   MEDIA_SOURCE_UNAVAILABLE:
     "미디어 원본을 읽을 수 없습니다. 연결된 증거와 파일의 읽기 가능 상태를 확인해주세요. 링크와 삭제 파일은 직접 분석할 수 없습니다.",
   MEDIA_DECODE_FAILED:
-    "이미지를 디코딩하지 못했습니다. 파일 손상 또는 지원하지 않는 이미지 형식인지 확인해주세요.",
+    "파일 내용을 디코딩하지 못했습니다. 파일이 손상되었거나 지원하지 않는 형식인지 확인해주세요.",
   MEDIA_FORMAT_UNSUPPORTED:
     "PNG·JPEG·GIF·TIFF·BMP·WebP 이미지 파일을 선택해주세요.",
   CARVING_REQUIRES_IMAGE:

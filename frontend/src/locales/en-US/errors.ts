@@ -46,7 +46,7 @@ export const errors: Messages["errors"] = {
   MEDIA_SOURCE_UNAVAILABLE:
     "The media source cannot be read. Check the linked evidence and that the file is readable. Links and deleted files cannot be analyzed directly.",
   MEDIA_DECODE_FAILED:
-    "The image could not be decoded. Check whether the file is damaged or in an unsupported image format.",
+    "The file content could not be decoded. Check whether the file is damaged or in an unsupported format.",
   MEDIA_FORMAT_UNSUPPORTED:
     "Select a PNG, JPEG, GIF, TIFF, BMP or WebP image file.",
   CARVING_REQUIRES_IMAGE:
