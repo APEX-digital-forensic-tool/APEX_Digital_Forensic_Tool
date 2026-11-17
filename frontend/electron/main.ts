@@ -34,7 +34,8 @@ import {
   type TextFile,
 } from "./aiConnection";
 import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
-import { hasActiveTasks, stopChild } from "./engineGuard";
+import { hasActiveTasks, mayQuit, stopChild } from "./engineGuard";
+import { resolveInitialLocale } from "../src/i18n/locales";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -218,7 +219,12 @@ async function startBackend() {
   const args = app.isPackaged ? [] : ["-m", "apex_desktop"];
   const child = spawn(
     command,
-    [...args, "--data-dir", join(app.getPath("userData"), "local")],
+    [
+      ...args,
+      "--data-dir",
+      join(app.getPath("userData"), "local"),
+      "--exit-with-parent",
+    ],
     {
       cwd: app.isPackaged ? process.resourcesPath : repo,
       windowsHide: true,
@@ -229,7 +235,8 @@ async function startBackend() {
         PYTHONPATH: app.isPackaged ? "" : join(repo, "src"),
         APEX_DESKTOP_TOKEN: token,
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      // The engine exits when this pipe closes, including when Electron dies.
+      stdio: ["pipe", "pipe", "pipe"],
     },
   );
   backend = child;
@@ -245,6 +252,7 @@ async function startBackend() {
   });
   // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
   child.stderr?.on("data", () => {});
+  child.stdin?.on("error", () => {});
   const lines = createInterface({ input: child.stdout! });
   lines.on("line", async (line) => {
     try {
@@ -339,6 +347,12 @@ async function createMainWindow() {
     webPreferences,
   });
   window = created;
+  // Closing the main window quits the app; route it through the quit check first.
+  created.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    app.quit();
+  });
   created.on("closed", () => {
     if (window === created) window = undefined;
   });
@@ -612,10 +626,48 @@ else {
     }
   });
 }
-app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => {
+async function confirmQuit() {
+  const parent = window ?? setupWindow;
+  const lang = await parent?.webContents
+    .executeJavaScript("document.documentElement.lang")
+    .catch(() => "");
+  const text = messagesFor(
+    resolveInitialLocale(null, [
+      String(lang ?? ""),
+      ...app.getPreferredSystemLanguages(),
+    ]),
+  ).native;
+  const options = {
+    type: "warning" as const,
+    buttons: [text.quitAnyway, text.keepWorking],
+    defaultId: 1,
+    cancelId: 1,
+    message: text.quitBusyMessage,
+    detail: text.quitBusyDetail,
+  };
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options);
+  return response === 0;
+}
+// Set once the engine has stopped; the next before-quit lets the app exit.
+let engineStopped = false;
+let quitRequest: Promise<void> | undefined;
+async function quitAfterEngine() {
+  const busy = async () => !!backendURL && (await hasActiveTasks(local));
+  if (!(await mayQuit(busy, confirmQuit))) return;
   quitting = true;
   account = undefined;
-  backend?.kill();
+  for (const open of BrowserWindow.getAllWindows()) open.hide();
+  backendURL = "";
+  // A running evidence registration cannot be cancelled; give it time to finish.
+  if (backend) await stopChild(backend, { graceMs: 60000, killMs: 5000 });
+  engineStopped = true;
+  app.quit();
+}
+app.on("window-all-closed", () => app.quit());
+app.on("before-quit", (event) => {
+  if (engineStopped) return;
+  event.preventDefault();
+  quitRequest ??= quitAfterEngine().finally(() => (quitRequest = undefined));
 });
-

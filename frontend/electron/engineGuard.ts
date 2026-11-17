@@ -34,6 +34,8 @@ export interface StoppableChild {
   pid?: number;
   exitCode: number | null;
   signalCode: NodeJS.Signals | null;
+  /** Present when the engine was started with --exit-with-parent; closing it stops the engine cleanly. */
+  stdin?: { end(): void } | null;
   kill(signal?: NodeJS.Signals): boolean;
   once(event: "exit", listener: () => void): unknown;
 }
@@ -47,12 +49,8 @@ function exited(child: StoppableChild) {
   );
 }
 
-/** Resolves true once the child exits within `ms`, false otherwise. */
-function waitForExit(
-  child: StoppableChild,
-  ms: number,
-  signal?: NodeJS.Signals,
-) {
+/** Runs `stop`, then resolves true once the child exits within `ms`, false otherwise. */
+function waitForExit(child: StoppableChild, ms: number, stop: () => void) {
   return new Promise<boolean>((done) => {
     let settled = false;
     const finish = (value: boolean) => {
@@ -63,7 +61,7 @@ function waitForExit(
     };
     const timer = setTimeout(() => finish(exited(child)), ms);
     child.once("exit", () => finish(true));
-    child.kill(signal);
+    stop();
   });
 }
 
@@ -73,7 +71,22 @@ export async function stopChild(
   { graceMs, killMs }: { graceMs: number; killMs: number },
 ): Promise<boolean> {
   if (exited(child)) return true;
-  if (await waitForExit(child, graceMs)) return true;
+  // On Windows kill() terminates at once, so a clean stop has to go through stdin.
+  const ask = child.stdin ? () => child.stdin!.end() : () => child.kill();
+  if (await waitForExit(child, graceMs, ask)) return true;
   if (exited(child)) return true;
-  return waitForExit(child, killMs, "SIGKILL");
+  return waitForExit(child, killMs, () => child.kill("SIGKILL"));
+}
+
+/** True when quitting may go ahead: nothing is running, the engine cannot say, or the analyst agrees. */
+export async function mayQuit(
+  busy: () => Promise<boolean>,
+  confirm: () => Promise<boolean>,
+): Promise<boolean> {
+  // A hung engine must not hold the app open.
+  const unknown = new Promise<boolean>((done) =>
+    setTimeout(() => done(false), 5000),
+  );
+  const active = await Promise.race([busy(), unknown]).catch(() => false);
+  return !active || confirm();
 }

@@ -212,8 +212,33 @@ describe("mayQuit", () => {
   });
 
   it("asks when a task is running and follows the answer", async () => {
-    await expect(mayQuit(async () => true, async () => false)).resolves.toBe(false);
-    await expect(mayQuit(async () => true, async () => true)).resolves.toBe(true);
+    await expect(
+      mayQuit(
+        async () => true,
+        async () => false,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      mayQuit(
+        async () => true,
+        async () => true,
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("quits without asking when the engine does not answer in 5 seconds", async () => {
+    vi.useFakeTimers();
+    const confirm = vi.fn(async () => false);
+    let result: boolean | undefined;
+    void mayQuit(() => new Promise<boolean>(() => {}), confirm).then(
+      (value) => (result = value),
+    );
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it("quits when the engine cannot say", async () => {
