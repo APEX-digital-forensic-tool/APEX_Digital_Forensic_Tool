@@ -44,6 +44,7 @@ from apex_forensic.domain.models import (
     Job,
     JobProgress,
 )
+from apex_forensic.domain.raw_image_extensions import RAW_IMAGE_FORMATS
 from apex_forensic.jobs.cancellation import CancellationToken
 from apex_forensic.jobs.progress import HashProgress
 from apex_forensic.ports.case_repository import CaseRepository
@@ -525,10 +526,8 @@ class EvidenceManager:
         suffix = path.suffix.lower()
         if suffix == ".e01":
             return EvidenceFormat.E01
-        if suffix == ".dd":
-            return EvidenceFormat.DD
-        if suffix == ".img":
-            return EvidenceFormat.IMG
+        if suffix in RAW_IMAGE_FORMATS:
+            return RAW_IMAGE_FORMATS[suffix]
         if suffix == ".vhdx":
             return EvidenceFormat.VHDX
         if suffix == ".vhd":

@@ -449,7 +449,7 @@ else {
             ? [
                 {
                   name: text.evidenceImages,
-                  extensions: ["e01", "dd", "raw", "img", "vhd", "vhdx"],
+                  extensions: ["e01", "vhd", "vhdx", "dd", "img", "raw", "001"],
                 },
                 { name: text.allFiles, extensions: ["*"] },
               ]
