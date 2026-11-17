@@ -52,15 +52,16 @@ export function IndexWarning({
             e[key].source_status,
           );
         const failed = e[key].status === "FAILED";
+        // A failed build is reported as failed even when it had nothing to build from.
         const message =
           route === "SEARCH"
-            ? (none ? t.searchNone : failed ? t.searchFailed : t.searchPartial)(
+            ? (failed ? t.searchFailed : none ? t.searchNone : t.searchPartial)(
                 e.display_name,
               )
-            : (none
-                ? t.timelineNone
-                : failed
-                  ? t.timelineFailed
+            : (failed
+                ? t.timelineFailed
+                : none
+                  ? t.timelineNone
                   : t.timelinePartial)(e.display_name);
         const kind = needsFiles ? "FILES" : route;
         return (

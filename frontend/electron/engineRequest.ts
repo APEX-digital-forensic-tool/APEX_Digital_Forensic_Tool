@@ -52,7 +52,10 @@ export function postEngine(
             reject(error);
           }
         });
-        res.on("error", reject);
+        res.on("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
       },
     );
     const timer = setTimeout(
