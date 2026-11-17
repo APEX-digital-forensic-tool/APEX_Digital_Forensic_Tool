@@ -239,7 +239,12 @@ it("keeps a pushed sign-out when the first account load answers later", async ()
   });
   await screen.findByRole("radio", { name: /^APEX server/ });
   act(() =>
-    push({ ...signedIn, state: "signed_out", origin: null, reason: "LOGGED_OUT" }),
+    push({
+      ...signedIn,
+      state: "signed_out",
+      origin: null,
+      reason: "LOGGED_OUT",
+    }),
   );
   await act(async () => answer(ok(signedIn)));
   expect(screen.queryByText("https://apex.example")).toBeNull();

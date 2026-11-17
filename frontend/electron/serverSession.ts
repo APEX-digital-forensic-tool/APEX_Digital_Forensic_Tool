@@ -104,8 +104,10 @@ export function createServerSession(deps: SessionDeps) {
   // Bumped on login and logout so a refresh that started earlier cannot revive or overwrite the session.
   let generation = 0;
   // The refresh in flight and the sign-in it belongs to.
-  let refreshing: { generation: number; promise: Promise<string | null> } | null =
-    null;
+  let refreshing: {
+    generation: number;
+    promise: Promise<string | null>;
+  } | null = null;
   let timer: unknown = null;
   // The state as of now; after an await it may differ from what a caller narrowed.
   const latest = (): State => state;
