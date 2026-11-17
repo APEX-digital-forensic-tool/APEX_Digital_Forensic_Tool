@@ -99,8 +99,7 @@ class EvidenceFileContent:
                     before = os.fstat(handle.fileno())
                     identity_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
                     if any(
-                        getattr(before, key) != getattr(path_before, key)
-                        for key in identity_fields
+                        getattr(before, key) != getattr(path_before, key) for key in identity_fields
                     ):
                         raise RawReadError("RAW_SOURCE_CHANGED", "File changed while opening.")
                     if not stat.S_ISREG(before.st_mode) or before.st_size != node.file_size:
@@ -194,6 +193,11 @@ class EvidenceFileContent:
                 offset += len(chunk)
                 yield chunk
         check_cancel(cancellation_token)
+
+    @classmethod
+    def read_range(cls, handle: Any, offset: int, length: int) -> bytes:
+        """Public read of a byte range from a handle returned by `open`."""
+        return cls._read(handle, offset, length)
 
     @classmethod
     def sha256(cls, evidence: Evidence, node: FileSystemNode) -> str:

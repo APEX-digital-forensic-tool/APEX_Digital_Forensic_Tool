@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { gateway, type Row } from "./gateway";
 import { ErrorState } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
@@ -11,22 +11,48 @@ export function IndexWarning({
   route,
   caseId,
   state,
+  tasks,
   onStarted,
 }: {
   route: "SEARCH" | "TIMELINE";
   caseId: string;
   state: Row[] | undefined;
+  tasks: Row[];
   onStarted: () => void;
 }) {
   const { m } = useI18n();
   const t = m.views.indexState;
   const [error, setError] = useState<unknown>(null);
-  const [busyId, setBusyId] = useState("");
+  /** Builds this panel started: the job kind and the tasks that existed before it. */
+  const [started, setStarted] = useState<
+    Record<string, { kind: string; known: string[] }>
+  >({});
+  useEffect(() => {
+    setError(null);
+    setStarted({});
+  }, [route, caseId]);
+  const running = (evidenceId: string) => {
+    const s = started[evidenceId];
+    if (!s) return false;
+    const fresh = tasks.filter(
+      (task) => task.kind === s.kind && !s.known.includes(task.task_id),
+    );
+    // No new task listed yet means the request is still on its way.
+    return (
+      fresh.length === 0 ||
+      fresh.some((task) =>
+        ["QUEUED", "RUNNING", "CANCELLING"].includes(task.status),
+      )
+    );
+  };
   const key = route === "SEARCH" ? "search" : "timeline";
   const pending = (state ?? []).filter((e) => e[key]?.state !== "CURRENT");
   if (!pending.length) return null;
   async function build(evidenceId: string, kind: string) {
-    setBusyId(evidenceId);
+    setStarted((all) => ({
+      ...all,
+      [evidenceId]: { kind, known: tasks.map((task) => task.task_id) },
+    }));
     setError(null);
     try {
       await gateway.call("analysis.start", {
@@ -38,23 +64,24 @@ export function IndexWarning({
       onStarted();
     } catch (err) {
       setError(err);
-    } finally {
-      setBusyId("");
+      setStarted(({ [evidenceId]: _dropped, ...rest }) => rest);
     }
   }
   return (
     <>
       {pending.map((e) => {
         const none = e[key].state === "NONE";
-        const needsFiles = route === "SEARCH" && e.search.source_items === 0;
+        const needsFiles = Boolean(e[key].needs_files);
         const message =
           route === "SEARCH"
             ? (none ? t.searchNone : t.searchPartial)(e.display_name)
             : (none
                 ? t.timelineNone
-                : e.timeline.stale
-                  ? t.timelineStale
-                  : t.timelinePartial)(e.display_name);
+                : e.timeline.failed
+                  ? t.timelineFailed
+                  : e.timeline.stale
+                    ? t.timelineStale
+                    : t.timelinePartial)(e.display_name);
         const kind = needsFiles ? "FILES" : route;
         return (
           <div className="notice" role="status" key={e.evidence_id}>
@@ -63,7 +90,7 @@ export function IndexWarning({
               {needsFiles && ` ${t.needsFiles}`}
             </span>
             <button
-              disabled={busyId === e.evidence_id}
+              disabled={running(e.evidence_id)}
               onClick={() => void build(e.evidence_id, kind)}
             >
               {needsFiles

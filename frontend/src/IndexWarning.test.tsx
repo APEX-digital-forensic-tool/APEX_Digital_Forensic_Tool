@@ -18,7 +18,12 @@ const state = (
   {
     evidence_id: "e1",
     display_name: "yakzzz 폴더",
-    search: { state: search, indexed_items: 0, source_items: sources },
+    search: {
+      state: search,
+      indexed_items: 0,
+      source_items: sources,
+      needs_files: sources === 0,
+    },
     timeline: { state: timeline, events: 0, ...extra },
   },
 ];

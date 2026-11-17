@@ -154,6 +154,7 @@ def _ext(
             raise ValidationError("Invalid EXT block bitmap location.")
         group_start = first + group * per_group
         count = min(per_group, blocks - group_start)
+
         def read_group(offset: int, amount: int, *, block: int = bitmap_block) -> bytes:
             return bytes(reader.read_at(base + block * unit + offset, amount))
 

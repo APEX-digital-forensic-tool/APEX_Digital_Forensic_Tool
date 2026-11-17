@@ -51,7 +51,7 @@ export const tools = {
       budget: "한 작업의 탐색량 (MiB)",
       startOffset: "탐색 시작 오프셋",
       folderOnly:
-        "폴더 증거에는 카빙을 사용할 수 없습니다. 디스크 이미지 증거를 선택하세요.",
+        "폴더 증거에는 카빙을 사용할 수 없습니다. 디스크 이미지 증거를 선택해주세요.",
       start: "카빙 시작",
       resume:
         "제한에 도달하면 작업 결과의 next_offset부터 이어서 탐색할 수 있습니다.",

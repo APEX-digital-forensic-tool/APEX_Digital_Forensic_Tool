@@ -163,7 +163,8 @@ class PyTskFileSystemProvider:
                 return self._fs_type_name(pytsk3.FS_Info(image, offset=volume.byte_offset))
             finally:
                 image.close()
-        except Exception:
+        except (OSError, ValueError, RawReadError):
+            # Unknown, not "not applicable": the caller reports ads_supported as null.
             return None
 
     def get_root_node(self, evidence: Evidence, *, index_revision: int) -> FileSystemNode:

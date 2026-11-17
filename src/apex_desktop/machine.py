@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -18,7 +19,12 @@ from apex_forensic.adapters.machine_extraction import (
 )
 from apex_forensic.adapters.machine_extraction.stt import local_model_available
 from apex_forensic.config import ServiceBundle
-from apex_forensic.domain.errors import ApexError, OperationCancelledError, ValidationError
+from apex_forensic.domain.errors import (
+    ApexError,
+    OperationCancelledError,
+    UnsupportedCapabilityError,
+    ValidationError,
+)
 from apex_forensic.jobs import CancellationToken
 from apex_forensic.runtime.assets import bundled_stt_model
 
@@ -212,12 +218,33 @@ def _capabilities(root: Path) -> dict[str, Any]:
     }
 
 
-def _undecodable_image_errors() -> tuple[type[Exception], ...]:
+def _cannot_decode(source: Path) -> bool:
+    """Whether Pillow cannot fully decode the image (cut-off body, corrupt data)."""
     try:
-        pillow = importlib.import_module("PIL")
+        pillow = importlib.import_module("PIL.Image")
     except ImportError:
-        return ()
-    return (pillow.UnidentifiedImageError,)
+        return False
+    try:
+        with pillow.open(source) as image:
+            image.load()
+    except (OSError, ValueError, SyntaxError):
+        return True
+    return False
+
+
+def reclassify_ocr_failure(source: Path, analyze: Callable[[], Any]) -> Any:
+    """Run OCR; report an undecodable input as MEDIA_DECODE_FAILED instead of a runtime error."""
+    try:
+        return analyze()
+    except (OSError, ValueError, UnsupportedCapabilityError) as error:
+        runtime = isinstance(error, UnsupportedCapabilityError) and (
+            error.details.get("required_capability") == "OCR_RUNTIME"
+        )
+        if (not isinstance(error, UnsupportedCapabilityError) or runtime) and _cannot_decode(
+            source
+        ):
+            raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed") from error
+        raise
 
 
 def run(
@@ -257,10 +284,9 @@ def run(
     with EvidenceFileContent.materialize(evidence, node, cancellation_token=token) as source:
         if kind == "OCR":
             provider = ocr
-            try:
-                rows = provider.analyze_image(source, languages=language.split("+"))
-            except _undecodable_image_errors() as error:
-                raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed") from error
+            rows = reclassify_ocr_failure(
+                source, lambda: provider.analyze_image(source, languages=language.split("+"))
+            )
         else:
             provider = stt
             rows = provider.analyze_audio(source, language=None if language == "auto" else language)

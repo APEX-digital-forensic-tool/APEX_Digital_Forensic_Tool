@@ -1909,6 +1909,7 @@ export function App() {
                   route={route}
                   caseId={caseId}
                   state={page?.index_state}
+                  tasks={tasks}
                   onStarted={() => {
                     setJobsOpen(true);
                     refresh();

@@ -20,7 +20,12 @@ def _search(connection: Any, case_id: str, evidence_id: str) -> dict[str, Any]:
         (case_id, evidence_id, *_SEARCH_SOURCES),
     ).fetchone()[0]
     state = NONE if indexed == 0 else PARTIAL if indexed < expected else CURRENT
-    return {"state": state, "indexed_items": indexed, "source_items": expected}
+    return {
+        "state": state,
+        "indexed_items": indexed,
+        "source_items": expected,
+        "needs_files": expected == 0,
+    }
 
 
 def _timeline(connection: Any, case_id: str, evidence_id: str) -> dict[str, Any]:
@@ -38,15 +43,29 @@ def _timeline(connection: Any, case_id: str, evidence_id: str) -> dict[str, Any]
         " ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (case_id, evidence_id, registered),
     ).fetchone()
-    if latest is None:
-        return {"state": PARTIAL if events else NONE, "events": events, "stale": False}
-    changed = connection.execute(
-        "SELECT MAX(updated_at) FROM fs_nodes WHERE case_id = ? AND evidence_id = ?",
+    nodes, changed = connection.execute(
+        "SELECT COUNT(*), MAX(updated_at) FROM fs_nodes WHERE case_id = ? AND evidence_id = ?",
+        (case_id, evidence_id),
+    ).fetchone()
+    artifacts_changed = connection.execute(
+        "SELECT MAX(updated_at) FROM artifacts WHERE case_id = ? AND evidence_id = ?",
         (case_id, evidence_id),
     ).fetchone()[0]
-    stale = latest[0] == "SUCCEEDED" and changed is not None and changed > latest[1]
+    result: dict[str, Any] = {
+        "events": events,
+        "stale": False,
+        "failed": False,
+        "needs_files": nodes == 0,
+    }
+    # Without a file index the timeline had no input: an empty result proves nothing.
+    if nodes == 0:
+        return {**result, "state": NONE}
+    if latest is None:
+        return {**result, "state": PARTIAL if events else NONE}
+    newest = max(t for t in (changed, artifacts_changed) if t is not None)
+    stale = latest[0] == "SUCCEEDED" and newest > latest[1]
     state = CURRENT if latest[0] == "SUCCEEDED" and not stale else PARTIAL
-    return {"state": state, "events": events, "stale": stale}
+    return {**result, "state": state, "stale": stale, "failed": latest[0] == "FAILED"}
 
 
 def index_state(

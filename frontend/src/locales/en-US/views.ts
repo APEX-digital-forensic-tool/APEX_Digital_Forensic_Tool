@@ -70,6 +70,8 @@ export const views: Messages["views"] = {
       `The timeline for “${name}” is only partly built. There may be more events.`,
     timelineStale: (name: string) =>
       `The file index for “${name}” changed after the timeline was built. The timeline may be out of date.`,
+    timelineFailed: (name: string) =>
+      `Building the timeline for “${name}” failed. Build it again.`,
     needsFiles: "A file index is needed first.",
     buildSearch: "Build search index",
     buildTimeline: "Build timeline",
