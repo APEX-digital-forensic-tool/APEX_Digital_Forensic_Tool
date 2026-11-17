@@ -4,6 +4,7 @@ import base64
 import gzip
 import json
 from pathlib import Path
+from time import monotonic, sleep
 
 from test_local_api import call, wait
 from test_local_api import client as api_client
@@ -14,7 +15,7 @@ FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 def rejected(client, op, **payload):
     response = client.post("/v1/operations/" + op, json=payload)
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
     body = response.json()
     assert body["ok"] is False, body
     return body["error"]
@@ -72,3 +73,36 @@ def test_fat_like_volume_reports_streams_are_ntfs_only(client, tmp_path):
     assert result["streams"] == []
     assert result["ads_supported"] is False
     assert result["filesystem_type"] == "EXFAT"
+
+
+def test_ntfs_streams_are_marked_supported(client, tmp_path):
+    fixture = json.loads((FIXTURES / "container-images.json").read_text())
+    image = tmp_path / "streams.img"
+    image.write_bytes(gzip.decompress(base64.b64decode(fixture["streams.img"]["gzip_base64"])))
+    cid = call(client, "cases.create", name="NTFS")["id"]
+    eid = register(client, cid, image)
+    node = file_named(client, cid, eid, "document.txt")
+    result = call(client, "files.streams", case_id=cid, node_id=node["id"])
+    assert result["ads_supported"] is True
+    assert result["filesystem_type"] == "NTFS"
+    assert {s["name"] for s in result["streams"]} >= {"hidden", "large"}
+
+
+def test_undecodable_image_fails_with_a_media_code(client, tmp_path):
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "fake.png").write_text("not really a png", encoding="utf-8")
+    cid = call(client, "cases.create", name="Decode")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "fake.png")
+    task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    deadline = monotonic() + 15
+    while monotonic() < deadline:
+        record = next(
+            r for r in call(client, "tasks.list", case_id=cid) if r["task_id"] == task["task_id"]
+        )
+        if record["status"] not in {"QUEUED", "RUNNING"}:
+            break
+        sleep(0.02)
+    assert record["status"] == "FAILED", record
+    assert record["error"]["code"] == "MEDIA_DECODE_FAILED", record
