@@ -87,3 +87,34 @@ def test_timeline_reports_missing_build(client, tmp_path):
     after = call(client, "timeline.list", case_id=cid)
     assert states(after)[eid]["timeline"]["state"] == "CURRENT"
     assert call(client, "index.state", case_id=cid, evidence_id=eid)[0]["evidence_id"] == eid
+
+
+def test_case_wide_timeline_does_not_cover_evidence_added_later(client, tmp_path):
+    from apex_forensic.config import build_services
+    from apex_forensic.domain.enums import AnalysisProfileType
+
+    cid = call(client, "cases.create", name="Case wide")["id"]
+    first = add_evidence(client, cid, folder(tmp_path, "one", {"alpha.txt": "alpha"}))
+    bundle = build_services(tmp_path / "data" / "apex.db", initialize=False)
+    try:
+        bundle.timeline.build(case_id=cid, profile_type=AnalysisProfileType.FULL_ANALYSIS)
+    finally:
+        bundle.close()
+    second = add_evidence(client, cid, folder(tmp_path, "two", {"beta.txt": "beta"}))
+
+    state = states(call(client, "timeline.list", case_id=cid))
+    assert state[first]["timeline"]["state"] == "CURRENT"
+    assert state[second]["timeline"]["state"] == "NONE"
+
+
+def test_timeline_is_stale_after_the_file_index_is_updated(client, tmp_path):
+    cid = call(client, "cases.create", name="Stale")["id"]
+    eid = add_evidence(client, cid, folder(tmp_path, "one", {"alpha.txt": "alpha"}))
+    build(client, cid, eid, "TIMELINE")
+    assert states(call(client, "timeline.list", case_id=cid))[eid]["timeline"]["state"] == "CURRENT"
+
+    (tmp_path / "one" / "gamma.txt").write_text("gamma", encoding="utf-8")
+    build(client, cid, eid, "FILES")
+    timeline = states(call(client, "timeline.list", case_id=cid))[eid]["timeline"]
+    assert timeline["state"] == "PARTIAL"
+    assert timeline["stale"] is True
