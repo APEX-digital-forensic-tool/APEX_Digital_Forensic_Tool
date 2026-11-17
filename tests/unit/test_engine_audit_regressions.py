@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,6 +68,36 @@ def test_exports_never_replace_evidence(services, image_case, operation, alias, 
     assert image.read_bytes() == before
     assert destination.read_bytes() == before
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+@pytest.mark.parametrize("operation", ["range", "recovery", "slack"])
+def test_exports_remove_output_when_custody_append_fails(
+    services, image_case, operation, tmp_path, monkeypatch
+):
+    _, evidence, nodes, _ = image_case
+
+    def lost_race(_event):
+        raise sqlite3.IntegrityError(
+            "UNIQUE constraint failed: custody_events.evidence_id, "
+            "custody_events.immutable_revision"
+        )
+
+    monkeypatch.setattr(services.repository, "save_custody_event", lost_race)
+    before = len(services.custody.list_events(evidence.evidence_id))
+    output_root = tmp_path / "exports"
+    with pytest.raises(sqlite3.IntegrityError):
+        if operation == "range":
+            services.images.export_range(
+                evidence_id=evidence.evidence_id, offset=0, length=4, output_root=output_root
+            )
+        elif operation == "recovery":
+            deleted = next(node for node in nodes if node.is_deleted)
+            services.images.recover_deleted_file(node_id=deleted.node_id, output_root=output_root)
+        else:
+            live = next(node for node in nodes if node.original_name == "LIVE.TXT")
+            services.images.export_file_slack(node_id=live.node_id, output_root=output_root)
+    assert list(output_root.iterdir()) == []
+    assert len(services.custody.list_events(evidence.evidence_id)) == before
 
 
 def test_exports_protect_other_case_sources_and_directory_before_mkdir(
