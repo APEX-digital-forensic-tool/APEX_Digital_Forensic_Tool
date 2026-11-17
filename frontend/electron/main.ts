@@ -37,6 +37,7 @@ import {
 import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
 import { hasActiveTasks, stopChild } from "./engineGuard";
 import { engineTimeoutMs, postEngine } from "./engineRequest";
+import { quitOnClose } from "./quitOnClose";
 import { PickerReferences, type PickPurpose } from "./pickerReferences";
 import { IMAGE_EXTENSIONS } from "../src/imageExtensions";
 
@@ -387,6 +388,11 @@ async function createMainWindow() {
     webPreferences,
   });
   window = created;
+  quitOnClose(
+    created,
+    () => quitApproved,
+    () => app.quit(),
+  );
   created.on("closed", () => {
     if (window === created) window = undefined;
   });
