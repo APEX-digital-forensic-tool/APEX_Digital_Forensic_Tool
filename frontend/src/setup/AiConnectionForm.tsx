@@ -6,6 +6,9 @@ import { useI18n } from "../i18n/I18nProvider";
 import { Check } from "../icons";
 import { ErrorState, Loading } from "../ui";
 
+const SERVER_TIMEOUT = 120;
+const DIRECT_TIMEOUT = 30;
+
 export type AiFormState = {
   /** False when the connection is managed elsewhere or cannot be stored. */
   editable: boolean;
@@ -52,6 +55,16 @@ export function AiConnectionForm({
   // The key lives only in this uncontrolled input; it is never in React state.
   const keyRef = useRef<HTMLInputElement>(null);
   const bridge = window.apex;
+
+  /** The wait is mode-specific: the server mode must outlast the server's own wait. */
+  function switchMode(next: AiMode) {
+    setMode(next);
+    setTimeoutSeconds(
+      next === "server"
+        ? String(SERVER_TIMEOUT)
+        : String(status?.mode === "custom" ? status.timeout : DIRECT_TIMEOUT),
+    );
+  }
 
   function adopt(next: AiConnectionStatus) {
     setStatus(next);
@@ -195,7 +208,7 @@ export function AiConnectionForm({
               name={`${formId ?? "ai"}-mode`}
               value={value}
               checked={mode === value}
-              onChange={() => setMode(value)}
+              onChange={() => switchMode(value)}
             />
             <span>
               {value === "server" ? t.modeServer : t.modeCustom}

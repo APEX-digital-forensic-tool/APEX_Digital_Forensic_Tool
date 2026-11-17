@@ -147,3 +147,12 @@ def test_server_connection_is_validated_and_hidden_from_repr():
 def test_invalid_server_settings_are_diagnosed(services, monkeypatch, settings):
     monkeypatch.setenv("APEX_DESKTOP_AI_CONFIG", json.dumps(settings))
     assert runtime(services)["configuration_error"]["code"] == "AI_CONFIGURATION_INVALID"
+
+
+def test_a_server_connection_waits_longer_than_the_server(monkeypatch):
+    from apex_desktop.ai import ServerAiSettings, desktop_settings
+
+    monkeypatch.setenv("APEX_DESKTOP_AI_CONFIG", json.dumps({**SERVER_SETTINGS, "timeout": 30}))
+    settings = desktop_settings()
+    assert isinstance(settings, ServerAiSettings)
+    assert settings.timeout == 100

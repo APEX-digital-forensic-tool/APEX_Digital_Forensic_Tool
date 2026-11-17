@@ -27,6 +27,8 @@ from .ai_content import excerpt
 SERVER_PROVIDER_ID = "apex-server"
 # Stands in until the server's answer names the model that actually ran.
 SERVER_MODEL_PLACEHOLDER = "apex-server"
+# Outlast the server's own upstream wait (90 s by default), or a slow answer is billed and lost.
+SERVER_TIMEOUT_FLOOR = 100.0
 
 
 @dataclass(frozen=True)
@@ -58,21 +60,21 @@ def desktop_settings() -> OpenAICompatibleConfig | ServerAiSettings | None:
     try:
         data = json.loads(raw)
         if isinstance(data, dict) and data.get("connection") == "APEX_SERVER":
-            settings = ServerAiSettings(
-                timeout=float(data["timeout"]),
-                max_output=int(data["max_output"]),
-                temperature=float(data["temperature"]),
-            )
             # Reuse the custom-endpoint range checks for the shared parameters.
-            AiProviderRuntimeConfig(
+            checked = AiProviderRuntimeConfig(
                 provider_id=SERVER_PROVIDER_ID,
                 base_url="https://apex.invalid",
                 model_id=SERVER_MODEL_PLACEHOLDER,
                 api_key_env="UNUSED",
-                timeout=settings.timeout,
-                max_output=settings.max_output,
-                temperature=settings.temperature,
+                timeout=float(data["timeout"]),
+                max_output=int(data["max_output"]),
+                temperature=float(data["temperature"]),
             ).validate()
+            settings = ServerAiSettings(
+                timeout=max(checked.timeout, SERVER_TIMEOUT_FLOOR),
+                max_output=checked.max_output,
+                temperature=checked.temperature,
+            )
             return settings
         config = AiProviderRuntimeConfig(**data).validate()
     except (TypeError, ValueError, AttributeError, KeyError, ValidationError) as error:

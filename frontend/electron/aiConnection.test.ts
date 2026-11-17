@@ -227,6 +227,23 @@ describe("APEX server mode", () => {
     saveAiConnection({ mode: "server" }, d);
     expect(aiConnectionStatus(d).timeout).toBe(120);
   });
+  it("never lets a server connection give up before the server does", () => {
+    const d = deps();
+    saveAiConnection({ ...server, timeout: 30 }, d);
+    expect(aiConnectionStatus(d).timeout).toBe(100);
+    expect(JSON.parse(aiEnvironment(d).APEX_DESKTOP_AI_CONFIG).timeout).toBe(
+      100,
+    );
+    d.file.write(JSON.stringify({ ...server, timeout: 30 }));
+    expect(JSON.parse(aiEnvironment(d).APEX_DESKTOP_AI_CONFIG).timeout).toBe(
+      100,
+    );
+  });
+  it("keeps the 30 s default for a new direct connection", () => {
+    const d = deps();
+    saveAiConnection(valid, d);
+    expect(aiConnectionStatus(d).timeout).toBe(30);
+  });
   it("gives the engine secret-free settings only", () => {
     const d = deps();
     saveAiConnection(server, d);

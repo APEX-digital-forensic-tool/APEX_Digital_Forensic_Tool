@@ -28,7 +28,8 @@ const none = {
   model_id: null,
   temperature: 0,
   max_output: 4096,
-  timeout: 30,
+  // What main reports when nothing is stored: the APEX server default.
+  timeout: 120,
 };
 const ok = <T,>(data: T) => ({ ok: true as const, data });
 
@@ -166,7 +167,7 @@ it("starts a new connection on the APEX server and saves no key", async () => {
     mode: "server",
     temperature: 0,
     max_output: 4096,
-    timeout: 30,
+    timeout: 120,
   });
 });
 
@@ -242,5 +243,32 @@ it("keeps the Save label while a removal is running", async () => {
   expect(screen.queryByRole("button", { name: "Saving…" })).toBeNull();
   expect(screen.getByRole("status").textContent).toMatch(
     /Restarting the analysis engine/,
+  );
+});
+
+it("resets the wait to the server default when a saved direct connection switches", async () => {
+  const save = vi.fn(async () =>
+    ok({ ...none, configured: true, mode: "server" as const }),
+  );
+  mount({
+    aiConnection: async () =>
+      ok({
+        ...none,
+        configured: true,
+        mode: "custom" as const,
+        has_key: true,
+        base_url: "https://api.example.com/v1",
+        model_id: "model-x",
+        timeout: 30,
+      }),
+    saveAiConnection: save,
+  });
+  await userEvent.click(
+    await screen.findByRole("radio", { name: /^APEX server/ }),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Configured");
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ mode: "server", timeout: 120 }),
   );
 });

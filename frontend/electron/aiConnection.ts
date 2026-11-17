@@ -45,6 +45,8 @@ export type AiSaveResult =
 const DEFAULTS = { temperature: 0, max_output: 4096, timeout: 30 };
 /** Above the server's own 90 s upstream wait, so the engine never gives up on an answer still being billed. */
 const SERVER_TIMEOUT = 120;
+/** The engine must outlast the server's own wait; a shorter one is raised to this. */
+const SERVER_TIMEOUT_FLOOR = 100;
 
 interface Params {
   temperature: number;
@@ -125,7 +127,12 @@ function readStored(deps: AiDeps): Stored | null {
       max_output: s.max_output,
       timeout: s.timeout,
     } as Params;
-    if (s.mode === "server") return { mode: "server", ...params };
+    if (s.mode === "server")
+      return {
+        mode: "server",
+        ...params,
+        timeout: Math.max(params.timeout, SERVER_TIMEOUT_FLOOR),
+      };
     // Files written before modes existed hold a custom connection.
     if (
       (s.mode !== undefined && s.mode !== "custom") ||
@@ -238,7 +245,13 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
     return INVALID;
   const params = { temperature, max_output, timeout } as Params;
   if (mode === "server") {
-    deps.file.write(JSON.stringify({ mode: "server", ...params }));
+    deps.file.write(
+      JSON.stringify({
+        mode: "server",
+        ...params,
+        timeout: Math.max(params.timeout, SERVER_TIMEOUT_FLOOR),
+      }),
+    );
     return { ok: true };
   }
 

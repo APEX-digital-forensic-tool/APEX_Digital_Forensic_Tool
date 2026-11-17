@@ -349,7 +349,7 @@ export function createDemoBridge(): DesktopBridge {
         model_id: null,
         temperature: 0,
         max_output: 4096,
-        timeout: 30,
+        timeout: 120,
       });
     },
     async saveAiConnection() {
