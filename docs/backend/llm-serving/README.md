@@ -33,7 +33,7 @@ Kimi의 오류 본문은 클라이언트에 그대로 보내지 않는다.
 |---|---|---|
 | `APEX_LLM_UPSTREAM_API_KEY` | 없음 | Kimi API 키. 없으면 LLM 서빙이 꺼지고 503을 돌려준다. |
 | `APEX_LLM_UPSTREAM_BASE_URL` | `https://api.moonshot.ai/v1` | 중국 플랫폼은 `https://api.moonshot.cn/v1`. 두 플랫폼의 키는 서로 호환되지 않는다. |
-| `APEX_LLM_MODEL` | `kimi-k3` | Moonshot 문서의 2026-11 기준 예시 모델. |
+| `APEX_LLM_MODEL` | `kimi-k3.1-pro` | Moonshot 공식 quickstart가 쓰는 모델. 다른 모델은 이 변수로 바꾼다. |
 | `APEX_LLM_TIMEOUT` | `90` | Kimi 응답 대기 초. |
 | `APEX_LLM_MAX_TOKENS` | `8192` | 요청 하나의 `max_tokens` 상한. |
 

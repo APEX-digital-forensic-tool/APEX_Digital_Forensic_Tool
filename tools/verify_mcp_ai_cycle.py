@@ -147,7 +147,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider-id", default="moonshot-kimi")
     parser.add_argument("--base-url", default="https://api.moonshot.ai/v1")
-    parser.add_argument("--model", default="kimi-k3")
+    parser.add_argument("--model", default="kimi-k3.1-pro")
     parser.add_argument("--api-key-env", default="APEX_AI_API_KEY")
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--max-output", type=int, default=16384)

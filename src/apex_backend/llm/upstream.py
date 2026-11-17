@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 DEFAULT_BASE_URL = "https://api.moonshot.ai/v1"
-DEFAULT_MODEL = "kimi-k3"
+DEFAULT_MODEL = "kimi-k3.1-pro"
 
 
 @dataclass(frozen=True)

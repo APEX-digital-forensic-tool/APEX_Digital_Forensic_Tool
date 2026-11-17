@@ -20,7 +20,7 @@ from apex_backend.models import User
 
 KIMI_KEY = "sk-kimi-server-only-0123456789"
 UPSTREAM = LlmUpstream(
-    base_url="https://kimi.test/v1", api_key=KIMI_KEY, model="kimi-k3", max_tokens=2048
+    base_url="https://kimi.test/v1", api_key=KIMI_KEY, model="kimi-k3.1-pro", max_tokens=2048
 )
 CHAT = {
     "model": "client-chosen-model",
@@ -41,7 +41,7 @@ class FakeKimi:
             200,
             json={
                 "id": "cmpl-1",
-                "model": "kimi-k3",
+                "model": "kimi-k3.1-pro",
                 "choices": [{"message": {"role": "assistant", "content": "{\"ok\": true}"}}],
                 "usage": {"total_tokens": 12},
             },
@@ -113,13 +113,13 @@ async def test_signed_in_client_gets_the_upstream_answer(served) -> None:
 
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "{\"ok\": true}"
-    assert response.json()["model"] == "kimi-k3"
+    assert response.json()["model"] == "kimi-k3.1-pro"
     [sent] = kimi.requests
     assert str(sent.url) == "https://kimi.test/v1/chat/completions"
     assert sent.headers["authorization"] == f"Bearer {KIMI_KEY}"
     body = json.loads(sent.content)
     assert body == {
-        "model": "kimi-k3",
+        "model": "kimi-k3.1-pro",
         "temperature": 0,
         "max_tokens": 2048,
         "messages": [{"role": "user", "content": "Summarize."}],
@@ -221,17 +221,18 @@ def test_upstream_settings_come_from_env_with_kimi_defaults() -> None:
     assert LlmUpstream.from_env({}) is None
     upstream = LlmUpstream.from_env({"APEX_LLM_UPSTREAM_API_KEY": "k"})
     assert upstream == LlmUpstream(base_url=DEFAULT_BASE_URL, api_key="k", model=DEFAULT_MODEL)
+    assert upstream.model == "kimi-k3.1-pro"
     custom = LlmUpstream.from_env(
         {
             "APEX_LLM_UPSTREAM_API_KEY": "k",
             "APEX_LLM_UPSTREAM_BASE_URL": "https://api.moonshot.cn/v1",
-            "APEX_LLM_MODEL": "kimi-k3.1-pro",
+            "APEX_LLM_MODEL": "kimi-k3",
             "APEX_LLM_MAX_TOKENS": "1000",
         }
     )
     assert custom is not None
     assert custom.completions_url == "https://api.moonshot.cn/v1/chat/completions"
-    assert custom.model == "kimi-k3.1-pro"
+    assert custom.model == "kimi-k3"
     assert custom.max_tokens == 1000
     with pytest.raises(ValueError):
         LlmUpstream.from_env({"APEX_LLM_UPSTREAM_API_KEY": "k", "APEX_LLM_UPSTREAM_BASE_URL": "x"})
@@ -246,7 +247,7 @@ async def test_no_database_connection_is_held_while_the_model_answers(tmp_path) 
 
     async def slow_kimi(request: httpx.Request) -> httpx.Response:
         held.append(app.state.db_engine.pool.checkedout())
-        return httpx.Response(200, json={"model": "kimi-k3", "choices": []})
+        return httpx.Response(200, json={"model": "kimi-k3.1-pro", "choices": []})
 
     app = create_app(url, llm_upstream=UPSTREAM, llm_transport=httpx.MockTransport(slow_kimi))
     async with app.router.lifespan_context(app), AsyncClient(

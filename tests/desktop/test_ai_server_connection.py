@@ -24,7 +24,7 @@ SERVER_SETTINGS = {"connection": "APEX_SERVER", "temperature": 0, "max_output": 
 @pytest.fixture
 def reply():
     """How the stand-in answers: HTTP status, the reported model (None omits it), a delay."""
-    return {"status": 200, "model": "kimi-k3", "delay": 0.0}
+    return {"status": 200, "model": "kimi-k3.1-pro", "delay": 0.0}
 
 
 @pytest.fixture
@@ -123,7 +123,7 @@ def test_server_mode_sends_the_access_token_and_records_the_served_model(
     execution = result["execution"]
     assert execution["result"]["summary_text"] == "서버가 답했습니다."
     assert execution["result"]["provider_id"] == "apex-server"
-    assert execution["result"]["model_id"] == "kimi-k3"
+    assert execution["result"]["model_id"] == "kimi-k3.1-pro"
     services.close()
     stored = b"".join(p.read_bytes() for p in tmp_path.rglob("*") if p.is_file())
     assert TOKEN.encode() not in stored
@@ -205,7 +205,7 @@ def test_a_server_that_does_not_answer_in_time_times_out(
 
 @pytest.mark.parametrize(
     ("reported", "recorded"),
-    [(None, "apex-server"), ("kimi-k3\x1b[31m\n\x00", "kimi-k3[31m")],
+    [(None, "apex-server"), ("kimi-k3.1-pro\x1b[31m\n\x00", "kimi-k3.1-pro[31m")],
 )
 def test_the_recorded_model_is_what_the_server_reported_cleaned(
     services, selection, monkeypatch, apex_server, reply, reported, recorded
