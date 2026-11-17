@@ -32,6 +32,8 @@ export interface DesktopBridge {
   }): Promise<Reply<AiConnectionStatus>>;
   clearAiConnection(): Promise<Reply<AiConnectionStatus>>;
   completeSetup(): Promise<Reply<null>>;
+  /** Restarts an engine that failed to start or stopped; a running engine is left alone. */
+  restartEngine(): Promise<Reply<null>>;
 }
 declare global {
   interface Window {

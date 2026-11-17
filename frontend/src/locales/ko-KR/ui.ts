@@ -13,6 +13,7 @@ export const ui = {
     body: "선택한 범위에서 확인된 항목이 없습니다.",
   },
   retry: "다시 시도",
+  restartEngine: "엔진 다시 시작",
   loading: "엔진 응답을 기다리는 중",
   result: {
     partial: "현재 확인된 일부 결과입니다. 전체 분석 완료를 의미하지 않습니다.",

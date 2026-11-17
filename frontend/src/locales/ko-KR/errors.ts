@@ -44,6 +44,7 @@ export const errors = {
   PYTHON_RUNTIME_MISSING:
     "분석 런타임이 없습니다. 개발 환경 또는 설치 파일을 확인해주세요.",
   BACKEND_START_FAILED: "로컬 분석 엔진을 시작하지 못했습니다.",
+  BACKEND_START_TIMEOUT: "로컬 분석 엔진이 제시간에 준비되지 않았습니다.",
   BACKEND_STOPPED: "분석 엔진이 종료되었습니다. 앱을 다시 실행해주세요.",
   DESKTOP_CONNECTION_FAILED:
     "분석 엔진과 연결할 수 없습니다. 작업 상태를 확인한 후 다시 시도해주세요.",

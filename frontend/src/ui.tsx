@@ -110,10 +110,12 @@ export function Empty({
 export function ErrorState({
   error,
   retry,
+  retryLabel,
   dismiss,
 }: {
   error: unknown;
   retry?: () => void;
+  retryLabel?: string;
   dismiss?: () => void;
 }) {
   const { m } = useI18n();
@@ -121,7 +123,7 @@ export function ErrorState({
     <div className="notice error" role="alert">
       <AlertCircle size={16} />
       <span>{errorText(error, m)}</span>
-      {retry && <button onClick={retry}>{m.ui.retry}</button>}
+      {retry && <button onClick={retry}>{retryLabel ?? m.ui.retry}</button>}
       {dismiss && (
         <button aria-label={m.shell.nav.closeNotice} onClick={dismiss}>
           <X size={14} />

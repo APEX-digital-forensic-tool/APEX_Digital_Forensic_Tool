@@ -45,6 +45,8 @@ export const errors: Messages["errors"] = {
   PYTHON_RUNTIME_MISSING:
     "The analysis runtime is missing. Check the development environment or the installer.",
   BACKEND_START_FAILED: "The local analysis engine could not start.",
+  BACKEND_START_TIMEOUT:
+    "The local analysis engine did not become ready in time.",
   BACKEND_STOPPED: "The analysis engine has stopped. Restart the app.",
   DESKTOP_CONNECTION_FAILED:
     "Cannot connect to the analysis engine. Check the task status, then try again.",

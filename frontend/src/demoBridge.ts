@@ -354,5 +354,8 @@ export function createDemoBridge(): DesktopBridge {
     async completeSetup() {
       return ok(null);
     },
+    async restartEngine() {
+      return ok(null);
+    },
   };
 }

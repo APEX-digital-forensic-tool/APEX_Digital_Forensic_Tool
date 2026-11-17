@@ -28,15 +28,24 @@ export class Engine {
   constructor(
     private readonly token: string,
     private readonly launch: () => EngineLaunch,
+    private readonly options: {
+      /** From spawn to a passing health check. */
+      readyTimeoutMs?: number;
+      /** Health checks after the engine reports its port. */
+      healthAttempts?: number;
+    } = {},
   ) {}
 
-  start() {
-    if (this.stopped) return;
+  /** Resolves true once the engine passes its health check, false when this start failed. */
+  start(): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false);
     const current = ++this.generation;
+    this.url = "";
+    this.error = "SERVICE_NOT_READY";
     const { command, args, cwd, env } = this.launch();
     if (!existsSync(command)) {
       this.error = "PYTHON_RUNTIME_MISSING";
-      return;
+      return Promise.resolve(false);
     }
     let child: ChildProcess;
     try {
@@ -49,58 +58,85 @@ export class Engine {
     } catch {
       // ENOEXEC, ELOOP, EPERM and the like throw here instead of emitting "error".
       this.error = "BACKEND_START_FAILED";
-      return;
+      return Promise.resolve(false);
     }
     this.child = child;
-    child.on("error", () => {
-      if (current !== this.generation) return;
-      this.url = "";
-      this.error = "BACKEND_START_FAILED";
-    });
-    child.on("exit", () => {
-      if (current !== this.generation) return;
-      this.url = "";
-      this.error = "BACKEND_STOPPED";
-    });
-    // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
-    child.stderr?.on("data", () => {});
-    const lines = createInterface({ input: child.stdout! });
-    lines.on("line", async (line) => {
-      try {
-        const data = JSON.parse(line);
-        if (
-          data.type === "apex-ready" &&
-          Number.isInteger(data.port) &&
-          data.port > 0 &&
-          data.port <= 65535
-        ) {
-          const origin = `http://127.0.0.1:${data.port}`;
-          for (let i = 0; i < 50 && current === this.generation; i++) {
-            try {
-              const r = await fetch(`${origin}/health`, {
-                headers: { Authorization: `Bearer ${this.token}` },
-                signal: AbortSignal.timeout(1000),
-              });
-              if (current !== this.generation) break;
-              if (r.ok) {
-                this.url = origin;
-                this.error = "";
-                break;
-              }
-            } catch {
-              /* Wait for the child's listener, not an unrelated port. */
-            }
-            await wait(100);
-          }
+    return new Promise<boolean>((resolve) => {
+      // Startup ends once: ready, or failed with the first code. Later events only report a stop.
+      let settled = false;
+      const timer = setTimeout(
+        () => fail("BACKEND_START_TIMEOUT"),
+        this.options.readyTimeoutMs ?? 90000,
+      );
+      const ready = (origin: string) => {
+        if (settled || current !== this.generation) return;
+        settled = true;
+        clearTimeout(timer);
+        this.url = origin;
+        this.error = "";
+        resolve(true);
+      };
+      const fail = (code: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (current === this.generation) {
+          this.url = "";
+          this.error = code;
         }
-      } catch {
-        /* Only consume the minimal readiness message. */
-      }
+        // A child that failed to start must not linger; its exit no longer changes the code.
+        void stopChild(child, { graceMs: 5000, killMs: 5000 });
+        resolve(false);
+      };
+      const ended = (code: string) => {
+        if (!settled) return fail(code);
+        if (current === this.generation && this.url) {
+          this.url = "";
+          this.error = code;
+        }
+      };
+      child.on("error", () => ended("BACKEND_START_FAILED"));
+      child.on("exit", () => ended("BACKEND_STOPPED"));
+      // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
+      child.stderr?.on("data", () => {});
+      const lines = createInterface({ input: child.stdout! });
+      lines.on("line", async (line) => {
+        let data;
+        try {
+          data = JSON.parse(line);
+        } catch {
+          return; // Only consume the minimal readiness message.
+        }
+        if (
+          data?.type !== "apex-ready" ||
+          !Number.isInteger(data.port) ||
+          data.port <= 0 ||
+          data.port > 65535
+        )
+          return;
+        const origin = `http://127.0.0.1:${data.port}`;
+        const attempts = this.options.healthAttempts ?? 50;
+        for (let i = 0; i < attempts; i++) {
+          if (settled || current !== this.generation) return;
+          try {
+            const r = await fetch(`${origin}/health`, {
+              headers: { Authorization: `Bearer ${this.token}` },
+              signal: AbortSignal.timeout(1000),
+            });
+            // ready() ignores a child that exited while this request was pending.
+            if (r.ok) return ready(origin);
+          } catch {
+            /* Wait for the child's listener, not an unrelated port. */
+          }
+          await wait(100);
+        }
+        fail("BACKEND_START_FAILED");
+      });
     });
   }
 
   /**
-   * Stop the engine, start it with the current launch settings, and wait up to 90s for readiness.
+   * Stop the engine and start it with the current launch settings.
    * Resolves false when the old engine survived SIGKILL; no second engine is started on its data.
    */
   restart() {
@@ -124,14 +160,7 @@ export class Engine {
     }
     this.child = undefined;
     if (this.stopped) return true;
-    this.start();
-    const deadline = Date.now() + 90000;
-    while (
-      !this.url &&
-      this.error === "SERVICE_NOT_READY" &&
-      Date.now() < deadline
-    )
-      await wait(100);
+    await this.start();
     return true;
   }
 

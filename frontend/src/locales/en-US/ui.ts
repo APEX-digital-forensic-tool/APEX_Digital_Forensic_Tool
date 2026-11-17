@@ -14,6 +14,7 @@ export const ui: Messages["ui"] = {
     body: "Nothing was found in the selected scope.",
   },
   retry: "Try again",
+  restartEngine: "Restart engine",
   loading: "Waiting for the analysis engine",
   result: {
     partial:

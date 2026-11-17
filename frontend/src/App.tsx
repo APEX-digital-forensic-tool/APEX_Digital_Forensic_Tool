@@ -108,6 +108,14 @@ const defaultInspectorHeight = () =>
   Math.round(Math.min(340, Math.max(180, window.innerHeight * 0.3)));
 /** Screens that never act on the evidence tree get the full width. */
 const fullWidthRoutes: Route[] = ["REPORT", "SETTINGS"];
+/** Engine states a restart can recover from; a starting engine is not one of them. */
+const ENGINE_DOWN = new Set([
+  "BACKEND_START_FAILED",
+  "BACKEND_START_TIMEOUT",
+  "BACKEND_STOPPED",
+]);
+const engineDown = (error: unknown) =>
+  error instanceof GatewayError && ENGINE_DOWN.has(error.code);
 const investigate: Route[] = [
   "FILE_SYSTEM",
   "ARTIFACTS",
@@ -298,6 +306,16 @@ export function App() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+  const restartEngine = async () => {
+    setStartupError(new GatewayError("SERVICE_NOT_READY"));
+    try {
+      unwrap(await window.apex!.restartEngine());
+    } catch (err) {
+      setStartupError(err);
+      return;
+    }
+    await bootstrap();
+  };
   useEffect(() => {
     if (!runtime && window.apex) {
       const t = setInterval(() => void bootstrap(), 2000);
@@ -1419,9 +1437,16 @@ export function App() {
               </button>
             </div>
           )}
-          {startupError != null && (
-            <ErrorState error={startupError} retry={bootstrap} />
-          )}{" "}
+          {startupError != null &&
+            (engineDown(startupError) && window.apex ? (
+              <ErrorState
+                error={startupError}
+                retry={restartEngine}
+                retryLabel={m.ui.restartEngine}
+              />
+            ) : (
+              <ErrorState error={startupError} retry={bootstrap} />
+            ))}{" "}
           {actionError != null && (
             <ErrorState
               error={actionError}

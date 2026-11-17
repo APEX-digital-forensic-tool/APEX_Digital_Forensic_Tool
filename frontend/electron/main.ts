@@ -312,7 +312,7 @@ if (!app.requestSingleInstanceLock()) {
     open?.focus();
   });
   app.whenReady().then(async () => {
-    engine.start();
+    void engine.start();
     pageURL =
       !app.isPackaged && process.env.APEX_DEV_URL === "http://127.0.0.1:5173"
         ? "http://127.0.0.1:5173/"
@@ -500,6 +500,12 @@ if (!app.requestSingleInstanceLock()) {
       if (!(await engine.restart())) return fail("BACKEND_START_FAILED");
       return { ok: true, data: aiConnectionStatus(aiDeps) };
     });
+    // Only an engine that failed or stopped is restarted; a running one may be analyzing.
+    handle("apex:engine-restart", async () => {
+      if (!engine.url && engine.error !== "SERVICE_NOT_READY")
+        await engine.restart();
+      return { ok: true, data: null };
+    });
     handle("apex:setup-complete", (event) => {
       if (!sentBy(event, setupWindow)) return fail("DESKTOP_SENDER_DENIED");
       const setup = setupWindow;
@@ -521,7 +527,7 @@ if (!app.requestSingleInstanceLock()) {
       try {
         const deadline = Date.now() + 90000;
         while (!engine.url && Date.now() < deadline) {
-          if (["BACKEND_START_FAILED", "BACKEND_STOPPED", "PYTHON_RUNTIME_MISSING"].includes(engine.error))
+          if (["BACKEND_START_FAILED", "BACKEND_START_TIMEOUT", "BACKEND_STOPPED", "PYTHON_RUNTIME_MISSING"].includes(engine.error))
             throw new Error("Backend startup failed");
           await new Promise((r) => setTimeout(r, 100));
         }
