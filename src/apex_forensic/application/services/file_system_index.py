@@ -232,7 +232,8 @@ class FileSystemIndexService:
             stored_root = self._repository.get_fs_node(root.node_id)
             # Keep what earlier listings established (a failed one left it partial); only a
             # listing clears it. Not marked at job start: the open tree reindexes partial roots.
-            root.is_partial = stored_root is not None and stored_root.is_partial
+            # A new root this job does not list has never been read.
+            root.is_partial = stored_root.is_partial if stored_root else not lists_root
             root = self._repository.upsert_fs_node(root)
             coverage.discovered_items = 1
             if lists_root:
@@ -727,6 +728,8 @@ class FileSystemIndexService:
                 )
                 if node is None:
                     node = provider.get_metadata(evidence, ancestor, index_revision=index_revision)
+                    # Added only to reach the selection; its own entries were never listed.
+                    node.is_partial = node.is_directory_like
                     self._repository.upsert_fs_node(node)
                     inserted += 1
             node = self._repository.get_fs_node_by_relative_path(
