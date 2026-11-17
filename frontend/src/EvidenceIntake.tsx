@@ -5,17 +5,16 @@ import { AlertCircle } from "./icons";
 import { Badge } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup, type Messages } from "./i18n/catalog";
+import { RAW_IMAGE_EXTENSIONS } from "./imageExtensions";
 
 /** Engine readers an image of this kind needs; the engine still probes the format. */
 const readersByExtension: Record<string, string[]> = {
   e01: ["e01-container", "pytsk3"],
-  ex01: ["e01-container", "pytsk3"],
   vhd: ["vhd-container", "pytsk3"],
   vhdx: ["vhdx-container", "pytsk3"],
-  raw: ["raw-dd-img", "pytsk3"],
-  dd: ["raw-dd-img", "pytsk3"],
-  img: ["raw-dd-img", "pytsk3"],
-  "001": ["raw-dd-img", "pytsk3"],
+  ...Object.fromEntries(
+    RAW_IMAGE_EXTENSIONS.map((ext) => [ext, ["raw-dd-img", "pytsk3"]]),
+  ),
 };
 const hashOptions = ["SHA256", "SHA1", "MD5", "NONE"];
 /** Algorithm names are proper names and are not translated. */
