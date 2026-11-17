@@ -8,6 +8,7 @@ import pytest
 
 from apex_desktop.ai import analyze
 from apex_forensic.domain.enums import AnalysisProfileType, DataClassification
+from apex_forensic.domain.errors import ApexError
 
 SERVER_SETTINGS = {"connection": "APEX_SERVER", "temperature": 0, "max_output": 512, "timeout": 10}
 
@@ -80,9 +81,11 @@ def real_gateway(tmp_path):
         await engine.dispose()
 
     asyncio.run(seed())
-    kimi = {"model": None}
+    kimi = {"model": None, "calls": 0, "delay": 0.0}
 
-    def answer(request: httpx.Request) -> httpx.Response:
+    async def answer(request: httpx.Request) -> httpx.Response:
+        kimi["calls"] += 1
+        await asyncio.sleep(kimi["delay"])
         content = json.dumps(
             {"title": "요약", "summary_text": "답", "key_points": [], "citations": []}
         )
@@ -92,7 +95,7 @@ def real_gateway(tmp_path):
         return httpx.Response(200, json=body)
 
     upstream = LlmUpstream(
-        base_url="https://kimi.test/v1", api_key="sk-kimi", model="kimi-k3.1-pro"
+        base_url="https://kimi.test/v1", api_key="sk-kimi", model="kimi-k3.1-pro", timeout=0.5
     )
     app = create_backend(url, llm_upstream=upstream, llm_transport=httpx.MockTransport(answer))
     sock = socket.socket()
@@ -133,3 +136,17 @@ def test_the_model_recorded_through_the_real_server_is_only_what_upstream_report
     warnings = {w["code"]: w for w in stored["warnings"]}
     assert warnings["AI_APEX_SERVER"]["requested_model"] == "kimi-k3.1-pro"
     assert ("AI_MODEL_UNCONFIRMED" in warnings) is unconfirmed
+
+
+def test_a_server_deadline_is_a_timeout_and_kimi_is_not_called_again(
+    services, selection, monkeypatch, real_gateway
+):
+    base_url, token, kimi = real_gateway
+    kimi["delay"] = 2.0
+    monkeypatch.setenv("APEX_DESKTOP_AI_CONFIG", json.dumps(SERVER_SETTINGS))
+    with pytest.raises(ApexError) as raised:
+        analyze(
+            services, **selection, server_connection={"base_url": base_url, "access_token": token}
+        )
+    assert kimi["calls"] == 1
+    assert raised.value.code == "AI_PROVIDER_TIMEOUT"

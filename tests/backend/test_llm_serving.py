@@ -462,3 +462,30 @@ async def test_a_rejected_token_is_logged_too(served, caplog) -> None:
     [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
     assert "actor=- session=-" in line and "status=401" in line
     assert kimi.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_lone_surrogate_in_the_request_is_a_bad_request(served) -> None:
+    client, kimi = served
+    token = await _login(client)
+    response = await client.post(
+        "/llm/v1/chat/completions",
+        content=b'{"messages": [{"role": "user", "content": "\\ud800"}]}',
+        headers={**_bearer(token), "Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert kimi.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_lone_surrogate_in_the_answer_is_a_bad_gateway(served, caplog) -> None:
+    client, kimi = served
+    token = await _login(client)
+    kimi.reply = httpx.Response(200, content=b'{"model": "\\ud800", "choices": []}')
+    with caplog.at_level("INFO", logger="apex_backend.llm.router"):
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+    assert response.status_code == 502
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
+    assert "status=502" in line

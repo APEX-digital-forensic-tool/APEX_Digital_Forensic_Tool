@@ -131,3 +131,33 @@ it("keeps a pushed change when the first status load answers later", async () =>
   await act(async () => answer({ ok: true, data: SIGNED_IN }));
   expect(screen.getByText("다시 연결 중")).toBeTruthy();
 });
+
+it("keeps a pushed change when the sign-in reply answers later", async () => {
+  const { b, push } = bridge({
+    state: "signed_out",
+    connected: false,
+    origin: null,
+    expires_at: null,
+    reason: null,
+  });
+  let answer!: (reply: { ok: true; data: AccountStatus }) => void;
+  b.login = () => new Promise((r) => (answer = r));
+  const { container } = render(<AccountPanel />);
+  await screen.findByRole("button", { name: /연결/ });
+  const form = container.querySelector("form")!;
+  fireEvent.submit(form);
+  push({ ...SIGNED_IN, state: "reconnecting", connected: false });
+  await act(async () => answer({ ok: true, data: SIGNED_IN }));
+  expect(screen.getByText("다시 연결 중")).toBeTruthy();
+});
+
+it("keeps a pushed change when the logout reply answers later", async () => {
+  const { b, push } = bridge(SIGNED_IN);
+  let answer!: (reply: { ok: true; data: null }) => void;
+  b.logout = () => new Promise((r) => (answer = r));
+  render(<AccountPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: /로그아웃/ }));
+  push({ ...SIGNED_IN, origin: "https://other.test" });
+  await act(async () => answer({ ok: true, data: null }));
+  expect(screen.getByText("https://other.test")).toBeTruthy();
+});

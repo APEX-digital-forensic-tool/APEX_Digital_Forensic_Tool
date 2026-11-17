@@ -369,6 +369,41 @@ describe("server session", () => {
     expect(Math.max(...h.delays)).toBeLessThanOrEqual(2 ** 31 - 1);
   });
 
+  it("hands out no token once logout starts, even from a refresh already in flight", async () => {
+    const h = harness();
+    await h.session.login(LOGIN);
+    const releaseRefresh = h.hold("/auth/refresh");
+    h.advance(3_600_000 - 60_000);
+    const releaseLogout = h.hold("/auth/logout");
+    const loggingOut = h.session.logout();
+    expect(h.session.status()).toMatchObject({
+      state: "signed_out",
+      reason: "LOGGED_OUT",
+    });
+    const asked = h.session.credentials();
+    releaseRefresh();
+    expect(await asked).toBeNull();
+    await flush();
+    expect(await h.session.credentials()).toBeNull();
+    releaseLogout();
+    expect(await loggingOut).toEqual({ ok: true });
+    expect(h.calls.at(-1)).toEqual({
+      path: "/auth/logout",
+      body: null,
+      auth: "Bearer access-2",
+    });
+    expect(h.session.status().state).toBe("signed_out");
+  });
+
+  it("refuses a token lifetime that overflows once converted", async () => {
+    const h = harness();
+    h.server.ttl = "1e308";
+    expect(await h.session.login(LOGIN)).toEqual({
+      ok: false,
+      code: "AUTH_CONTRACT_INVALID",
+    });
+  });
+
   it("keeps one refresh at a time when an earlier session's refresh lands late", async () => {
     const h = harness();
     await h.session.login(LOGIN);

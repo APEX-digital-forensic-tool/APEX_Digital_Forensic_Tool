@@ -303,3 +303,23 @@ def test_a_rejected_connection_never_echoes_the_token(local_api, apex_server, ca
     assert TOKEN not in caplog.text
     assert apex_server[1] == []
 
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {**SERVER_SETTINGS, "max_output": 1e400},
+        {**SERVER_SETTINGS, "timeout": 1e400},
+        {
+            "provider_id": "custom",
+            "base_url": "https://api.example.com/v1",
+            "model_id": "m",
+            "api_key_env": "KEY",
+            "max_output": 1e400,
+        },
+    ],
+)
+def test_overflowing_numbers_in_the_settings_are_diagnosed(services, monkeypatch, settings):
+    raw = json.dumps(settings).replace("Infinity", "1e400")
+    monkeypatch.setenv("APEX_DESKTOP_AI_CONFIG", raw)
+    assert runtime(services)["configuration_error"]["code"] == "AI_CONFIGURATION_INVALID"
