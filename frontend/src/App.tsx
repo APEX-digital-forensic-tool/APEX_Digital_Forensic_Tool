@@ -693,6 +693,11 @@ export function App() {
           searchRun.evidenceId !== evidenceId
         ) {
           setLoading(false);
+          // No search for this scope: drop results and the cursor of the last one.
+          if (!background) {
+            setRows([]);
+            setPage(null);
+          }
           return;
         }
         op = "search.query";
@@ -748,6 +753,7 @@ export function App() {
         else {
           setError(err);
           setRows([]);
+          if (op === "search.query") setSearchesDone((n) => n + 1);
         }
       } finally {
         if (rid === requestRevision.current) setLoading(false);
@@ -764,15 +770,20 @@ export function App() {
     lastLoadPage.current = loadPage;
     // A submitted search runs once. Other changes that rebuild loadPage, such
     // as the open folder, must not run it again and add to the history.
+    // A search already in flight is left alone: skipping must not invalidate it.
     if (route === "SEARCH" && searchRun) {
       if (executedSearch.current === searchRun) return;
       executedSearch.current = searchRun;
     }
+    requestRevision.current++;
     void loadPage(keepPage ? pageCursor.current : null, keepPage);
-    return () => {
-      requestRevision.current++;
-    };
   }, [loadPage, revision]);
+  useEffect(
+    () => () => {
+      requestRevision.current++;
+    },
+    [],
+  );
   function resource(row: Row): { type: string; id: string } {
     if (row._resource_type)
       return { type: row._resource_type, id: row._resource_id };
