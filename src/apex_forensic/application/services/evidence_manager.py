@@ -89,7 +89,7 @@ class EvidenceManager:
         case = self._case_repository.get_case(case_id)
         if case is None:
             raise NotFoundError("CASE_NOT_FOUND", f"Case not found: {case_id}", target="case_id")
-        normalized = self._normalize_source_path(source_path)
+        normalized = self.normalize_source_path(source_path)
         stat_result = normalized.stat()
         evidence_type = self._detect_evidence_format(normalized)
         source_identity = (
@@ -473,7 +473,8 @@ class EvidenceManager:
             )
 
     @staticmethod
-    def _normalize_source_path(path: Path) -> Path:
+    def normalize_source_path(path: Path) -> Path:
+        """Refuse symlinked components and missing paths; return the resolved path."""
         expanded = path.expanduser()
         absolute = expanded if expanded.is_absolute() else Path.cwd() / expanded
         EvidenceManager._reject_symlink_components(absolute)
