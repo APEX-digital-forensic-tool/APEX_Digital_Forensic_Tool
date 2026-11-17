@@ -158,6 +158,9 @@ class WhisperCppCliSttProvider:
                     target="stt_provider",
                     required_capability="STT_RUNTIME",
                 ) from exc
+            # whisper.cpp reports input it cannot read this way, sometimes with exit code 0.
+            if b"failed to read audio" in completed.stderr:
+                raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed")
             if completed.returncode != 0:
                 raise UnsupportedCapabilityError(
                     "STT provider failed to analyze the audio.",
@@ -314,7 +317,7 @@ class FasterWhisperSttProvider:
         if language not in {None, "en"} and not engine.model.is_multilingual:
             raise ApexError("STT_LANGUAGE_UNSUPPORTED", "error.stt_language_unsupported")
         segments, info = engine.transcribe(
-            str(path),
+            _decoded_audio(path),
             language=language,
             vad_filter=False,
             word_timestamps=False,
@@ -376,6 +379,22 @@ class FasterWhisperSttProvider:
             "version": resolved.name,
             "size": _path_size(resolved),
         }
+
+
+def _decoded_audio(path: Path) -> Any:
+    """Decode with PyAV, as faster-whisper would, so unreadable input gets a media code."""
+    av = importlib.import_module("av")
+    decode_audio = importlib.import_module("faster_whisper.audio").decode_audio
+    try:
+        with av.open(str(path)) as container:
+            has_audio = bool(container.streams.audio)
+        if not has_audio:
+            raise ApexError(
+                "MEDIA_AUDIO_FORMAT_UNSUPPORTED", "error.media_audio_format_unsupported"
+            )
+        return decode_audio(str(path))
+    except av.error.FFmpegError as error:
+        raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed") from error
 
 
 def _segments(payload: Any, language: str | None) -> list[dict[str, Any]]:

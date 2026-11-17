@@ -51,9 +51,11 @@ def test_stt_seconds_and_cpp_ticks_have_explicit_units():
     ]
 
 
-def test_faster_whisper_hashes_audio_once_and_rejects_wrong_model_language(tmp_path, monkeypatch):
+def test_faster_whisper_hashes_audio_once_and_rejects_wrong_model_language(
+    tmp_path, monkeypatch, valid_wav
+):
     source = tmp_path / "recording.wav"
-    source.write_bytes(b"synthetic audio")
+    source.write_bytes(valid_wav)
     calls = []
     hashes = []
 
@@ -98,7 +100,7 @@ def test_whisper_cpp_auto_language_is_sent_and_source_provenance_attached(tmp_pa
             '{"result":{"language":"ko"},"transcription":'
             '[{"text":"known","offsets":{"from":0,"to":1000}}]}'
         )
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=0, stderr=b"")
 
     monkeypatch.setattr(stt.subprocess, "run", run)
     rows = stt.WhisperCppCliSttProvider(model_path=model).analyze_audio(source)
