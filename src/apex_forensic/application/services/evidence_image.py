@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import os
 import re
@@ -543,15 +544,20 @@ class EvidenceImageService:
     ) -> None:
         if self._custody_ledger is None:
             return
-        self._custody_ledger.add_event(
-            evidence_id=evidence_id,
-            event_type=CustodyEventType.EXPORTED,
-            actor_name="SYSTEM",
-            action=action,
-            destination_location=str(output_path),
-            current_hash={"algorithm": "SHA256", "digest_hex": sha256},
-            notes=notes,
-        )
+        try:
+            self._custody_ledger.add_event(
+                evidence_id=evidence_id,
+                event_type=CustodyEventType.EXPORTED,
+                actor_name="SYSTEM",
+                action=action,
+                destination_location=str(output_path),
+                current_hash={"algorithm": "SHA256", "digest_hex": sha256},
+                notes=notes,
+            )
+        except Exception:
+            with contextlib.suppress(OSError):
+                output_path.unlink(missing_ok=True)
+            raise
 
 
 def _safe_filename(value: str) -> str:
