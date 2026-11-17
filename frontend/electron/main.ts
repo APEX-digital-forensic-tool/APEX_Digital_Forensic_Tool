@@ -38,7 +38,7 @@ import {
   isSetupComplete,
   markSetupComplete,
 } from "./appState";
-import { Engine, operationTimeoutMs } from "./engine";
+import { Engine, operationTimeoutMs, postEngine } from "./engine";
 import { hasActiveTasks } from "./engineGuard";
 import { authOrigin, PickedPaths, type PickPurpose } from "./shellGuards";
 
@@ -182,17 +182,12 @@ function handle(
 }
 async function local(operation: string, payload: Record<string, unknown>) {
   if (!engine.url) return fail(engine.error);
-  const response = await fetch(`${engine.url}/v1/operations/${operation}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(operationTimeoutMs(operation)),
-    redirect: "error",
-  });
-  return response.json();
+  return postEngine(
+    `${engine.url}/v1/operations/${operation}`,
+    token,
+    payload,
+    operationTimeoutMs(operation),
+  );
 }
 const engine = new Engine(token, () => {
   const repo = resolve(__dirname, "../..");
