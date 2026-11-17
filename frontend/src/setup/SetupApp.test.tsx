@@ -183,6 +183,37 @@ it("stays on the AI step and explains a rejected save", async () => {
   ).toBeTruthy();
 });
 
+it("stays on the AI step when the connection is saved but the engine did not restart", async () => {
+  window.apex = {
+    ...createDemoBridge(),
+    saveAiConnection: async () => ({
+      ok: true as const,
+      data: {
+        ...noConnection,
+        configured: true,
+        has_key: true,
+        base_url: "https://api.example.com/v1",
+        model_id: "model-x",
+        engine_error: "BACKEND_START_TIMEOUT",
+      },
+    }),
+  };
+  renderInEnglish(<SetupApp />);
+  await userEvent.click(screen.getByRole("button", { name: "AI connection" }));
+  await userEvent.type(
+    await screen.findByLabelText("Base URL"),
+    "https://api.example.com/v1",
+  );
+  await userEvent.type(screen.getByLabelText("Model name"), "model-x");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Save and continue" }),
+  );
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(
+    screen.getByRole("heading", { level: 2, name: "AI connection" }),
+  ).toBeTruthy();
+});
+
 it("offers only Next on the AI step when the connection is managed elsewhere", async () => {
   window.apex = {
     ...createDemoBridge(),

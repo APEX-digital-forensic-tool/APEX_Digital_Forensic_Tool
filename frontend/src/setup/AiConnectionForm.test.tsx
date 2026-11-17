@@ -68,6 +68,37 @@ it("saves the connection, then clears the key field and never shows the key", as
   );
 });
 
+it("shows the saved connection and says the engine did not restart", async () => {
+  mount({
+    aiConnection: async () => ok(none),
+    saveAiConnection: async () =>
+      ok({
+        ...none,
+        configured: true,
+        has_key: true,
+        base_url: "https://api.example.com/v1",
+        model_id: "model-x",
+        engine_error: "BACKEND_START_FAILED",
+      }),
+  });
+  await userEvent.type(
+    await screen.findByLabelText("Base URL"),
+    "https://api.example.com/v1",
+  );
+  await userEvent.type(screen.getByLabelText("Model name"), "model-x");
+  await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Configured");
+  expect(
+    screen.getByText(
+      "The AI connection was saved, but the analysis engine did not restart.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain(
+    "The local analysis engine could not start.",
+  );
+});
+
 it("shows a managed connection as read-only", async () => {
   mount({
     aiConnection: async () => ok({ ...none, configured: true, managed: true }),
