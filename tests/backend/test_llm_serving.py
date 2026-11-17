@@ -443,3 +443,22 @@ async def test_the_reported_and_requested_models_travel_separately(served) -> No
     response = await client.post("/llm/v1/chat/completions", json=CHAT, headers=_bearer(token))
     assert response.json()["model"] == "kimi-k3.1-pro-0915"
     assert response.json()["apex_requested_model"] == "kimi-k3.1-pro"
+
+
+@pytest.mark.parametrize("seconds", ["91", "600", "nan"])
+def test_the_server_never_waits_longer_than_the_app_does(seconds) -> None:
+    with pytest.raises(ValueError):
+        LlmUpstream.from_env({"APEX_LLM_UPSTREAM_API_KEY": "k", "APEX_LLM_TIMEOUT": seconds})
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_token_is_logged_too(served, caplog) -> None:
+    client, kimi = served
+    with caplog.at_level("INFO", logger="apex_backend.llm.router"):
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer("not-a-jwt")
+        )
+    assert response.status_code == 401
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
+    assert "actor=- session=-" in line and "status=401" in line
+    assert kimi.requests == []

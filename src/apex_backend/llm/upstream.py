@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 DEFAULT_BASE_URL = "https://api.moonshot.ai/v1"
 DEFAULT_MODEL = "kimi-k3.1-pro"
+MAX_TIMEOUT = 90.0
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,8 @@ class LlmUpstream:
             raise ValueError("APEX_LLM_UPSTREAM_BASE_URL must be an HTTP(S) URL.")
         if not self.api_key or not self.model:
             raise ValueError("LLM upstream needs an API key and a model id.")
-        if not 0 < self.timeout <= 600 or not 1 <= self.max_tokens <= 200_000:
+        # The app waits at least 100 s for the server; the server must give up first.
+        if not 0 < self.timeout <= MAX_TIMEOUT or not 1 <= self.max_tokens <= 200_000:
             raise ValueError("LLM upstream timeout or max_tokens is out of range.")
 
     @property

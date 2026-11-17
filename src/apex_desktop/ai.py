@@ -34,6 +34,13 @@ SERVER_MODEL_PLACEHOLDER = "apex-server"
 SERVER_TIMEOUT_FLOOR = 100.0
 
 
+def _printable(value: Any) -> str | None:
+    """A server-supplied name bound for the evidence record: printable and bounded, or None."""
+    if not isinstance(value, str):
+        return None
+    return _CONTROL.sub("", value).strip()[:256] or None
+
+
 @dataclass(frozen=True)
 class ServerAiSettings:
     """AI through the signed-in APEX server. Secret-free: the token arrives per request."""
@@ -141,16 +148,15 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
         self.projection: Any = None
         self.content = content
         self.served_model: str | None = None
+        self.requested_model: str | None = None
         super().__init__(config, request_payload=self._approved_payload, api_key=api_key)
 
     def _post_json(self, body: dict[str, Any], *, cancellation_requested: bool) -> dict[str, Any]:
         response = super()._post_json(body, cancellation_requested=cancellation_requested)
-        model = response.get("model")
-        if isinstance(model, str):
-            # The server's word goes into the evidence record: keep it printable and bounded.
-            cleaned = _CONTROL.sub("", model).strip()[:256]
-            if cleaned:
-                self.served_model = cleaned
+        # ``model``: what the upstream reported running. ``apex_requested_model``: what
+        # the APEX server asked for. Only the first confirms the model that answered.
+        self.served_model = _printable(response.get("model"))
+        self.requested_model = _printable(response.get("apex_requested_model"))
         return response
 
     def _approved_payload(self, request: AiAssistanceRequest) -> dict[str, Any]:
@@ -213,8 +219,19 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
                     "code": "AI_APEX_SERVER",
                     "developer_message": "Answered through the signed-in APEX server.",
                     "server_origin": self.server_origin,
+                    "requested_model": self.requested_model,
                 }
             )
+            if self.served_model is None:
+                result["warnings"].append(
+                    {
+                        "code": "AI_MODEL_UNCONFIRMED",
+                        "developer_message": (
+                            "The model service did not report which model answered; "
+                            "model_id is a placeholder."
+                        ),
+                    }
+                )
         return result
 
 

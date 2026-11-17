@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -15,7 +16,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apex_backend.auth.jwt_verifier import JwtTokenVerifier
-from apex_backend.auth.session_guard import require_active_session
+from apex_backend.auth.session_guard import ActiveSession, require_active_session
 from apex_backend.llm.upstream import LlmUpstream
 
 _logger = logging.getLogger(__name__)
@@ -106,10 +107,22 @@ async def _read_capped(
     return bytes(data)
 
 
+def _finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("non-finite number")
+    return value
+
+
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not JSON")
+
+
 def _parse_json(raw: bytes) -> Any:
-    """Parsed JSON, or None for anything malformed, including pathological nesting."""
+    """Parsed JSON, or None for anything malformed: pathological nesting, and NaN,
+    Infinity or overflowing numbers, which strict JSON cannot carry onward."""
     try:
-        return json.loads(raw)
+        return json.loads(raw, parse_float=_finite, parse_constant=_no_constant)
     except (ValueError, UnicodeDecodeError, RecursionError):
         return None
 
@@ -124,26 +137,28 @@ async def chat_completions(
 ) -> JSONResponse:
     """OpenAI-compatible chat completion, answered by the server's model.
 
-    The response carries the upstream's ``model`` so clients record the model
-    that actually answered.
+    ``model`` is passed through only as the upstream reported it; ``apex_requested_model``
+    is the model the server asked for. A missing ``model`` means the model that
+    answered is unconfirmed.
     """
-    session = await require_active_session(credentials.credentials, verifier, db)
-    # The model can take minutes; give the connection back to the pool before waiting.
-    await db.close()
+    session: ActiveSession | None = None
     sizes = {"request": 0, "response": 0}
     outcome = status.HTTP_500_INTERNAL_SERVER_ERROR
     try:
-        payload = await _complete(request, gateway, sizes)
+        session = await require_active_session(credentials.credentials, verifier, db)
+        # The model can take minutes; give the connection back to the pool before waiting.
+        await db.close()
+        response = JSONResponse(await _complete(request, gateway, sizes))
         outcome = status.HTTP_200_OK
-        return JSONResponse(payload)
+        return response
     except HTTPException as exc:
         outcome = exc.status_code
         raise
     finally:
         _logger.info(
             "llm call actor=%s session=%s request_bytes=%d response_bytes=%d status=%d",
-            session.actor_id,
-            session.session_id,
+            session.actor_id if session else "-",
+            session.session_id if session else "-",
             sizes["request"],
             sizes["response"],
             outcome,
@@ -195,7 +210,7 @@ async def _complete(
     payload = _parse_json(content)
     if not isinstance(payload, dict):
         raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service returned invalid JSON.")
-    payload.setdefault("model", upstream.model)
+    payload["apex_requested_model"] = upstream.model
     return payload
 
 
