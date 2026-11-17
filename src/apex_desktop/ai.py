@@ -2,8 +2,10 @@
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from apex_forensic.adapters.ai.openai_compatible import (
     OpenAICompatibleConfig,
@@ -24,6 +26,7 @@ from apex_forensic.domain.services.ai_projection import ai_data_reference
 
 from .ai_content import excerpt
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 SERVER_PROVIDER_ID = "apex-server"
 # Stands in until the server's answer names the model that actually ran.
 SERVER_MODEL_PLACEHOLDER = "apex-server"
@@ -130,8 +133,10 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
         services: ServiceBundle,
         content: dict[str, Any] | None = None,
         api_key: str | None = None,
+        server_origin: str | None = None,
     ) -> None:
         self.services = services
+        self.server_origin = server_origin
         self.audit: Any = None
         self.projection: Any = None
         self.content = content
@@ -141,8 +146,11 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
     def _post_json(self, body: dict[str, Any], *, cancellation_requested: bool) -> dict[str, Any]:
         response = super()._post_json(body, cancellation_requested=cancellation_requested)
         model = response.get("model")
-        if isinstance(model, str) and 0 < len(model) <= 256:
-            self.served_model = model
+        if isinstance(model, str):
+            # The server's word goes into the evidence record: keep it printable and bounded.
+            cleaned = _CONTROL.sub("", model).strip()[:256]
+            if cleaned:
+                self.served_model = cleaned
         return response
 
     def _approved_payload(self, request: AiAssistanceRequest) -> dict[str, Any]:
@@ -199,6 +207,14 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
                 ),
             }
         )
+        if self.server_origin is not None:
+            result["warnings"].append(
+                {
+                    "code": "AI_APEX_SERVER",
+                    "developer_message": "Answered through the signed-in APEX server.",
+                    "server_origin": self.server_origin,
+                }
+            )
         return result
 
 
@@ -260,11 +276,16 @@ def analyze(
     if isinstance(settings, ServerAiSettings):
         if server_connection is None:
             return {**response, "status": "LOGIN_REQUIRED"}
+        base_url = server_connection["base_url"]
+        parts = urlsplit(base_url)
+        server_origin = f"{parts.scheme}://{parts.netloc}"
+        response["server_origin"] = server_origin
         provider = GovernedDesktopProvider(
-            settings.provider_config(server_connection["base_url"]),
+            settings.provider_config(base_url),
             services,
             content=content,
             api_key=server_connection["access_token"],
+            server_origin=server_origin,
         )
     else:
         provider = GovernedDesktopProvider(settings, services, content=content)
