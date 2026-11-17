@@ -171,8 +171,6 @@ class CandidateReview(CaseInput):
 class CustodyAdd(EvidenceInput):
     action: str = Field(min_length=1, max_length=4096)
     reason: str = Field(min_length=1, max_length=4096)
-    # Matches CUSTODY_EVENTS in frontend/src/App.tsx; the engine alone records
-    # HASH_VERIFIED and CORRECTION.
     event_type: Literal[
         "ACQUISITION",
         "RECEIVED",
