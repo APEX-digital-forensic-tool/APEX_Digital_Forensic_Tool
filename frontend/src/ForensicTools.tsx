@@ -3,7 +3,7 @@ import { gateway, type Row } from "./gateway";
 import { ErrorState, Fields, Loading, Section } from "./ui";
 import { X } from "./icons";
 import { useI18n } from "./i18n/I18nProvider";
-import { isAudioVideoFile, isImageFile } from "./toolTargets";
+import { isImageFile } from "./toolTargets";
 
 export function ForensicTools({
   caseId,
@@ -36,7 +36,6 @@ export function ForensicTools({
   const dialog = useRef<HTMLDialogElement>(null);
   const file = selected?.node_type === "FILE";
   const ocrFits = isImageFile(selected);
-  const sttFits = isAudioVideoFile(selected);
   const imageFile =
     selected?.filesystem_provider?.id === "apex.pytsk_filesystem_provider";
   useEffect(() => {
@@ -235,7 +234,7 @@ export function ForensicTools({
                 busy ||
                 !file ||
                 !!selected?.is_deleted ||
-                !(kind === "OCR" ? ocrFits : sttFits)
+                (kind === "OCR" && !ocrFits)
               }
               onClick={() =>
                 void call(
@@ -260,9 +259,6 @@ export function ForensicTools({
           ))}
           {file && !selected?.is_deleted && !ocrFits && (
             <p>{m.tools.forensic.machine.needsImage}</p>
-          )}
-          {file && !selected?.is_deleted && !sttFits && (
-            <p>{m.tools.forensic.machine.needsMedia}</p>
           )}
         </Section>
         <Section title={m.tools.forensic.carve.title}>

@@ -39,7 +39,6 @@ export const tools = {
       runOcr: "선택 파일 문자 추출",
       runStt: "선택 파일 음성 인식",
       needsImage: "이미지 파일(PNG·JPEG·GIF·TIFF·BMP·WebP)을 선택해야 합니다.",
-      needsMedia: "음성 또는 영상 파일을 선택해야 합니다.",
     },
     carve: {
       directoryUnavailable:

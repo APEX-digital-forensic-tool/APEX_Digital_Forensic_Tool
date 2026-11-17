@@ -42,7 +42,6 @@ export const tools: Messages["tools"] = {
       runOcr: "Extract text from the selected file",
       runStt: "Recognize speech in the selected file",
       needsImage: "Select an image file (PNG, JPEG, GIF, TIFF, BMP or WebP).",
-      needsMedia: "Select an audio or video file.",
     },
     carve: {
       directoryUnavailable:
