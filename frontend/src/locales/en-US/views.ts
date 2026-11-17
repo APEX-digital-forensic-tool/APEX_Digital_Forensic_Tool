@@ -1,6 +1,9 @@
 import type { Messages } from "../ko-KR";
 
 export const views: Messages["views"] = {
+  indexCoverageIncomplete:
+    "Some evidence has a missing, incomplete or outdated index. Zero matches do not establish absence of evidence.",
+  indexCoverageBuild: "Build index for selected evidence",
   overview: {
     statusLabel: "Case status",
     selectCaseTitle: "Select a case to investigate",
@@ -58,6 +61,20 @@ export const views: Messages["views"] = {
   actions: {
     formatHint: "The engine detects the format",
     wholeCase: "Entire case",
+  },
+  indexState: {
+    searchNone: (name: string) =>
+      `“${name}” has no search index. Zero results may mean “not checked yet”, not “nothing found”.`,
+    searchPartial: (name: string) =>
+      `The search index for “${name}” is only partly built. Some items may not be searchable.`,
+    timelineNone: (name: string) =>
+      `The timeline for “${name}” has not been built. An empty list does not mean “no events”.`,
+    timelinePartial: (name: string) =>
+      `The timeline for “${name}” is only partly built. There may be more events.`,
+    needsFiles: "A file index is needed first.",
+    buildSearch: "Build search index",
+    buildTimeline: "Build timeline",
+    buildFiles: "Build file index",
   },
   search: {
     queryLabel: "Search query",

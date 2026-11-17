@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import Protocol
 
 from apex_forensic.domain.models import CustodyEvent
@@ -9,6 +10,10 @@ from apex_forensic.domain.models import CustodyEvent
 
 class CustodyRepository(Protocol):
     """Persistence operations for the append-only custody ledger."""
+
+    def custody_append(self) -> AbstractContextManager[None]:
+        """Serialize the tail read and append across database connections."""
+        ...
 
     def save_custody_event(self, event: CustodyEvent) -> None:
         """Append a custody event."""

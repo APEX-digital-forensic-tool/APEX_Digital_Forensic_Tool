@@ -101,10 +101,12 @@ export function SearchHistory({
   caseId,
   zone,
   onSearch,
+  executionId,
 }: {
   caseId: string;
   zone: string;
   onSearch: (text: string, mode: string) => void;
+  executionId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const { m } = useI18n();
@@ -116,7 +118,7 @@ export function SearchHistory({
       <summary>{m.report.history.title}</summary>
       {open && (
         <SearchHistoryEntries
-          key={caseId}
+          key={`${caseId}:${executionId ?? ""}`}
           caseId={caseId}
           zone={zone}
           onSearch={onSearch}

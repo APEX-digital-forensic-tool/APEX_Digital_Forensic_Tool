@@ -1,6 +1,12 @@
 import type { Messages } from "../ko-KR";
 
 export const errors: Messages["errors"] = {
+  DATA_DIRECTORY_IN_USE:
+    "Another engine is using this app data, or the directory cannot be locked. Retry after the previous engine has stopped.",
+  BACKEND_START_TIMEOUT:
+    "Analysis engine startup timed out. Retry to restart the engine.",
+  AI_CONNECTION_APPLIED_ENGINE_FAILED:
+    "The settings change was applied, but the analysis engine could not restart. Retry the engine connection.",
   TASK_RECEIPT_NOT_SAVED:
     "The task result is kept, but its history could not be saved to disk. After you quit the app, the previous state may be shown. Check free space and permissions, then retry saving the record. The analysis will not run again.",
   AI_CONNECTION_INVALID:
@@ -39,6 +45,9 @@ export const errors: Messages["errors"] = {
     "The image could not be decoded. Check whether the file is damaged or in an unsupported image format.",
   MEDIA_FORMAT_UNSUPPORTED:
     "Select a PNG, JPEG, GIF, TIFF, BMP or WebP image file.",
+  CARVING_REQUIRES_IMAGE:
+    "Carving is not available for folder evidence. Select a disk image.",
+  MEDIA_AUDIO_FORMAT_UNSUPPORTED: "Select an audio or video file.",
   MEDIA_OFFSET_OUT_OF_RANGE: "The start pixel is outside the image.",
   DESKTOP_REQUIRED: "Analysis runs in the Windows or macOS desktop app.",
   SERVICE_NOT_READY: "Starting the local analysis engine.",

@@ -11,6 +11,8 @@ export const evidence: Messages["evidence"] = {
   },
   hashRecommended: (name: string) => `${name} (recommended)`,
   hashNone: "Do not compute now",
+  folderHashUnavailable:
+    "Whole-folder integrity hashes are not supported yet. File browsing and analysis remain available.",
   hashing: "Hashing",
   hashPending: "Not hashed yet",
   subject: {

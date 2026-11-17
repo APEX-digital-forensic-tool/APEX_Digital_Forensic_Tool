@@ -70,9 +70,9 @@ def test_safe_hash_field_is_not_treated_as_plaintext_secret():
     assert redact_text(text) == text
 
 
-def test_automatic_ocr_uses_available_korean_model(client, tmp_path, monkeypatch):
+def test_automatic_ocr_uses_available_korean_model(client, tmp_path, monkeypatch, valid_png):
     source = tmp_path / "image.png"
-    source.write_bytes(b"synthetic image")
+    source.write_bytes(valid_png)
     cid, eid = registered(client, source)
     node = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]
     calls = []

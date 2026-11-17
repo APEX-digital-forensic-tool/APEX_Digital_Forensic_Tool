@@ -2287,18 +2287,19 @@ class ContextService:
             event = self._repository.get_custody_event(resource_id)
             if event is None:
                 raise _resource_error(resource_type, resource_id)
+            fields = event.to_schema_dict()
             return {
                 "resource_type": resource_type,
                 "resource_id": resource_id,
-                "case_id": event.case_id,
+                "case_id": fields["case_id"],
                 "evidence_id": event.evidence_id,
                 "source_revision": event.immutable_revision,
                 "is_partial": False,
-                "title": event.event_type.value,
-                "summary": event.action,
+                "title": fields["event_type"],
+                "summary": fields["action"],
                 "raw_locator": None,
                 "citations": [],
-                "fields": event.to_schema_dict(),
+                "fields": fields,
                 "analyzer_id": "custody.ledger",
                 "analyzer_version": ENGINE_VERSION,
             }

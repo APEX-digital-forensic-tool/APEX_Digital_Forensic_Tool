@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from apex_forensic.domain.enums import CustodyEventType
+
 
 @dataclass(slots=True)
 class CustodyEvent:
@@ -19,6 +21,18 @@ class CustodyEvent:
     @property
     def evidence_id(self) -> str:
         return str(self.data["evidence_id"])
+
+    @property
+    def case_id(self) -> str:
+        return str(self.data["case_id"])
+
+    @property
+    def event_type(self) -> CustodyEventType:
+        return CustodyEventType(self.data["event_type"])
+
+    @property
+    def action(self) -> str:
+        return str(self.data["action"])
 
     @property
     def immutable_revision(self) -> int:

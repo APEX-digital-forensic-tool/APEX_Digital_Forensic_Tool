@@ -40,6 +40,7 @@ from apex_forensic.domain.models import (
 )
 from apex_forensic.domain.services.canonical import canonical_sha256
 from apex_forensic.runtime.assets import media_executable
+from apex_forensic.runtime.subprocess_env import subprocess_environment
 
 _IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "tif", "tiff", "bmp", "webp"}
 _VIDEO_EXTENSIONS = {"mp4", "m4v", "mov", "3gp", "3g2", "avi", "mkv", "webm"}
@@ -54,8 +55,7 @@ _MAX_FFPROBE_JSON_BYTES = 1_048_576
 _MAX_FFMPEG_OUTPUT_BYTES = 8 * 1024 * 1024
 # Do not let an evidence file act as a playlist referencing network/local secrets.
 _LOCAL_MEDIA_FORMATS = (
-    "mov,matroska,webm,avi,asf,mpeg,mpegts,flv,ogg,wav,mp3,flac,aac,"
-    "image2,png_pipe,jpeg_pipe,gif"
+    "mov,matroska,webm,avi,asf,mpeg,mpegts,flv,ogg,wav,mp3,flac,aac,image2,png_pipe,jpeg_pipe,gif"
 )
 _MAC_EPOCH = datetime(1904, 1, 1, tzinfo=UTC)
 
@@ -67,6 +67,7 @@ class _BoundedProcessResult:
     stderr: bytes
     timed_out: bool = False
     limit_stream: str | None = None
+
 
 _TIFF_TYPE_SIZES = {
     1: 1,
@@ -676,7 +677,9 @@ def _run_bounded_process(
     timeout: int,
     max_bytes: int,
 ) -> _BoundedProcessResult:
-    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=subprocess_environment()
+    )
     stdout = bytearray()
     stderr = bytearray()
     state: dict[str, bool | str | None] = {"timed_out": False, "limit_stream": None}
@@ -757,9 +760,7 @@ def _run_bounded_process(
         bytes(stdout),
         bytes(stderr),
         timed_out=bool(state["timed_out"]),
-        limit_stream=None
-        if state["limit_stream"] is None
-        else str(state["limit_stream"]),
+        limit_stream=None if state["limit_stream"] is None else str(state["limit_stream"]),
     )
 
 
@@ -879,9 +880,7 @@ def _ffprobe_metadata(*, file_path: Path, media_kind: str) -> dict[str, Any]:
     return {
         "metadata": metadata,
         "warnings": warnings,
-        "parse_status": ArtifactParseStatus.PARTIAL
-        if warnings
-        else ArtifactParseStatus.SUCCESS,
+        "parse_status": ArtifactParseStatus.PARTIAL if warnings else ArtifactParseStatus.SUCCESS,
     }
 
 

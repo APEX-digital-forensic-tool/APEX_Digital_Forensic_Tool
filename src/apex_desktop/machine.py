@@ -1,12 +1,13 @@
 """Local OCR/STT selection, bounded source extraction and candidate persistence."""
 
+import importlib
 import json
 import os
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, cast
 
 from apex_forensic.adapters.filesystem.content import EvidenceFileContent
 from apex_forensic.adapters.machine_extraction import (
@@ -211,6 +212,14 @@ def _capabilities(root: Path) -> dict[str, Any]:
     }
 
 
+def _undecodable_image_errors() -> tuple[type[Exception], ...]:
+    try:
+        pillow = importlib.import_module("PIL")
+    except ImportError:
+        return ()
+    return (cast(type[Exception], pillow.UnidentifiedImageError),)
+
+
 def run(
     services: ServiceBundle,
     *,
@@ -248,7 +257,10 @@ def run(
     with EvidenceFileContent.materialize(evidence, node, cancellation_token=token) as source:
         if kind == "OCR":
             provider = ocr
-            rows = provider.analyze_image(source, languages=language.split("+"))
+            try:
+                rows = provider.analyze_image(source, languages=language.split("+"))
+            except _undecodable_image_errors() as error:
+                raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed") from error
         else:
             provider = stt
             rows = provider.analyze_audio(source, language=None if language == "auto" else language)

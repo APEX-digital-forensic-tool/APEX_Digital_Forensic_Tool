@@ -7,6 +7,7 @@ import json
 import struct
 import zlib
 from collections.abc import Iterator
+from functools import partial
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -246,14 +247,23 @@ class CarvingService:
                                 f"{absolute:016x}-{kind.lower()}.{kind.lower()}",
                                 overwrite=False,
                             )
-                            self.images._write_output(path, payload, overwrite=False)
-                            self.images._audit_export(
-                                evidence_id=evidence_id,
-                                output_path=path,
-                                sha256=digest,
-                                action="Signature-carved candidate exported",
-                                notes=f"scope={scope}; offset={absolute}; size={size}; kind={kind}",
+                            self.images._write_output(
+                                path,
+                                payload,
+                                overwrite=False,
+                                audit=partial(
+                                    self.images._audit_export,
+                                    evidence_id=evidence_id,
+                                    output_path=path,
+                                    sha256=digest,
+                                    action="Signature-carved candidate exported",
+                                    notes=(
+                                        f"scope={scope}; offset={absolute}; "
+                                        f"size={size}; kind={kind}"
+                                    ),
+                                ),
                             )
+
                             result["candidates"].append(
                                 {
                                     "format": kind,

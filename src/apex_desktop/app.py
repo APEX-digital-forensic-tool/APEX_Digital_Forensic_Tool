@@ -119,8 +119,6 @@ def create_app(data_dir: Path, token: str, *, host: str = "127.0.0.1") -> FastAP
 
         try:
             return JSONResponse(await run_in_threadpool(execute))
-        except (ValueError, TypeError):
-            return JSONResponse({"ok": False, "error": {"code": "VALIDATION_ERROR"}}, 422)
         except Exception as error:
             return JSONResponse(
                 {"ok": False, "error": public_error(error)},

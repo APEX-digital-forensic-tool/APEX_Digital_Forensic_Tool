@@ -273,6 +273,7 @@ export function createDemoBridge(): DesktopBridge {
       }
       // The synthetic preview has no stored search executions.
       if (op === "search.history") return ok([]);
+      if (op === "index.state") return ok([]);
       if (op === "policy.get")
         return ok({
           case_id: p.case_id,

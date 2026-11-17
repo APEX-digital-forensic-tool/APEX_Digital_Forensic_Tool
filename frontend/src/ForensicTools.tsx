@@ -3,15 +3,18 @@ import { gateway, type Row } from "./gateway";
 import { ErrorState, Fields, Loading, Section } from "./ui";
 import { X } from "./icons";
 import { useI18n } from "./i18n/I18nProvider";
+import { isAudioVideoFile, isImageFile } from "./toolTargets";
 
 export function ForensicTools({
   caseId,
   evidenceId,
+  evidenceFormat,
   selected,
   onTask,
 }: {
   caseId: string;
   evidenceId: string;
+  evidenceFormat?: string;
   selected: Row | null;
   onTask: () => void;
 }) {
@@ -21,6 +24,8 @@ export function ForensicTools({
   const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<Row | null>(null);
   const [streams, setStreams] = useState<Row[]>([]);
+  const [streamsLoaded, setStreamsLoaded] = useState(false);
+  const [streamFilesystem, setStreamFilesystem] = useState<string | null>(null);
   const [streamId, setStreamId] = useState("");
   const [offset, setOffset] = useState("0");
   const [language, setLanguage] = useState("eng");
@@ -30,6 +35,8 @@ export function ForensicTools({
   const revision = useRef(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const file = selected?.node_type === "FILE";
+  const ocrFits = isImageFile(selected);
+  const sttFits = isAudioVideoFile(selected);
   const imageFile =
     selected?.filesystem_provider?.id === "apex.pytsk_filesystem_provider";
   useEffect(() => {
@@ -40,6 +47,8 @@ export function ForensicTools({
     setResult(null);
     setError(null);
     setStreams([]);
+    setStreamsLoaded(false);
+    setStreamFilesystem(null);
     setStreamId("");
     setOffset("0");
     setBusy(false);
@@ -64,7 +73,11 @@ export function ForensicTools({
       });
       if (current !== revision.current) return;
       if (operation === "files.streams") {
+        setStreamFilesystem(
+          data.ads_supported === false ? data.filesystem_type : null,
+        );
         setStreams(data.streams);
+        setStreamsLoaded(true);
         setStreamId(String(data.streams[0]?.id ?? ""));
       } else setResult(data);
       if (task) onTask();
@@ -122,6 +135,13 @@ export function ForensicTools({
           >
             {m.tools.forensic.streams.list}
           </button>
+          {streamsLoaded && streams.length === 0 && (
+            <p role="status">
+              {streamFilesystem
+                ? m.tools.forensic.streams.notNtfs(streamFilesystem)
+                : m.tools.forensic.streams.noStreams}
+            </p>
+          )}
           {streams.length > 0 && (
             <>
               <label>
@@ -211,7 +231,12 @@ export function ForensicTools({
           {(["OCR", "STT"] as const).map((kind) => (
             <button
               key={kind}
-              disabled={busy || !file || !!selected?.is_deleted}
+              disabled={
+                busy ||
+                !file ||
+                !!selected?.is_deleted ||
+                !(kind === "OCR" ? ocrFits : sttFits)
+              }
               onClick={() =>
                 void call(
                   "machine.run",
@@ -233,8 +258,17 @@ export function ForensicTools({
                 : m.tools.forensic.machine.runStt}
             </button>
           ))}
+          {file && !selected?.is_deleted && !ocrFits && (
+            <p>{m.tools.forensic.machine.needsImage}</p>
+          )}
+          {file && !selected?.is_deleted && !sttFits && (
+            <p>{m.tools.forensic.machine.needsMedia}</p>
+          )}
         </Section>
         <Section title={m.tools.forensic.carve.title}>
+          {evidenceFormat === "DIRECTORY" && (
+            <p>{m.tools.forensic.carve.directoryUnavailable}</p>
+          )}
           <p>{m.tools.forensic.carve.body}</p>
           <label>
             {m.tools.forensic.carve.scope}
@@ -271,6 +305,7 @@ export function ForensicTools({
           <button
             disabled={
               busy ||
+              evidenceFormat === "DIRECTORY" ||
               !budget.trim() ||
               !Number.isSafeInteger(Number(budget)) ||
               Number(budget) < 1 ||

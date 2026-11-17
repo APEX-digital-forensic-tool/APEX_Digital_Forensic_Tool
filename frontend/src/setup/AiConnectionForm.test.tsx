@@ -42,6 +42,7 @@ it("saves the connection, then clears the key field and never shows the key", as
       has_key: true,
       base_url: "https://api.example.com/v1",
       model_id: "model-x",
+      engine_error: null,
     }),
   );
   mount({ aiConnection: async () => ok(none), saveAiConnection: save });
@@ -65,6 +66,37 @@ it("saves the connection, then clears the key field and never shows the key", as
   expect(document.body.innerHTML).not.toContain("test-key-123");
   expect((screen.getByLabelText("API key") as HTMLInputElement).type).toBe(
     "password",
+  );
+});
+
+it("shows the saved connection and says the engine did not restart", async () => {
+  mount({
+    aiConnection: async () => ok(none),
+    saveAiConnection: async () =>
+      ok({
+        ...none,
+        configured: true,
+        has_key: true,
+        base_url: "https://api.example.com/v1",
+        model_id: "model-x",
+        engine_error: "BACKEND_START_FAILED",
+      }),
+  });
+  await userEvent.type(
+    await screen.findByLabelText("Base URL"),
+    "https://api.example.com/v1",
+  );
+  await userEvent.type(screen.getByLabelText("Model name"), "model-x");
+  await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Configured");
+  expect(
+    screen.getByText(
+      "The AI connection change was stored, but the analysis engine did not restart.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain(
+    "The local analysis engine could not start.",
   );
 });
 

@@ -114,8 +114,10 @@ export function SetupApp() {
       formId={aiFormId}
       hideActions
       onState={setAi}
-      onChanged={() => {
-        if (currentStep.current === AI_STEP) go(AI_STEP + 1);
+      onChanged={(change) => {
+        // Moving on would hide that the engine did not restart.
+        if (change.engine_error == null && currentStep.current === AI_STEP)
+          go(AI_STEP + 1);
       }}
     />,
     <MachineSettings compact />,

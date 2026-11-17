@@ -1,5 +1,9 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import type { AiConnectionStatus } from "../../electron/aiConnection";
+import type {
+  AiConnectionChange,
+  AiConnectionStatus,
+} from "../../electron/aiConnection";
+import { GatewayError } from "../gateway";
 import { unwrap, type Reply } from "../gateway";
 import { useI18n } from "../i18n/I18nProvider";
 import { ErrorState, Loading } from "../ui";
@@ -23,7 +27,7 @@ export function AiConnectionForm({
   /** Save/remove are blocked with this reason shown (e.g. analysis tasks running). */
   blockedReason?: string;
   showRemove?: boolean;
-  onChanged?: (status: AiConnectionStatus) => void;
+  onChanged?: (change: AiConnectionChange) => void;
   /** Lets a button outside the form submit it (`<button form={formId}>`). */
   formId?: string;
   /** The host supplies the submit button; the form's own buttons are left out. */
@@ -40,6 +44,8 @@ export function AiConnectionForm({
   const [maxOutput, setMaxOutput] = useState("4096");
   const [timeout, setTimeoutSeconds] = useState("30");
   const [error, setError] = useState<unknown>(null);
+  // The change was stored, but the engine did not restart with it.
+  const [engineError, setEngineError] = useState<string | null>(null);
   // Which action is running; both restart the engine.
   const [action, setAction] = useState<"save" | "remove" | null>(null);
   const busy = action !== null;
@@ -86,15 +92,17 @@ export function AiConnectionForm({
 
   async function run(
     kind: "save" | "remove",
-    call: () => Promise<Reply<AiConnectionStatus>>,
+    call: () => Promise<Reply<AiConnectionChange>>,
   ) {
     if (busy || blocked) return;
     setAction(kind);
     setError(null);
+    setEngineError(null);
     try {
       const next = unwrap(await call());
       if (keyRef.current) keyRef.current.value = "";
       adopt(next);
+      setEngineError(next.engine_error ?? null);
       onChanged?.(next);
     } catch (err) {
       setError(err);
@@ -225,6 +233,12 @@ export function AiConnectionForm({
         </div>
       </details>
       {error != null && <ErrorState error={error} />}
+      {engineError != null && (
+        <>
+          <p className="setup-note">{t.engineNotRestarted}</p>
+          <ErrorState error={new GatewayError(engineError)} />
+        </>
+      )}
       {/* Always present, so screen readers announce the text when it arrives. */}
       <div role="status">
         {busy && <p className="setup-note">{t.saving}</p>}

@@ -1,4 +1,7 @@
 export const views = {
+  indexCoverageIncomplete:
+    "인덱스가 없거나 미완료·갱신이 필요한 증거가 있습니다. 결과 0건을 증거가 없다는 뜻으로 판단하지 마세요.",
+  indexCoverageBuild: "선택한 증거 인덱스 생성",
   overview: {
     statusLabel: "사건 상태",
     selectCaseTitle: "조사할 사건을 선택하세요",
@@ -54,6 +57,20 @@ export const views = {
   actions: {
     formatHint: "형식은 엔진이 판별합니다",
     wholeCase: "사건 전체",
+  },
+  indexState: {
+    searchNone: (name: string) =>
+      `‘${name}’에는 검색 인덱스가 없습니다. 결과 0건은 “없음”이 아니라 “아직 확인하지 않음”일 수 있습니다.`,
+    searchPartial: (name: string) =>
+      `‘${name}’의 검색 인덱스가 일부만 만들어졌습니다. 일부 항목은 검색되지 않을 수 있습니다.`,
+    timelineNone: (name: string) =>
+      `‘${name}’의 타임라인이 아직 생성되지 않았습니다. 빈 목록은 “이벤트 없음”이 아닙니다.`,
+    timelinePartial: (name: string) =>
+      `‘${name}’의 타임라인이 일부만 생성되었습니다. 이벤트가 더 있을 수 있습니다.`,
+    needsFiles: "먼저 파일 인덱스가 필요합니다.",
+    buildSearch: "검색 인덱스 만들기",
+    buildTimeline: "타임라인 만들기",
+    buildFiles: "파일 인덱스 만들기",
   },
   search: {
     queryLabel: "검색어",

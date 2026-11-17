@@ -258,7 +258,7 @@ class Tasks:
                             if isinstance(item, dict) and "job_type" in item:
                                 record["job"] = item
                                 record["status"] = item["status"]
-                    if token.is_cancelled:
+                    if token.is_cancelled and cancellable:
                         record["status"] = "CANCELLED"
             except Exception as error:
                 with self.lock:
@@ -306,8 +306,10 @@ class Tasks:
             return record.copy()
 
     def close(self) -> None:
-        for token in list(self.tokens.values()):
-            token.cancel()
+        with self.lock:
+            for task_id, token in self.tokens.items():
+                if "CANCEL" in self.records[task_id]["actions"]:
+                    token.cancel()
         self.pool.shutdown(wait=True, cancel_futures=False)
         with self.lock:
             if any(r.get("receipt_error") for r in self.records.values()):

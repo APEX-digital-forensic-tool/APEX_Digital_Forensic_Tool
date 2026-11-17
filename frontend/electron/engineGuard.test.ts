@@ -144,6 +144,28 @@ describe("stopChild", () => {
     expect(child.signals).toEqual([undefined]);
   });
 
+  it("waits for stdin EOF shutdown without sending an immediate Windows termination signal", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild([undefined]);
+    // A real exit notification reaches the registered listener after EOF.
+    let onExit = () => {};
+    child.once = (_event, listener) => {
+      onExit = listener;
+      return child;
+    };
+    const requestStop = vi.fn(() => {
+      setTimeout(() => {
+        child.exitCode = 0;
+        onExit();
+      }, 50);
+    });
+    const stopped = stopChild(child, { ...options, requestStop });
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(stopped).resolves.toBe(true);
+    expect(requestStop).toHaveBeenCalledOnce();
+    expect(child.signals).toEqual([]);
+  });
+
   it("sends SIGKILL when the grace period passes", async () => {
     vi.useFakeTimers();
     const child = new FakeChild(["SIGKILL"]);

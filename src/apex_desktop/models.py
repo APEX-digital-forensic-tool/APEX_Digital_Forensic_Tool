@@ -21,6 +21,10 @@ class TaskList(CaseInput):
     retry_receipts: bool = False
 
 
+class IndexState(CaseInput):
+    evidence_id: str | None = Field(default=None, min_length=1, max_length=255)
+
+
 class CreateCase(Input):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=8192)
@@ -46,6 +50,7 @@ class PageInput(CaseInput):
 
 class Files(PageInput):
     evidence_id: str
+    limit: int = Field(default=100, ge=1, le=500)
     parent_node_id: str | None = None
     directories_only: bool = False
     all_nodes: bool = False
@@ -171,7 +176,21 @@ class CandidateReview(CaseInput):
 class CustodyAdd(EvidenceInput):
     action: str = Field(min_length=1, max_length=4096)
     reason: str = Field(min_length=1, max_length=4096)
-    event_type: str = "ANALYZED"
+    event_type: Literal[
+        "ACQUISITION",
+        "RECEIVED",
+        "TRANSFERRED",
+        "STORED",
+        "OPENED",
+        "MOUNTED",
+        "ANALYZED",
+        "COPIED",
+        "EXPORTED",
+        "RETURNED",
+        "RELEASED",
+        "ARCHIVED",
+        "DISPOSED",
+    ] = "ANALYZED"
     correction_of_event_id: str | None = None
 
 

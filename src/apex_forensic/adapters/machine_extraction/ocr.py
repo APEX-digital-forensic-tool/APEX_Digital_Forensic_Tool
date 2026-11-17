@@ -16,6 +16,7 @@ from apex_forensic._time import utc_now
 from apex_forensic.constants import ENGINE_VERSION
 from apex_forensic.domain.errors import OperationCancelledError, UnsupportedCapabilityError
 from apex_forensic.domain.models import ProviderCapability
+from apex_forensic.runtime.subprocess_env import subprocess_environment
 
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_TESSERACT_OUTPUT_BYTES = 5 * 1024 * 1024
@@ -221,6 +222,7 @@ class TesseractCliOcrProvider:
             check=False,
             capture_output=True,
             timeout=self._timeout,
+            env=subprocess_environment(),
         )
         if len(completed.stdout) > MAX_TESSERACT_OUTPUT_BYTES:
             raise UnsupportedCapabilityError("OCR provider output exceeds the size limit.")
@@ -242,10 +244,7 @@ class TesseractCliOcrProvider:
             if self._tessdata_prefix is not None:
                 command.extend(["--tessdata-dir", str(self._tessdata_prefix.resolve())])
             completed = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                timeout=5,
+                command, check=False, capture_output=True, timeout=5, env=subprocess_environment()
             )
         except (OSError, subprocess.TimeoutExpired):
             return []

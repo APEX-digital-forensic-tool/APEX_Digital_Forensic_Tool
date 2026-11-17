@@ -236,3 +236,81 @@ it("requires explicit review and clears it after selection changes", async () =>
     true,
   );
 });
+
+const open = (props: Record<string, unknown>) => {
+  render(
+    <ForensicTools
+      caseId="case"
+      evidenceId="ev"
+      selected={null}
+      onTask={vi.fn()}
+      {...props}
+    />,
+  );
+  fireEvent.click(screen.getByText("복구·카빙·OCR·ADS"));
+  for (const title of [
+    "파일 시그니처 카빙",
+    "OCR·음성 인식",
+    "NTFS 데이터 스트림 (ADS)",
+  ])
+    fireEvent.click(screen.getByText(title));
+};
+const textFile = {
+  id: "n1",
+  node_type: "FILE",
+  extension: "txt",
+  mime_candidate: "text/plain",
+  original_name: "note.txt",
+  filesystem_provider: { id: "apex.pytsk_filesystem_provider" },
+};
+
+it("disables carving for folder evidence and says why", () => {
+  open({ evidenceFormat: "DIRECTORY" });
+  expect((screen.getByText("카빙 시작") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(
+    screen.getByText(/폴더 증거에는 카빙을 사용할 수 없습니다/),
+  ).toBeTruthy();
+});
+
+it("keeps carving available for disk images", () => {
+  open({ evidenceFormat: "IMG" });
+  expect((screen.getByText("카빙 시작") as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+
+it("enables OCR only for images and STT only for audio or video", () => {
+  open({ selected: textFile });
+  expect(
+    (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.getByText(/이미지 파일\(PNG/)).toBeTruthy();
+  cleanup();
+  open({
+    selected: { ...textFile, extension: "PNG", mime_candidate: "image/png" },
+  });
+  expect(
+    (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(
+    (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
+
+it("explains that ADS exist only on NTFS when a FAT file has none", async () => {
+  vi.spyOn(gateway, "call").mockResolvedValue({
+    streams: [],
+    ads_supported: false,
+    filesystem_type: "FAT32",
+  });
+  open({ selected: textFile });
+  fireEvent.click(screen.getByText("데이터 스트림 조회"));
+  expect(
+    await screen.findByText(/FAT32 파일 시스템에는 대체 데이터 스트림/),
+  ).toBeTruthy();
+});

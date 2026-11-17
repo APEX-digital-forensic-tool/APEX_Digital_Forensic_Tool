@@ -49,8 +49,28 @@ class FileStreamService:
 
     def list(self, *, case_id: str, node_id: str) -> dict[str, Any]:
         evidence, node = self.source(case_id, node_id)
+        filesystem_type = None
+        ancestor = node
+        seen: set[str] = set()
+        while ancestor is not None and ancestor.node_id not in seen:
+            seen.add(ancestor.node_id)
+            if ancestor.evidence_id != evidence.evidence_id:
+                break
+            filesystem_type = ancestor.fs_metadata.get("filesystem_type")
+            if filesystem_type:
+                break
+            ancestor = (
+                self.repository.get_fs_node(ancestor.parent_node_id)
+                if ancestor.parent_node_id
+                else None
+            )
         with PyTskFileSystemProvider().open_file(evidence, node) as handle:
-            return {"node_id": node_id, "streams": self._streams(handle)}
+            return {
+                "node_id": node_id,
+                "streams": self._streams(handle),
+                "filesystem_type": filesystem_type,
+                "ads_supported": filesystem_type == "NTFS" if filesystem_type else None,
+            }
 
     @staticmethod
     def _selected(handle: Any, stream_id: int) -> dict[str, Any]:
@@ -128,17 +148,22 @@ class FileStreamService:
                     count += len(chunk)
             if cancellation_token and cancellation_token.is_cancelled:
                 raise OperationCancelledError("Stream export cancelled.")
-            self.images._publish_output(temp, output, overwrite=False)
+            self.images._publish_audited_output(
+                temp,
+                output,
+                overwrite=False,
+                audit=lambda: self.images._audit_export(
+                    evidence_id=evidence.evidence_id,
+                    output_path=output,
+                    sha256=digest.hexdigest(),
+                    action="NTFS data stream exported",
+                    notes=f"node_id={node_id}; attribute_id={stream_id}",
+                ),
+            )
         finally:
             temp.unlink(missing_ok=True)
         sha256 = digest.hexdigest()
-        self.images._audit_export(
-            evidence_id=evidence.evidence_id,
-            output_path=output,
-            sha256=sha256,
-            action="NTFS data stream exported",
-            notes=f"node_id={node_id}; attribute_id={stream_id}",
-        )
+
         return {
             "node_id": node_id,
             "stream": stream,

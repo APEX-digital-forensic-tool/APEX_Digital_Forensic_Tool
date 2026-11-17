@@ -5,17 +5,16 @@ import { AlertCircle } from "./icons";
 import { Badge } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup, type Messages } from "./i18n/catalog";
+import { RAW_IMAGE_EXTENSIONS } from "./imageExtensions";
 
 /** Engine readers an image of this kind needs; the engine still probes the format. */
 const readersByExtension: Record<string, string[]> = {
   e01: ["e01-container", "pytsk3"],
-  ex01: ["e01-container", "pytsk3"],
   vhd: ["vhd-container", "pytsk3"],
   vhdx: ["vhdx-container", "pytsk3"],
-  raw: ["raw-dd-img", "pytsk3"],
-  dd: ["raw-dd-img", "pytsk3"],
-  img: ["raw-dd-img", "pytsk3"],
-  "001": ["raw-dd-img", "pytsk3"],
+  ...Object.fromEntries(
+    RAW_IMAGE_EXTENSIONS.map((ext) => [ext, ["raw-dd-img", "pytsk3"]]),
+  ),
 };
 const hashOptions = ["SHA256", "SHA1", "MD5", "NONE"];
 /** Algorithm names are proper names and are not translated. */
@@ -75,6 +74,9 @@ function IntakeSubject({
           {m.evidence.subject.formatNote}
         </figcaption>
       </figure>
+      {kind === "directory" && (
+        <p className="muted">{m.evidence.folderHashUnavailable}</p>
+      )}
       {missing.map((c) => (
         <div key={c.id} className="notice error intake-warning" role="alert">
           <AlertCircle size={16} />
@@ -134,24 +136,32 @@ export function intakeDialog({
         max: 255,
         default: picked.name,
       },
-      {
-        key: "hash_algorithm",
-        label: m.evidence.dialog.hashAfter,
-        options: hashOptions,
-        optionLabel: (o) =>
-          o === "NONE"
-            ? m.evidence.hashNone
-            : o === "SHA256"
-              ? m.evidence.hashRecommended(HASH_NAMES[o])
-              : (HASH_NAMES[o] ?? o),
-        default: "SHA256",
-      },
+      ...(kind === "directory"
+        ? []
+        : [
+            {
+              key: "hash_algorithm",
+              label: m.evidence.dialog.hashAfter,
+              options: hashOptions,
+              optionLabel: (o: string) =>
+                o === "NONE"
+                  ? m.evidence.hashNone
+                  : o === "SHA256"
+                    ? m.evidence.hashRecommended(HASH_NAMES[o])
+                    : (HASH_NAMES[o] ?? o),
+              default: "SHA256",
+            },
+          ]),
     ],
     submit: (f) =>
       register({
         displayName: String(f.display_name),
         algorithm:
-          f.hash_algorithm === "NONE" ? null : String(f.hash_algorithm),
+          kind === "directory" ||
+          f.hash_algorithm == null ||
+          f.hash_algorithm === "NONE"
+            ? null
+            : String(f.hash_algorithm),
       }),
   };
 }

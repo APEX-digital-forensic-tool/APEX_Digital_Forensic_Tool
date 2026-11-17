@@ -102,47 +102,48 @@ class CustodyLedger:
                 target="correction_of_event_id",
             )
 
-        existing = self._custody_repository.list_custody_events(evidence_id)
-        previous_event_hash = existing[-1].event_hash if existing else None
-        revision = (existing[-1].immutable_revision + 1) if existing else 1
-        occurred = occurred_at_utc or self._clock.now()
-        created_at = self._clock.now()
-        displayed = occurred.astimezone(ZoneInfo(case.timezone))
-        event_data = {
-            "schema_version": SCHEMA_VERSION,
-            "event_id": self._id_generator.new_id(),
-            "case_id": evidence.case_id,
-            "evidence_id": evidence_id,
-            "event_type": event_type.value,
-            "actor_id": actor_id,
-            "actor_name": actor_name,
-            "actor_role": actor_role,
-            "organization": organization,
-            "source_location": source_location,
-            "destination_location": destination_location,
-            "action": action,
-            "reason": reason,
-            "occurred_at_utc": to_json_timestamp(occurred),
-            "displayed_at": displayed.isoformat(timespec="microseconds"),
-            "timezone": case.timezone,
-            "tool_name": tool_name,
-            "tool_version": tool_version,
-            "previous_hash": previous_hash,
-            "current_hash": current_hash,
-            "notes": notes,
-            "created_at": to_json_timestamp(created_at),
-            "immutable_revision": revision,
-            "previous_event_hash": previous_event_hash,
-            "event_hash": "",
-            "ledger_algorithm": "SHA256",
-            "ledger_version": CUSTODY_LEDGER_VERSION,
-            "approval": None,
-            "correction_of_event_id": correction_of_event_id,
-        }
-        event_data["event_hash"] = canonical_sha256(event_data, exclude_keys={"event_hash"})
-        event = CustodyEvent(event_data)
-        self._custody_repository.save_custody_event(event)
-        return event
+        with self._custody_repository.custody_append():
+            existing = self._custody_repository.list_custody_events(evidence_id)
+            previous_event_hash = existing[-1].event_hash if existing else None
+            revision = (existing[-1].immutable_revision + 1) if existing else 1
+            occurred = occurred_at_utc or self._clock.now()
+            created_at = self._clock.now()
+            displayed = occurred.astimezone(ZoneInfo(case.timezone))
+            event_data = {
+                "schema_version": SCHEMA_VERSION,
+                "event_id": self._id_generator.new_id(),
+                "case_id": evidence.case_id,
+                "evidence_id": evidence_id,
+                "event_type": event_type.value,
+                "actor_id": actor_id,
+                "actor_name": actor_name,
+                "actor_role": actor_role,
+                "organization": organization,
+                "source_location": source_location,
+                "destination_location": destination_location,
+                "action": action,
+                "reason": reason,
+                "occurred_at_utc": to_json_timestamp(occurred),
+                "displayed_at": displayed.isoformat(timespec="microseconds"),
+                "timezone": case.timezone,
+                "tool_name": tool_name,
+                "tool_version": tool_version,
+                "previous_hash": previous_hash,
+                "current_hash": current_hash,
+                "notes": notes,
+                "created_at": to_json_timestamp(created_at),
+                "immutable_revision": revision,
+                "previous_event_hash": previous_event_hash,
+                "event_hash": "",
+                "ledger_algorithm": "SHA256",
+                "ledger_version": CUSTODY_LEDGER_VERSION,
+                "approval": None,
+                "correction_of_event_id": correction_of_event_id,
+            }
+            event_data["event_hash"] = canonical_sha256(event_data, exclude_keys={"event_hash"})
+            event = CustodyEvent(event_data)
+            self._custody_repository.save_custody_event(event)
+            return event
 
     def list_events(self, evidence_id: str) -> list[CustodyEvent]:
         """Return custody events for evidence."""
@@ -187,25 +188,31 @@ class CustodyLedger:
                 continue
             target = self._custody_repository.get_custody_event(ref_id)
             if target is None:
-                violations.append({
-                    "event_id": data["event_id"],
-                    "violation": "correction_target_missing",
-                    "offending_value": ref_id,
-                })
+                violations.append(
+                    {
+                        "event_id": data["event_id"],
+                        "violation": "correction_target_missing",
+                        "offending_value": ref_id,
+                    }
+                )
                 continue
             target_data = target.to_schema_dict()
             if target_data.get("evidence_id") != evidence_id:
-                violations.append({
-                    "event_id": data["event_id"],
-                    "violation": "correction_target_wrong_evidence",
-                    "offending_value": str(target_data.get("evidence_id")),
-                })
+                violations.append(
+                    {
+                        "event_id": data["event_id"],
+                        "violation": "correction_target_wrong_evidence",
+                        "offending_value": str(target_data.get("evidence_id")),
+                    }
+                )
             if target_data.get("case_id") != evidence.case_id:
-                violations.append({
-                    "event_id": data["event_id"],
-                    "violation": "correction_target_wrong_case",
-                    "offending_value": str(target_data.get("case_id")),
-                })
+                violations.append(
+                    {
+                        "event_id": data["event_id"],
+                        "violation": "correction_target_wrong_case",
+                        "offending_value": str(target_data.get("case_id")),
+                    }
+                )
         return violations
 
     def add_correction(

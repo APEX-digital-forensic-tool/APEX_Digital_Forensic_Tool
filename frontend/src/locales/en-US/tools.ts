@@ -16,6 +16,7 @@ export const tools: Messages["tools"] = {
       action: "Recover the selected deleted file",
     },
     streams: {
+      none: "No alternate data streams. This tool lists NTFS data streams.",
       title: "NTFS data streams (ADS)",
       list: "List data streams",
       stream: "Stream",
@@ -25,6 +26,9 @@ export const tools: Messages["tools"] = {
       offset: "Stream offset",
       read: "Read stream",
       export: "Export stream",
+      noStreams: "No alternate data streams.",
+      notNtfs: (fs: string) =>
+        `${fs} has no alternate data streams (ADS). ADS are supported on NTFS.`,
     },
     machine: {
       title: "OCR and speech recognition",
@@ -37,8 +41,12 @@ export const tools: Messages["tools"] = {
       sttAuto: "Detect speech language",
       runOcr: "Extract text from the selected file",
       runStt: "Recognize speech in the selected file",
+      needsImage: "Select an image file (PNG, JPEG, GIF, TIFF, BMP or WebP).",
+      needsMedia: "Select an audio or video file.",
     },
     carve: {
+      directoryUnavailable:
+        "Directory evidence cannot be carved. Select disk-image evidence.",
       title: "File signature carving",
       body: "Finds contiguous bytes of PNG, JPEG, PDF, ZIP and GIF files. Results are review candidates whose original names are unknown.",
       scope: "Scan scope",

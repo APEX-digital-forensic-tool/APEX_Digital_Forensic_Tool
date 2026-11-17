@@ -41,7 +41,12 @@ def _write_ocr_fixture(path: Path, text: str = "HELLO 123") -> None:
     image.save(path)
 
 
-def _write_fake_whisper_cli(path: Path) -> None:
+def _write_fake_whisper_cli(
+    path: Path,
+    *,
+    sleep_seconds: float = 0,
+    temp_record: Path | None = None,
+) -> None:
     if os.name == "nt":
         pytest.skip("POSIX shebang Whisper fixture is not executable on Windows")
     path.write_text(
@@ -52,13 +57,11 @@ import sys
 import time
 from pathlib import Path
 
-if os.environ.get("APEX_STT_SLEEP"):
-    time.sleep(float(os.environ["APEX_STT_SLEEP"]))
-if os.environ.get("APEX_STT_EXIT"):
-    raise SystemExit(int(os.environ["APEX_STT_EXIT"]))
+time.sleep(__TEST_SLEEP__)
 output = Path(sys.argv[sys.argv.index("-of") + 1])
-if os.environ.get("APEX_STT_TEMP_RECORD"):
-    Path(os.environ["APEX_STT_TEMP_RECORD"]).write_text(str(output.parent), encoding="utf-8")
+record = __TEST_RECORD__
+if record is not None:
+    Path(record).write_text(str(output.parent), encoding="utf-8")
 output.with_suffix(".json").write_text(
     json.dumps(
         {
@@ -75,7 +78,9 @@ output.with_suffix(".json").write_text(
     ),
     encoding="utf-8",
 )
-""",
+""".replace("__TEST_SLEEP__", repr(sleep_seconds)).replace(
+            "__TEST_RECORD__", repr(None if temp_record is None else str(temp_record))
+        ),
         encoding="utf-8",
     )
     path.chmod(0o755)
@@ -149,10 +154,9 @@ def test_whisper_adapter_records_model_metadata_and_cleans_temp(
     model = tmp_path / "ggml-synthetic.bin"
     audio = tmp_path / "synthetic.wav"
     temp_record = tmp_path / "stt-temp.txt"
-    _write_fake_whisper_cli(executable)
+    _write_fake_whisper_cli(executable, temp_record=temp_record)
     model.write_bytes(b"synthetic model metadata only")
     audio.write_bytes(b"RIFFsynthetic")
-    monkeypatch.setenv("APEX_STT_TEMP_RECORD", str(temp_record))
     provider = WhisperCppCliSttProvider(
         executable=str(executable),
         model_path=model,
@@ -186,7 +190,7 @@ def test_whisper_adapter_timeout_and_cancellation_are_structured(
     executable = tmp_path / "whisper-cli"
     model = tmp_path / "ggml-synthetic.bin"
     audio = tmp_path / "synthetic.wav"
-    _write_fake_whisper_cli(executable)
+    _write_fake_whisper_cli(executable, sleep_seconds=1)
     model.write_bytes(b"synthetic model metadata only")
     audio.write_bytes(b"RIFFsynthetic")
     provider = WhisperCppCliSttProvider(
@@ -198,7 +202,6 @@ def test_whisper_adapter_timeout_and_cancellation_are_structured(
     with pytest.raises(ApexError) as cancelled:
         provider.analyze_audio(audio, cancellation_requested=True)
 
-    monkeypatch.setenv("APEX_STT_SLEEP", "1")
     with pytest.raises(ApexError) as timed_out:
         provider.analyze_audio(audio)
 

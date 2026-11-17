@@ -22,17 +22,13 @@ from apex_forensic.domain.errors import (
     ValidationError,
 )
 from apex_forensic.domain.models import EvidenceVolume
+from apex_forensic.domain.raw_image_extensions import RAW_IMAGE_FORMATS
 from apex_forensic.ports.evidence_reader import (
     MAX_EVIDENCE_READ_SIZE,
     EvidenceProbeResult,
     EvidenceReaderCapabilityStatement,
 )
 
-_RAW_SUFFIX_FORMATS = {
-    ".dd": EvidenceFormat.DD,
-    ".img": EvidenceFormat.IMG,
-    ".raw": EvidenceFormat.RAW,
-}
 _DEFAULT_SECTOR_SIZE = 512
 _FINGERPRINT_CHUNK_SIZE = 1024 * 1024
 
@@ -260,7 +256,7 @@ class RawImageReader:
 
     @staticmethod
     def _format_for_path(path: Path) -> EvidenceFormat:
-        return _RAW_SUFFIX_FORMATS.get(path.suffix.lower(), EvidenceFormat.RAW)
+        return RAW_IMAGE_FORMATS.get(path.suffix.lower(), EvidenceFormat.RAW)
 
     @staticmethod
     def _normalize_path(path: Path) -> str:

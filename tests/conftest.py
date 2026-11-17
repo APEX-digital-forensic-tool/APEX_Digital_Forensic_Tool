@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import gzip
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,6 +16,13 @@ from apex_forensic.config import ServiceBundle, build_services
 @pytest.fixture
 def project_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def valid_png(project_root: Path) -> bytes:
+    """Use real, redistributable image bytes even when an OCR provider is mocked."""
+    fixture = json.loads((project_root / "tests/fixtures/container-images.json").read_text())
+    return gzip.decompress(base64.b64decode(fixture["ocr.png"]["gzip_base64"]))
 
 
 @pytest.fixture

@@ -30,18 +30,22 @@ import {
   clearAiConnection,
   saveAiConnection,
   type AiDeps,
+  type AiConnectionChange,
   type KeyCrypto,
   type TextFile,
 } from "./aiConnection";
 import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
 import { hasActiveTasks, stopChild } from "./engineGuard";
+import { PickerReferences, type PickPurpose } from "./pickerReferences";
+import { IMAGE_EXTENSIONS } from "../src/imageExtensions";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
 const smokeTest = process.argv.includes("--apex-smoke-test");
 if (smokeTest) {
   const directory = process.env.APEX_SMOKE_DATA_DIR;
-  if (!directory) throw new Error("APEX_SMOKE_DATA_DIR is required for smoke testing");
+  if (!directory)
+    throw new Error("APEX_SMOKE_DATA_DIR is required for smoke testing");
   app.setPath("userData", resolve(directory));
 }
 
@@ -56,6 +60,7 @@ const operations = new Set([
   "artifacts.list",
   "search.query",
   "search.history",
+  "index.state",
   "timeline.list",
   "candidates.list",
   "candidates.review",
@@ -103,7 +108,7 @@ let backendError = "SERVICE_NOT_READY";
 // Set in before-quit; no engine is spawned or restarted after that.
 let quitting = false;
 const token = randomBytes(32).toString("hex");
-const picked = new Map<string, string>();
+const picked = new PickerReferences();
 let account:
   | {
       access_token: string;
@@ -192,7 +197,11 @@ async function local(operation: string, payload: Record<string, unknown>) {
     body: JSON.stringify(payload),
     // Reasoning models can take minutes for one governed AI request.
     signal: AbortSignal.timeout(
-      operation === "runtime" ? 60000 : operation === "ai.analyze" ? 300000 : 120000,
+      operation === "runtime"
+        ? 60000
+        : operation === "ai.analyze"
+          ? 630000
+          : 120000,
     ),
     redirect: "error",
   });
@@ -216,32 +225,53 @@ async function startBackend() {
     return;
   }
   const args = app.isPackaged ? [] : ["-m", "apex_desktop"];
-  const child = spawn(
-    command,
-    [...args, "--data-dir", join(app.getPath("userData"), "local")],
-    {
-      cwd: app.isPackaged ? process.resourcesPath : repo,
-      windowsHide: true,
-      env: {
-        ...process.env,
-        // {} when the user's own APEX_DESKTOP_AI_CONFIG manages the connection.
-        ...aiEnvironment(aiDeps),
-        PYTHONPATH: app.isPackaged ? "" : join(repo, "src"),
-        APEX_DESKTOP_TOKEN: token,
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      command,
+      [
+        ...args,
+        "--data-dir",
+        join(app.getPath("userData"), "local"),
+        "--parent-watch",
+      ],
+      {
+        cwd: app.isPackaged ? process.resourcesPath : repo,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          // {} when the user's own APEX_DESKTOP_AI_CONFIG manages the connection.
+          ...aiEnvironment(aiDeps),
+          PYTHONPATH: app.isPackaged ? "" : join(repo, "src"),
+          APEX_DESKTOP_TOKEN: token,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+    );
+  } catch {
+    backendURL = "";
+    backendError = "BACKEND_START_FAILED";
+    return;
+  }
   backend = child;
+  const readyTimeout = setTimeout(() => {
+    if (current !== generation || backendURL) return;
+    backendError = "BACKEND_START_TIMEOUT";
+    child.stdin?.end();
+    child.kill();
+  }, 90000);
   child.on("error", () => {
     if (current !== generation) return;
+    clearTimeout(readyTimeout);
     backendURL = "";
     backendError = "BACKEND_START_FAILED";
   });
   child.on("exit", () => {
     if (current !== generation) return;
+    clearTimeout(readyTimeout);
     backendURL = "";
-    backendError = "BACKEND_STOPPED";
+    if (!backendError || backendError === "SERVICE_NOT_READY")
+      backendError = "BACKEND_STOPPED";
   });
   // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
   child.stderr?.on("data", () => {});
@@ -249,6 +279,15 @@ async function startBackend() {
   lines.on("line", async (line) => {
     try {
       const data = JSON.parse(line);
+      if (current !== generation) return;
+      if (
+        data.type === "apex-start-error" &&
+        data.code === "DATA_DIRECTORY_IN_USE"
+      ) {
+        clearTimeout(readyTimeout);
+        backendError = data.code;
+        return;
+      }
       if (
         data.type === "apex-ready" &&
         Number.isInteger(data.port) &&
@@ -263,7 +302,13 @@ async function startBackend() {
               signal: AbortSignal.timeout(1000),
             });
             if (current !== generation) break;
-            if (r.ok) {
+            if (
+              r.ok &&
+              backendError === "SERVICE_NOT_READY" &&
+              child.exitCode === null &&
+              child.signalCode === null
+            ) {
+              clearTimeout(readyTimeout);
               backendURL = origin;
               backendError = "";
               break;
@@ -291,7 +336,14 @@ async function restartEngine() {
   // No request may reach the engine while it is being stopped.
   backendURL = "";
   backendError = "SERVICE_NOT_READY";
-  if (old && !(await stopChild(old, { graceMs: 10000, killMs: 5000 }))) {
+  if (
+    old &&
+    !(await stopChild(old, {
+      graceMs: 10000,
+      killMs: 5000,
+      requestStop: () => old.stdin?.end(),
+    }))
+  ) {
     // Keep the survivor so before-quit and a later restart try to stop it again.
     backend = old;
     backendError = "BACKEND_START_FAILED";
@@ -301,9 +353,15 @@ async function restartEngine() {
   if (quitting) return true;
   await startBackend();
   const deadline = Date.now() + 90000;
-  while (!backendURL && backendError === "SERVICE_NOT_READY" && Date.now() < deadline)
+  while (
+    !backendURL &&
+    backendError === "SERVICE_NOT_READY" &&
+    Date.now() < deadline
+  )
     await wait(100);
-  return true;
+  if (!backendURL && backendError === "SERVICE_NOT_READY")
+    backendError = "BACKEND_START_TIMEOUT";
+  return !!backendURL;
 }
 // Serialized so overlapping saves cannot orphan a child spawned by an earlier restart.
 let restarting: Promise<boolean> = Promise.resolve(true);
@@ -325,6 +383,7 @@ function lockDown(target: BrowserWindow) {
   target.webContents.session.setPermissionRequestHandler(
     (_wc, _permission, callback) => callback(false),
   );
+  target.webContents.session.setPermissionCheckHandler(() => false);
 }
 /** Assigns `window` before loading, so callers can close another window right away. */
 async function createMainWindow() {
@@ -370,229 +429,312 @@ async function createSetupWindow() {
   await created.loadURL(pageURL + "#setup");
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+function showStartupFailure() {
+  const text = messagesFor(app.getLocale()).native;
+  dialog.showErrorBox(text.startupFailedTitle, text.startupFailedBody);
+}
+let writableData = true;
+try {
+  const data = app.getPath("userData");
+  mkdirSync(data, { recursive: true });
+  const probe = join(data, `write-check-${randomUUID()}.tmp`);
+  writeFileSync(probe, "", { flag: "wx", mode: 0o600 });
+  rmSync(probe);
+} catch {
+  writableData = false;
+}
+if (!writableData) {
+  void app.whenReady().then(() => {
+    showStartupFailure();
+    app.quit();
+  });
+} else if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
     const open = window ?? setupWindow;
     open?.show();
     open?.focus();
   });
-  app.whenReady().then(async () => {
-    await startBackend();
-    pageURL =
-      !app.isPackaged && process.env.APEX_DEV_URL === "http://127.0.0.1:5173"
-        ? "http://127.0.0.1:5173/"
-        : pathToFileURL(join(__dirname, "../dist/index.html")).href;
-    handle("apex:invoke", async (_event, operation: unknown, input: unknown) => {
-      if (
-        typeof operation !== "string" ||
-        !operations.has(operation) ||
-        !input ||
-        typeof input !== "object" ||
-        Array.isArray(input)
-      )
-        return fail("VALIDATION_ERROR");
-      const payload = { ...(input as Record<string, unknown>) };
-      if (JSON.stringify(payload).length > 1048576)
-        return fail("RESOURCE_LIMIT_EXCEEDED");
-      if (operation === "evidence.register") {
-        const reference = String(payload.source_reference ?? "");
-        const path = picked.get(reference);
-        if (!path) return fail("PICKER_REFERENCE_REQUIRED");
-        delete payload.source_reference;
-        payload.source_path = path;
-        const result = await local(operation, payload);
-        if (result.ok) picked.delete(reference);
-        return result;
-      }
-      if (operation === "machine.configure") {
-        const old = await local("machine.capabilities", {});
-        if (!old.ok) return old;
-        const configured: Record<string, unknown> = {
-          ...old.data.settings,
-          ocr_provider: payload.ocr_provider,
-          stt_provider: payload.stt_provider,
-        };
-        for (const [referenceKey, pathKey] of [
-          ["model_reference", "stt_model_path"],
-          ["tessdata_reference", "tessdata_path"],
-        ]) {
-          if (payload[referenceKey] !== undefined) {
-            if (payload[referenceKey] === null) {
-              configured[pathKey] = null;
-              continue;
-            }
-            const path = picked.get(String(payload[referenceKey]));
-            if (!path) return fail("PICKER_REFERENCE_REQUIRED");
-            configured[pathKey] = path;
+  app
+    .whenReady()
+    .then(async () => {
+      await startBackend();
+      pageURL =
+        !app.isPackaged && process.env.APEX_DEV_URL === "http://127.0.0.1:5173"
+          ? "http://127.0.0.1:5173/"
+          : pathToFileURL(join(__dirname, "../dist/index.html")).href;
+      handle(
+        "apex:invoke",
+        async (event, operation: unknown, input: unknown) => {
+          if (
+            typeof operation !== "string" ||
+            !operations.has(operation) ||
+            !input ||
+            typeof input !== "object" ||
+            Array.isArray(input)
+          )
+            return fail("VALIDATION_ERROR");
+          const payload = { ...(input as Record<string, unknown>) };
+          if (JSON.stringify(payload).length > 1048576)
+            return fail("RESOURCE_LIMIT_EXCEEDED");
+          if (operation === "evidence.register") {
+            const reference = String(payload.source_reference ?? "");
+            const source = picked.get(reference, "evidence", event.sender.id);
+            if (!source) return fail("PICKER_REFERENCE_REQUIRED");
+            delete payload.source_reference;
+            payload.source_path = source.path;
+            const result = await local(operation, payload);
+            if (result.ok) picked.delete(reference);
+            return result;
           }
-        }
-        const result = await local(operation, configured);
-        if (result.ok)
-          for (const key of ["model_reference", "tessdata_reference"])
-            picked.delete(String(payload[key]));
-        return result;
-      }
-      return local(operation, payload);
-    });
-    handle("apex:pick", async (event, kind: unknown, locale: unknown) => {
-      if (kind !== "file" && kind !== "directory")
-        return fail("VALIDATION_ERROR");
-      const text = messagesFor(locale).native;
-      // trusted() guarantees the sender is one of this app's windows.
-      const parent = BrowserWindow.fromWebContents(event.sender)!;
-      const result = await dialog.showOpenDialog(parent, {
-        title: text.pickTitle,
-        properties: [kind === "directory" ? "openDirectory" : "openFile"],
-        filters:
-          kind === "file"
-            ? [
-                {
-                  name: text.evidenceImages,
-                  extensions: ["e01", "dd", "raw", "img", "vhd", "vhdx"],
-                },
-                { name: text.allFiles, extensions: ["*"] },
-              ]
-            : undefined,
-      });
-      if (result.canceled) return { ok: true, data: null };
-      const reference = randomUUID();
-      if (picked.size > 64) picked.clear();
-      picked.set(reference, result.filePaths[0]);
-      return {
-        ok: true,
-        data: { reference, name: result.filePaths[0].split(/[\\/]/).pop() },
-      };
-    });
-    handle("apex:exports", async () => {
-      const folder = join(app.getPath("userData"), "local", "exports");
-      mkdirSync(folder, { recursive: true });
-      const error = await shell.openPath(folder);
-      return error ? fail("EXPORT_FOLDER_FAILED") : { ok: true, data: null };
-    });
-    handle("apex:account", () => ({
-      ok: true,
-      data: {
-        connected: !!account && account.expiresAt > Date.now(),
-        origin: account?.origin ?? null,
-      },
-    }));
-    handle(
-      "apex:login",
-      async (_event, input: {
-        origin: string;
-        email: string;
-        password: string;
-        tenant_id: string;
-      }) => {
-        if (
-          !input ||
-          typeof input.origin !== "string" ||
-          typeof input.email !== "string" ||
-          typeof input.password !== "string" ||
-          typeof input.tenant_id !== "string"
-        )
-          return fail("VALIDATION_ERROR");
-        const url = new URL(input.origin);
-        if (
-          url.username ||
-          url.password ||
-          url.search ||
-          url.hash ||
-          url.pathname !== "/" ||
-          (url.protocol !== "https:" &&
-            !(
-              url.protocol === "http:" &&
-              ["127.0.0.1", "localhost"].includes(url.hostname)
-            ))
-        )
-          return fail("AUTH_ORIGIN_INVALID");
-        const response = await fetch(`${url.origin}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: input.email,
-            password: input.password,
-            tenant_id: input.tenant_id,
-          }),
-          redirect: "error",
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!response.ok)
-          return fail(
-            response.status === 401
-              ? "AUTH_LOGIN_FAILED"
-              : "AUTH_SERVER_UNAVAILABLE",
+          if (operation === "machine.configure") {
+            const old = await local("machine.capabilities", {});
+            if (!old.ok) return old;
+            const configured: Record<string, unknown> = {
+              ...old.data.settings,
+              ocr_provider: payload.ocr_provider,
+              stt_provider: payload.stt_provider,
+            };
+            for (const [referenceKey, pathKey] of [
+              ["model_reference", "stt_model_path"],
+              ["tessdata_reference", "tessdata_path"],
+            ]) {
+              if (payload[referenceKey] !== undefined) {
+                if (payload[referenceKey] === null) {
+                  configured[pathKey] = null;
+                  continue;
+                }
+                const source = picked.get(
+                  String(payload[referenceKey]),
+                  referenceKey === "model_reference" ? "model" : "tessdata",
+                  event.sender.id,
+                );
+                const expectedKind =
+                  referenceKey === "tessdata_reference" ||
+                  payload.stt_provider !== "whisper.cpp"
+                    ? "directory"
+                    : "file";
+                if (!source || source.kind !== expectedKind)
+                  return fail("PICKER_REFERENCE_REQUIRED");
+                configured[pathKey] = source.path;
+              }
+            }
+            const result = await local(operation, configured);
+            if (result.ok)
+              for (const key of ["model_reference", "tessdata_reference"])
+                picked.delete(String(payload[key]));
+            return result;
+          }
+          return local(operation, payload);
+        },
+      );
+      handle(
+        "apex:pick",
+        async (
+          event,
+          kind: unknown,
+          locale: unknown,
+          purpose: unknown = "evidence",
+        ) => {
+          if (kind !== "file" && kind !== "directory")
+            return fail("VALIDATION_ERROR");
+          if (!["evidence", "model", "tessdata"].includes(String(purpose)))
+            return fail("VALIDATION_ERROR");
+          const text = messagesFor(locale).native;
+          // trusted() guarantees the sender is one of this app's windows.
+          const parent = BrowserWindow.fromWebContents(event.sender)!;
+          const result = await dialog.showOpenDialog(parent, {
+            title: text.pickTitle,
+            properties: [kind === "directory" ? "openDirectory" : "openFile"],
+            filters:
+              kind === "file"
+                ? [
+                    {
+                      name: text.evidenceImages,
+                      extensions: IMAGE_EXTENSIONS,
+                    },
+                    { name: text.allFiles, extensions: ["*"] },
+                  ]
+                : undefined,
+          });
+          if (result.canceled) return { ok: true, data: null };
+          const reference = picked.add(
+            result.filePaths[0],
+            kind,
+            purpose as PickPurpose,
+            event.sender.id,
           );
-        const result = await response.json();
-        if (
-          typeof result.access_token !== "string" ||
-          typeof result.refresh_token !== "string" ||
-          typeof result.expires_in !== "number"
-        )
-          return fail("AUTH_CONTRACT_INVALID");
-        account = {
-          access_token: result.access_token,
-          refresh_token: result.refresh_token,
-          expiresAt: Date.now() + result.expires_in * 1000,
-          origin: url.origin,
-        };
-        return { ok: true, data: { connected: true, origin: url.origin } };
-      },
-    );
-    handle("apex:logout", () => {
-      account = undefined;
-      return { ok: true, data: null };
-    });
-    // Responses carry only the status; the key never leaves the main process.
-    handle("apex:ai-connection", () => ({
-      ok: true,
-      data: aiConnectionStatus(aiDeps),
-    }));
-    // A restart kills running analysis, so it is refused while any case has an active task.
-    // A failed check while the engine is up throws, which handle() reports as a failure.
-    const engineBusy = async () => !!backendURL && (await hasActiveTasks(local));
-    handle("apex:ai-connection-save", async (_event, input: unknown) => {
-      if (await engineBusy()) return fail("AI_ENGINE_BUSY");
-      const result = saveAiConnection(input, aiDeps);
-      if (!result.ok) return fail(result.code);
-      if (!(await restartBackend())) return fail("BACKEND_START_FAILED");
-      return { ok: true, data: aiConnectionStatus(aiDeps) };
-    });
-    handle("apex:ai-connection-clear", async () => {
-      if (await engineBusy()) return fail("AI_ENGINE_BUSY");
-      const result = clearAiConnection(aiDeps);
-      if (!result.ok) return fail(result.code);
-      if (!(await restartBackend())) return fail("BACKEND_START_FAILED");
-      return { ok: true, data: aiConnectionStatus(aiDeps) };
-    });
-    handle("apex:setup-complete", (event) => {
-      if (!sentBy(event, setupWindow)) return fail("DESKTOP_SENDER_DENIED");
-      const setup = setupWindow;
-      markSetupComplete(stateFile);
-      // Open the main window before closing setup so "all windows closed" never fires.
-      if (!window)
-        void createMainWindow().catch(() => {
-          /* A failed load leaves a blank window; nothing safe to report. */
-        });
-      setup?.close();
-      return { ok: true, data: null };
-    });
-    if (firstWindow({ setupComplete: isSetupComplete(stateFile), smokeTest }) === "setup") {
-      await createSetupWindow();
-      return;
-    }
-    const main = await createMainWindow();
-    if (smokeTest) {
-      try {
-        const deadline = Date.now() + 90000;
-        while (!backendURL && Date.now() < deadline) {
-          if (["BACKEND_START_FAILED", "BACKEND_STOPPED", "PYTHON_RUNTIME_MISSING"].includes(backendError))
-            throw new Error("Backend startup failed");
-          await new Promise((r) => setTimeout(r, 100));
+          return {
+            ok: true,
+            data: { reference, name: result.filePaths[0].split(/[\\/]/).pop() },
+          };
+        },
+      );
+      handle("apex:exports", async () => {
+        const folder = join(app.getPath("userData"), "local", "exports");
+        mkdirSync(folder, { recursive: true });
+        const error = await shell.openPath(folder);
+        return error ? fail("EXPORT_FOLDER_FAILED") : { ok: true, data: null };
+      });
+      handle("apex:account", () => ({
+        ok: true,
+        data: {
+          connected: !!account && account.expiresAt > Date.now(),
+          origin: account?.origin ?? null,
+        },
+      }));
+      handle(
+        "apex:login",
+        async (
+          _event,
+          input: {
+            origin: string;
+            email: string;
+            password: string;
+            tenant_id: string;
+          },
+        ) => {
+          if (
+            !input ||
+            typeof input.origin !== "string" ||
+            typeof input.email !== "string" ||
+            typeof input.password !== "string" ||
+            typeof input.tenant_id !== "string"
+          )
+            return fail("VALIDATION_ERROR");
+          let url: URL;
+          try {
+            url = new URL(input.origin);
+          } catch {
+            return fail("AUTH_ORIGIN_INVALID");
+          }
+          if (
+            url.username ||
+            url.password ||
+            url.search ||
+            url.hash ||
+            url.pathname !== "/" ||
+            (url.protocol !== "https:" &&
+              !(
+                url.protocol === "http:" &&
+                ["127.0.0.1", "localhost"].includes(url.hostname)
+              ))
+          )
+            return fail("AUTH_ORIGIN_INVALID");
+          const response = await fetch(`${url.origin}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: input.email,
+              password: input.password,
+              tenant_id: input.tenant_id,
+            }),
+            redirect: "error",
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!response.ok)
+            return fail(
+              response.status === 401
+                ? "AUTH_LOGIN_FAILED"
+                : "AUTH_SERVER_UNAVAILABLE",
+            );
+          const result = await response.json();
+          if (
+            typeof result.access_token !== "string" ||
+            typeof result.refresh_token !== "string" ||
+            typeof result.expires_in !== "number"
+          )
+            return fail("AUTH_CONTRACT_INVALID");
+          account = {
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+            expiresAt: Date.now() + result.expires_in * 1000,
+            origin: url.origin,
+          };
+          return { ok: true, data: { connected: true, origin: url.origin } };
+        },
+      );
+      handle("apex:logout", () => {
+        account = undefined;
+        return { ok: true, data: null };
+      });
+      // Responses carry only the status; the key never leaves the main process.
+      handle("apex:ai-connection", () => ({
+        ok: true,
+        data: aiConnectionStatus(aiDeps),
+      }));
+      // A restart kills running analysis, so it is refused while any case has an active task.
+      // A failed check while the engine is up throws, which handle() reports as a failure.
+      const engineBusy = async () =>
+        !!backendURL && (await hasActiveTasks(local));
+      handle("apex:restart-engine", async () => {
+        if (await engineBusy()) return fail("AI_ENGINE_BUSY");
+        return (await restartBackend())
+          ? { ok: true, data: null }
+          : fail(backendError || "BACKEND_START_FAILED");
+      });
+      const restartWithConnection = async (): Promise<AiConnectionChange> => {
+        let ready = false;
+        try {
+          ready = await restartBackend();
+        } catch {
+          /* Settings are already stored. */
         }
-        if (!backendURL) throw new Error("Backend readiness timed out");
-        const renderer = await main.webContents.executeJavaScript(`
+        return {
+          ...aiConnectionStatus(aiDeps),
+          engine_error: ready ? null : backendError || "BACKEND_START_FAILED",
+        };
+      };
+      handle("apex:ai-connection-save", async (_event, input: unknown) => {
+        if (await engineBusy()) return fail("AI_ENGINE_BUSY");
+        const result = saveAiConnection(input, aiDeps);
+        if (!result.ok) return fail(result.code);
+        return { ok: true, data: await restartWithConnection() };
+      });
+      handle("apex:ai-connection-clear", async () => {
+        if (await engineBusy()) return fail("AI_ENGINE_BUSY");
+        const result = clearAiConnection(aiDeps);
+        if (!result.ok) return fail(result.code);
+        return { ok: true, data: await restartWithConnection() };
+      });
+      handle("apex:setup-complete", (event) => {
+        if (!sentBy(event, setupWindow)) return fail("DESKTOP_SENDER_DENIED");
+        const setup = setupWindow;
+        markSetupComplete(stateFile);
+        // Open the main window before closing setup so "all windows closed" never fires.
+        if (!window)
+          void createMainWindow().catch(() => {
+            showStartupFailure();
+          });
+        setup?.close();
+        return { ok: true, data: null };
+      });
+      if (
+        firstWindow({
+          setupComplete: isSetupComplete(stateFile),
+          smokeTest,
+        }) === "setup"
+      ) {
+        await createSetupWindow();
+        return;
+      }
+      const main = await createMainWindow();
+      if (smokeTest) {
+        try {
+          const deadline = Date.now() + 90000;
+          while (!backendURL && Date.now() < deadline) {
+            if (
+              [
+                "BACKEND_START_FAILED",
+                "BACKEND_STOPPED",
+                "PYTHON_RUNTIME_MISSING",
+              ].includes(backendError)
+            )
+              throw new Error("Backend startup failed");
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          if (!backendURL) throw new Error("Backend readiness timed out");
+          const renderer = await main.webContents.executeJavaScript(`
           (async () => {
             if (!document.querySelector('#root')?.textContent ||
                 typeof window.apex?.invoke !== 'function') return false;
@@ -600,22 +742,84 @@ else {
             return result?.ok === true;
           })()
         `);
-        if (renderer !== true) throw new Error("Renderer or preload IPC failed");
-        console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: true, renderer: true, backend: true }));
-        app.quit();
-      } catch {
-        // Never emit backend stderr, tokens, evidence paths, or account details.
-        console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: false }));
-        backend?.kill();
-        app.exit(1);
+          if (renderer !== true)
+            throw new Error("Renderer or preload IPC failed");
+          console.log(
+            JSON.stringify({
+              type: "apex-desktop-smoke",
+              ok: true,
+              renderer: true,
+              backend: true,
+            }),
+          );
+          app.quit();
+        } catch {
+          // Never emit backend stderr, tokens, evidence paths, or account details.
+          console.log(
+            JSON.stringify({ type: "apex-desktop-smoke", ok: false }),
+          );
+          backend?.kill();
+          app.exit(1);
+        }
       }
-    }
-  });
+    })
+    .catch(() => {
+      showStartupFailure();
+      app.quit();
+    });
 }
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => {
+let quitApproved = false;
+app.on("before-quit", (event) => {
+  if (quitApproved) return;
+  event.preventDefault();
+  if (quitting) return;
   quitting = true;
-  account = undefined;
-  backend?.kill();
+  void (async () => {
+    let busy = false;
+    if (!smokeTest && backendURL) {
+      busy = await Promise.race([
+        hasActiveTasks(local).catch(() => true),
+        wait(5000).then(() => true),
+      ]);
+    }
+    if (busy) {
+      const text = messagesFor(app.getLocale()).native;
+      const answer = await dialog.showMessageBox({
+        type: "question",
+        title: text.quitTitle,
+        message: text.quitActive,
+        buttons: [text.cancel, text.quit],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (answer.response !== 1) {
+        quitting = false;
+        return;
+      }
+    }
+    generation++;
+    backendURL = "";
+    backendError = "BACKEND_STOPPED";
+    const closing = backend;
+    if (
+      closing &&
+      !(await stopChild(closing, {
+        graceMs: 15000,
+        killMs: 5000,
+        requestStop: () => closing.stdin?.end(),
+      }))
+    ) {
+      quitting = false;
+      showStartupFailure();
+      return;
+    }
+    backend = undefined;
+    account = undefined;
+    quitApproved = true;
+    app.quit();
+  })().catch(() => {
+    quitting = false;
+    showStartupFailure();
+  });
 });
-
