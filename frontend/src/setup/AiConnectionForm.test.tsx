@@ -42,6 +42,7 @@ it("saves the connection, then clears the key field and never shows the key", as
       has_key: true,
       base_url: "https://api.example.com/v1",
       model_id: "model-x",
+      engine_error: null,
     }),
   );
   mount({ aiConnection: async () => ok(none), saveAiConnection: save });

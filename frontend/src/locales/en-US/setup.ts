@@ -45,6 +45,8 @@ export const setup: Messages["setup"] = {
     storageUnavailable:
       "This computer cannot encrypt the key, so it is not stored in the app.",
     restartNote: "Saving restarts the analysis engine.",
+    engineNotRestarted:
+      "The AI connection was saved, but the analysis engine did not restart.",
     saving:
       "Restarting the analysis engine. This can take up to a minute or so.",
     busy: "You can change this after the running analysis tasks finish.",

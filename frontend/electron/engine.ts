@@ -136,8 +136,9 @@ export class Engine {
   }
 
   /**
-   * Stop the engine and start it with the current launch settings.
-   * Resolves false when the old engine survived SIGKILL; no second engine is started on its data.
+   * Stop the engine and start it with the current launch settings. Resolves true once the new
+   * engine is ready. Resolves false when it failed, or when the old engine survived SIGKILL;
+   * no second engine is started on a survivor's data.
    */
   restart() {
     const run = () => this.restartNow();
@@ -146,7 +147,7 @@ export class Engine {
   }
 
   private async restartNow() {
-    if (this.stopped) return true;
+    if (this.stopped) return false;
     const old = this.child;
     this.generation++;
     // No request may reach the engine while it is being stopped.
@@ -159,9 +160,7 @@ export class Engine {
       return false;
     }
     this.child = undefined;
-    if (this.stopped) return true;
-    await this.start();
-    return true;
+    return this.start();
   }
 
   /** On quit: kill the engine and never start another. */

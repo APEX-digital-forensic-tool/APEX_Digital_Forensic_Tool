@@ -28,6 +28,10 @@ export interface AiConnectionStatus {
   max_output: number;
   timeout: number;
 }
+/** A saved or cleared connection, and why the engine did not restart with it (null once it did). */
+export type AiConnectionChange = AiConnectionStatus & {
+  engine_error: string | null;
+};
 export type AiSaveResult =
   | { ok: true }
   | {

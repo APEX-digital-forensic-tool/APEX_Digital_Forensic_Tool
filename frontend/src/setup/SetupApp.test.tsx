@@ -130,6 +130,7 @@ it("saves the AI connection with the step's own primary button and moves on", as
       has_key: true,
       base_url: "https://api.example.com/v1",
       model_id: "model-x",
+      engine_error: null,
     },
   }));
   window.apex = { ...createDemoBridge(), saveAiConnection: save };
@@ -316,6 +317,7 @@ it("locks the window while the AI connection is saving and then moves on", async
         has_key: true,
         base_url: "http://127.0.0.1:9/v1",
         model_id: "test-model",
+        engine_error: null,
       },
     }),
   );
