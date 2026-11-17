@@ -878,3 +878,29 @@ def test_root_whose_listing_fails_stays_partial(services, tmp_path: Path) -> Non
         include_background=False,
     )
     assert nodes()["/"].is_partial is True
+
+
+def test_folders_a_selected_job_never_lists_are_not_complete(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "fresh"
+    (evidence_dir / "dir" / "nested").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    (evidence_dir / "dir" / "nested" / "b.txt").write_text("y", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+
+    job, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_paths=["dir/nested"],
+        include_background=False,
+    )
+    nodes = {
+        node.display_path: node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+    }
+
+    assert job.status == "SUCCEEDED"
+    assert nodes["/dir/nested"].is_partial is False
+    # Only /dir/nested was listed; the root and /dir were never read.
+    assert nodes["/"].is_partial is True
+    assert nodes["/dir"].is_partial is True
