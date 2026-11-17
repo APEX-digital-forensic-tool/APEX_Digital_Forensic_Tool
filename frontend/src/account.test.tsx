@@ -1,0 +1,112 @@
+// @vitest-environment jsdom
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, expect, it } from "vitest";
+import type { AccountStatus } from "../electron/serverSession";
+import { createDemoBridge } from "./demoBridge";
+import { AccountPanel } from "./panels";
+
+afterEach(() => {
+  cleanup();
+  delete window.apex;
+});
+
+const SIGNED_IN: AccountStatus = {
+  state: "signed_in",
+  connected: true,
+  origin: "https://apex.test",
+  expires_at: Date.UTC(2026, 10, 17, 3, 30),
+  reason: null,
+};
+
+function bridge(initial: AccountStatus) {
+  const b = createDemoBridge();
+  let push: ((s: AccountStatus) => void) | null = null;
+  b.account = async () => ({ ok: true, data: initial });
+  b.onAccountChange = (listener) => {
+    push = listener;
+    return () => {
+      push = null;
+    };
+  };
+  window.apex = b;
+  return { b, push: (s: AccountStatus) => act(() => push!(s)) };
+}
+
+it("shows the signed-in server and when the session renews", async () => {
+  bridge(SIGNED_IN);
+  render(<AccountPanel />);
+  expect(await screen.findByText("로그인됨")).toBeTruthy();
+  expect(screen.getByText("https://apex.test")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toMatch(
+    /전에 자동으로 갱신됩니다/,
+  );
+});
+
+it("follows refresh trouble and expiry pushed from the main process", async () => {
+  const { push } = bridge(SIGNED_IN);
+  render(<AccountPanel />);
+  await screen.findByText("로그인됨");
+
+  push({ ...SIGNED_IN, state: "reconnecting", connected: false });
+  expect(screen.getByText("다시 연결 중")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toMatch(
+    /연결되면 자동으로 이어집니다/,
+  );
+
+  push({
+    state: "signed_out",
+    connected: false,
+    origin: null,
+    expires_at: null,
+    reason: "SESSION_EXPIRED",
+  });
+  expect(screen.getByText(/세션이 만료되어 로그아웃되었습니다/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: /계정 연결/ })).toBeTruthy();
+});
+
+it("keeps the session on screen and shows why when logout fails", async () => {
+  const { b } = bridge(SIGNED_IN);
+  b.logout = async () => ({
+    ok: false,
+    error: { code: "DESKTOP_CONNECTION_FAILED" },
+  });
+  render(<AccountPanel />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /앱에서 로그아웃/ }),
+  );
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.getByText("로그인됨")).toBeTruthy();
+});
+
+it("shows the sign-in error and keeps the form", async () => {
+  const { b } = bridge({
+    state: "signed_out",
+    connected: false,
+    origin: null,
+    expires_at: null,
+    reason: null,
+  });
+  b.login = async () => ({ ok: false, error: { code: "AUTH_LOGIN_FAILED" } });
+  const { container } = render(<AccountPanel />);
+  const form = container.querySelector("form")!;
+  for (const [name, value] of [
+    ["origin", "https://apex.test"],
+    ["tenant_id", "t1"],
+    ["email", "a@example.com"],
+    ["password", "pw"],
+  ])
+    fireEvent.change(form.querySelector(`[name=${name}]`)!, {
+      target: { value },
+    });
+  fireEvent.submit(form);
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /이메일, 비밀번호 또는 테넌트 ID를 확인해주세요/,
+  );
+  expect(container.querySelector("form")).toBeTruthy();
+});

@@ -536,7 +536,16 @@ it("offers Retry when the account status fails to load", async () => {
   bridge.account = async () =>
     ++calls === 1
       ? { ok: false, error: { code: "DESKTOP_CONNECTION_FAILED" } }
-      : { ok: true, data: { connected: true, origin: "https://apex.test" } };
+      : {
+          ok: true,
+          data: {
+            state: "signed_in",
+            connected: true,
+            origin: "https://apex.test",
+            expires_at: Date.now() + 3600000,
+            reason: null,
+          },
+        };
   window.apex = bridge;
   render(<AccountPanel />);
   fireEvent.click(await screen.findByRole("button", { name: "다시 시도" }));
