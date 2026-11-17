@@ -28,6 +28,7 @@ from apex_forensic.runtime.capabilities import capability_report
 from . import ai as desktop_ai
 from . import machine
 from . import models as m
+from .index_state import index_state
 from .tasks import ProgressCallback, Tasks, encode
 
 MODELS: dict[str, type[m.Input]] = {
@@ -51,6 +52,7 @@ MODELS: dict[str, type[m.Input]] = {
     "artifacts.list": m.Artifacts,
     "search.query": m.Search,
     "search.history": m.CaseInput,
+    "index.state": m.IndexState,
     "timeline.list": m.PageInput,
     "candidates.list": m.PageInput,
     "candidates.review": m.CandidateReview,
@@ -175,11 +177,15 @@ def invoke(
         if mode == SearchQueryMode.REGEX_METADATA and len(p["query_text"]) > 512:
             raise ValidationError("Regex maximum is 512 characters.")
         evidence = p.pop("evidence_id")
-        return s.search.query(**p, query_mode=mode, evidence_ids=[evidence] if evidence else None)
+        page = s.search.query(**p, query_mode=mode, evidence_ids=[evidence] if evidence else None)
+        return {**encode(page), "index_state": index_state(s, case_id, evidence)}
     if operation == "search.history":
         return s.search.history(case_id=case_id)
     if operation == "timeline.list":
-        return s.timeline.list_events(**p)
+        events = s.timeline.list_events(**p)
+        return {**encode(events), "index_state": index_state(s, case_id, p.get("evidence_id"))}
+    if operation == "index.state":
+        return index_state(s, case_id, p["evidence_id"])
     if operation == "candidates.list":
         return s.candidates.list_candidates(**p)
     if operation == "candidates.review":

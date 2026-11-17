@@ -59,6 +59,22 @@ export const views: Messages["views"] = {
     formatHint: "The engine detects the format",
     wholeCase: "Entire case",
   },
+  indexState: {
+    searchNone: (name: string) =>
+      `“${name}” has no search index. Zero results may mean “not checked yet”, not “nothing found”.`,
+    searchPartial: (name: string) =>
+      `The search index for “${name}” is only partly built. Some items may not be searchable.`,
+    timelineNone: (name: string) =>
+      `The timeline for “${name}” has not been built. An empty list does not mean “no events”.`,
+    timelinePartial: (name: string) =>
+      `The timeline for “${name}” is only partly built. There may be more events.`,
+    timelineStale: (name: string) =>
+      `The file index for “${name}” changed after the timeline was built. The timeline may be out of date.`,
+    needsFiles: "A file index is needed first.",
+    buildSearch: "Build search index",
+    buildTimeline: "Build timeline",
+    buildFiles: "Build file index",
+  },
   search: {
     queryLabel: "Search query",
     placeholder: "Search file names, paths or artifacts (Ctrl/⌘+F)",
