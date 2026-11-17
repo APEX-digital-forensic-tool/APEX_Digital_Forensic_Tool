@@ -1,4 +1,19 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { TextFile } from "./aiConnection";
+
+/** True when a file can be created in `dir`, creating the folder first if needed. */
+export function canWrite(dir: string): boolean {
+  const probe = join(dir, `.apex-write-check-${process.pid}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(probe, "");
+    rmSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function isSetupComplete(file: TextFile): boolean {
   const text = file.read();

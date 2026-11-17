@@ -8,12 +8,10 @@ import {
   type IpcMainInvokeEvent,
   type WebPreferences,
 } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -21,9 +19,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { createInterface } from "node:readline";
 import { runtimeExecutable } from "./runtime";
 import { messagesFor } from "../src/i18n/catalog";
+import { resolveInitialLocale } from "../src/i18n/locales";
 import {
   aiConnectionStatus,
   aiEnvironment,
@@ -33,8 +31,14 @@ import {
   type KeyCrypto,
   type TextFile,
 } from "./aiConnection";
-import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
-import { hasActiveTasks, stopChild } from "./engineGuard";
+import {
+  canWrite,
+  firstWindow,
+  isSetupComplete,
+  markSetupComplete,
+} from "./appState";
+import { Engine } from "./engine";
+import { hasActiveTasks } from "./engineGuard";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -95,13 +99,6 @@ const operations = new Set([
 ]);
 let window: BrowserWindow | undefined;
 let setupWindow: BrowserWindow | undefined;
-let backend: ChildProcess | undefined;
-// Bumped on every spawn and restart so a previous child's events never touch current state.
-let generation = 0;
-let backendURL = "";
-let backendError = "SERVICE_NOT_READY";
-// Set in before-quit; no engine is spawned or restarted after that.
-let quitting = false;
 const token = randomBytes(32).toString("hex");
 const picked = new Map<string, string>();
 let account:
@@ -182,8 +179,8 @@ function handle(
   });
 }
 async function local(operation: string, payload: Record<string, unknown>) {
-  if (!backendURL) return fail(backendError);
-  const response = await fetch(`${backendURL}/v1/operations/${operation}`, {
+  if (!engine.url) return fail(engine.error);
+  const response = await fetch(`${engine.url}/v1/operations/${operation}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -198,11 +195,8 @@ async function local(operation: string, payload: Record<string, unknown>) {
   });
   return response.json();
 }
-async function startBackend() {
-  if (quitting) return;
-  const current = ++generation;
+const engine = new Engine(token, () => {
   const repo = resolve(__dirname, "../..");
-  const runtime = runtimeExecutable(process.resourcesPath, process.platform);
   const python =
     process.env.APEX_PYTHON ||
     join(
@@ -210,107 +204,24 @@ async function startBackend() {
       ".venv",
       process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
     );
-  const command = app.isPackaged ? runtime : python;
-  if (!existsSync(command)) {
-    backendError = "PYTHON_RUNTIME_MISSING";
-    return;
-  }
-  const args = app.isPackaged ? [] : ["-m", "apex_desktop"];
-  const child = spawn(
-    command,
-    [...args, "--data-dir", join(app.getPath("userData"), "local")],
-    {
-      cwd: app.isPackaged ? process.resourcesPath : repo,
-      windowsHide: true,
-      env: {
-        ...process.env,
-        // {} when the user's own APEX_DESKTOP_AI_CONFIG manages the connection.
-        ...aiEnvironment(aiDeps),
-        PYTHONPATH: app.isPackaged ? "" : join(repo, "src"),
-        APEX_DESKTOP_TOKEN: token,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  return {
+    command: app.isPackaged
+      ? runtimeExecutable(process.resourcesPath, process.platform)
+      : python,
+    args: [
+      ...(app.isPackaged ? [] : ["-m", "apex_desktop"]),
+      "--data-dir",
+      join(app.getPath("userData"), "local"),
+    ],
+    cwd: app.isPackaged ? process.resourcesPath : repo,
+    env: {
+      ...process.env,
+      // {} when the user's own APEX_DESKTOP_AI_CONFIG manages the connection.
+      ...aiEnvironment(aiDeps),
+      PYTHONPATH: app.isPackaged ? "" : join(repo, "src"),
     },
-  );
-  backend = child;
-  child.on("error", () => {
-    if (current !== generation) return;
-    backendURL = "";
-    backendError = "BACKEND_START_FAILED";
-  });
-  child.on("exit", () => {
-    if (current !== generation) return;
-    backendURL = "";
-    backendError = "BACKEND_STOPPED";
-  });
-  // Raw backend stderr may contain sensitive paths. Never forward it to the renderer/logs.
-  child.stderr?.on("data", () => {});
-  const lines = createInterface({ input: child.stdout! });
-  lines.on("line", async (line) => {
-    try {
-      const data = JSON.parse(line);
-      if (
-        data.type === "apex-ready" &&
-        Number.isInteger(data.port) &&
-        data.port > 0 &&
-        data.port <= 65535
-      ) {
-        const origin = `http://127.0.0.1:${data.port}`;
-        for (let i = 0; i < 50 && current === generation; i++) {
-          try {
-            const r = await fetch(`${origin}/health`, {
-              headers: { Authorization: `Bearer ${token}` },
-              signal: AbortSignal.timeout(1000),
-            });
-            if (current !== generation) break;
-            if (r.ok) {
-              backendURL = origin;
-              backendError = "";
-              break;
-            }
-          } catch {
-            /* Wait for the child's listener, not an unrelated port. */
-          }
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      }
-    } catch {
-      /* Only consume the minimal readiness message. */
-    }
-  });
-}
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/**
- * Stop the engine, start it with the current AI environment, and wait up to 90s for readiness.
- * Resolves false when the old engine survived SIGKILL; no second engine is started on its data.
- */
-async function restartEngine() {
-  if (quitting) return true;
-  const old = backend;
-  generation++;
-  // No request may reach the engine while it is being stopped.
-  backendURL = "";
-  backendError = "SERVICE_NOT_READY";
-  if (old && !(await stopChild(old, { graceMs: 10000, killMs: 5000 }))) {
-    // Keep the survivor so before-quit and a later restart try to stop it again.
-    backend = old;
-    backendError = "BACKEND_START_FAILED";
-    return false;
-  }
-  backend = undefined;
-  if (quitting) return true;
-  await startBackend();
-  const deadline = Date.now() + 90000;
-  while (!backendURL && backendError === "SERVICE_NOT_READY" && Date.now() < deadline)
-    await wait(100);
-  return true;
-}
-// Serialized so overlapping saves cannot orphan a child spawned by an earlier restart.
-let restarting: Promise<boolean> = Promise.resolve(true);
-function restartBackend() {
-  restarting = restarting.then(restartEngine, restartEngine);
-  return restarting;
-}
+  };
+});
 
 const webPreferences: WebPreferences = {
   preload: join(__dirname, "preload.cjs"),
@@ -370,15 +281,38 @@ async function createSetupWindow() {
   await created.loadURL(pageURL + "#setup");
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
-else {
+/** Native dialog text in the language the renderer picks on a first run. */
+const nativeText = () =>
+  messagesFor(resolveInitialLocale(null, app.getPreferredSystemLanguages()))
+    .native;
+/** Tell the user why APEX is closing, then quit so the single-instance lock is released. */
+function quitWith(message: string) {
+  if (smokeTest) {
+    // A modal dialog would hang CI.
+    console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: false }));
+    app.exit(1);
+    return;
+  }
+  dialog.showErrorBox(nativeText().startFailedTitle, message);
+  app.quit();
+}
+
+if (!app.requestSingleInstanceLock()) {
+  // The lock also fails when its file cannot be created; only a real second instance stays silent.
+  const folder = app.getPath("userData");
+  if (canWrite(folder)) app.quit();
+  else
+    void app
+      .whenReady()
+      .then(() => quitWith(nativeText().userDataUnwritable(folder)));
+} else {
   app.on("second-instance", () => {
     const open = window ?? setupWindow;
     open?.show();
     open?.focus();
   });
   app.whenReady().then(async () => {
-    await startBackend();
+    engine.start();
     pageURL =
       !app.isPackaged && process.env.APEX_DEV_URL === "http://127.0.0.1:5173"
         ? "http://127.0.0.1:5173/"
@@ -551,19 +485,19 @@ else {
     }));
     // A restart kills running analysis, so it is refused while any case has an active task.
     // A failed check while the engine is up throws, which handle() reports as a failure.
-    const engineBusy = async () => !!backendURL && (await hasActiveTasks(local));
+    const engineBusy = async () => !!engine.url && (await hasActiveTasks(local));
     handle("apex:ai-connection-save", async (_event, input: unknown) => {
       if (await engineBusy()) return fail("AI_ENGINE_BUSY");
       const result = saveAiConnection(input, aiDeps);
       if (!result.ok) return fail(result.code);
-      if (!(await restartBackend())) return fail("BACKEND_START_FAILED");
+      if (!(await engine.restart())) return fail("BACKEND_START_FAILED");
       return { ok: true, data: aiConnectionStatus(aiDeps) };
     });
     handle("apex:ai-connection-clear", async () => {
       if (await engineBusy()) return fail("AI_ENGINE_BUSY");
       const result = clearAiConnection(aiDeps);
       if (!result.ok) return fail(result.code);
-      if (!(await restartBackend())) return fail("BACKEND_START_FAILED");
+      if (!(await engine.restart())) return fail("BACKEND_START_FAILED");
       return { ok: true, data: aiConnectionStatus(aiDeps) };
     });
     handle("apex:setup-complete", (event) => {
@@ -586,12 +520,12 @@ else {
     if (smokeTest) {
       try {
         const deadline = Date.now() + 90000;
-        while (!backendURL && Date.now() < deadline) {
-          if (["BACKEND_START_FAILED", "BACKEND_STOPPED", "PYTHON_RUNTIME_MISSING"].includes(backendError))
+        while (!engine.url && Date.now() < deadline) {
+          if (["BACKEND_START_FAILED", "BACKEND_STOPPED", "PYTHON_RUNTIME_MISSING"].includes(engine.error))
             throw new Error("Backend startup failed");
           await new Promise((r) => setTimeout(r, 100));
         }
-        if (!backendURL) throw new Error("Backend readiness timed out");
+        if (!engine.url) throw new Error("Backend readiness timed out");
         const renderer = await main.webContents.executeJavaScript(`
           (async () => {
             if (!document.querySelector('#root')?.textContent ||
@@ -606,16 +540,15 @@ else {
       } catch {
         // Never emit backend stderr, tokens, evidence paths, or account details.
         console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: false }));
-        backend?.kill();
+        engine.child?.kill();
         app.exit(1);
       }
     }
-  });
+  }).catch(() => quitWith(nativeText().startFailed));
 }
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", () => {
-  quitting = true;
   account = undefined;
-  backend?.kill();
+  engine.stop();
 });
 
