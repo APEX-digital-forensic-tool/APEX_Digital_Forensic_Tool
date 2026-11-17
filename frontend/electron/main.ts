@@ -21,6 +21,7 @@ import {
 import { pathToFileURL } from "node:url";
 import { runtimeExecutable } from "./runtime";
 import { messagesFor } from "../src/i18n/catalog";
+import { resolveInitialLocale } from "../src/i18n/locales";
 import {
   aiConnectionStatus,
   aiEnvironment,
@@ -30,7 +31,12 @@ import {
   type KeyCrypto,
   type TextFile,
 } from "./aiConnection";
-import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
+import {
+  canWrite,
+  firstWindow,
+  isSetupComplete,
+  markSetupComplete,
+} from "./appState";
 import { Engine } from "./engine";
 import { hasActiveTasks } from "./engineGuard";
 
@@ -275,8 +281,31 @@ async function createSetupWindow() {
   await created.loadURL(pageURL + "#setup");
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
-else {
+/** Native dialog text in the language the renderer picks on a first run. */
+const nativeText = () =>
+  messagesFor(resolveInitialLocale(null, app.getPreferredSystemLanguages()))
+    .native;
+/** Tell the user why APEX is closing, then quit so the single-instance lock is released. */
+function quitWith(message: string) {
+  if (smokeTest) {
+    // A modal dialog would hang CI.
+    console.log(JSON.stringify({ type: "apex-desktop-smoke", ok: false }));
+    app.exit(1);
+    return;
+  }
+  dialog.showErrorBox(nativeText().startFailedTitle, message);
+  app.quit();
+}
+
+if (!app.requestSingleInstanceLock()) {
+  // The lock also fails when its file cannot be created; only a real second instance stays silent.
+  const folder = app.getPath("userData");
+  if (canWrite(folder)) app.quit();
+  else
+    void app
+      .whenReady()
+      .then(() => quitWith(nativeText().userDataUnwritable(folder)));
+} else {
   app.on("second-instance", () => {
     const open = window ?? setupWindow;
     open?.show();
@@ -515,7 +544,7 @@ else {
         app.exit(1);
       }
     }
-  });
+  }).catch(() => quitWith(nativeText().startFailed));
 }
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", () => {

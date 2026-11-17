@@ -38,12 +38,19 @@ export class Engine {
       this.error = "PYTHON_RUNTIME_MISSING";
       return;
     }
-    const child = spawn(command, args, {
-      cwd,
-      windowsHide: true,
-      env: { ...env, APEX_DESKTOP_TOKEN: this.token },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let child: ChildProcess;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        windowsHide: true,
+        env: { ...env, APEX_DESKTOP_TOKEN: this.token },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch {
+      // ENOEXEC, ELOOP, EPERM and the like throw here instead of emitting "error".
+      this.error = "BACKEND_START_FAILED";
+      return;
+    }
     this.child = child;
     child.on("error", () => {
       if (current !== this.generation) return;
