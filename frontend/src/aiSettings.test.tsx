@@ -89,7 +89,7 @@ it("blocks Save and Remove while the open case has an active task", async () => 
 });
 
 it("removes a configured connection and loads the app state again", async () => {
-  const clear = vi.fn(async () => ok(none));
+  const clear = vi.fn(async () => ok({ ...none, engine_error: null }));
   const runtime = mount({
     aiConnection: async () => ok(configured),
     clearAiConnection: clear,

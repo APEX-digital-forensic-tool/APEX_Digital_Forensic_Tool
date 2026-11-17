@@ -163,3 +163,23 @@ server.stdout.once("data", (line) => {
     expect(engine.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
 });
+
+describe("Engine.restart", () => {
+  it("resolves with whether the new engine became ready", async () => {
+    const healthy = fakeEngine(serve("res.end('{}');"));
+    const missing = folder();
+    let launch = healthy;
+    const engine = track(new Engine("token", () => launch()));
+    await expect(engine.start()).resolves.toBe(true);
+    await expect(engine.restart()).resolves.toBe(true);
+    expect(engine.url).not.toBe("");
+    launch = () => ({
+      command: join(missing, "missing"),
+      args: [],
+      cwd: missing,
+      env: {},
+    });
+    await expect(engine.restart()).resolves.toBe(false);
+    expect(engine.error).toBe("PYTHON_RUNTIME_MISSING");
+  });
+});

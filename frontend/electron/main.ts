@@ -27,6 +27,7 @@ import {
   aiEnvironment,
   clearAiConnection,
   saveAiConnection,
+  type AiConnectionChange,
   type AiDeps,
   type KeyCrypto,
   type TextFile,
@@ -486,19 +487,25 @@ if (!app.requestSingleInstanceLock()) {
     // A restart kills running analysis, so it is refused while any case has an active task.
     // A failed check while the engine is up throws, which handle() reports as a failure.
     const engineBusy = async () => !!engine.url && (await hasActiveTasks(local));
+    // The change is stored before the restart, so the reply reports both.
+    const restartWithConnection = async (): Promise<AiConnectionChange> => {
+      const ready = await engine.restart();
+      return {
+        ...aiConnectionStatus(aiDeps),
+        engine_error: ready ? null : engine.error || "BACKEND_START_FAILED",
+      };
+    };
     handle("apex:ai-connection-save", async (_event, input: unknown) => {
       if (await engineBusy()) return fail("AI_ENGINE_BUSY");
       const result = saveAiConnection(input, aiDeps);
       if (!result.ok) return fail(result.code);
-      if (!(await engine.restart())) return fail("BACKEND_START_FAILED");
-      return { ok: true, data: aiConnectionStatus(aiDeps) };
+      return { ok: true, data: await restartWithConnection() };
     });
     handle("apex:ai-connection-clear", async () => {
       if (await engineBusy()) return fail("AI_ENGINE_BUSY");
       const result = clearAiConnection(aiDeps);
       if (!result.ok) return fail(result.code);
-      if (!(await engine.restart())) return fail("BACKEND_START_FAILED");
-      return { ok: true, data: aiConnectionStatus(aiDeps) };
+      return { ok: true, data: await restartWithConnection() };
     });
     // Only an engine that failed or stopped is restarted; a running one may be analyzing.
     handle("apex:engine-restart", async () => {
