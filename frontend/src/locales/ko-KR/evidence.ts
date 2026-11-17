@@ -18,6 +18,8 @@ export const evidence = {
       `이미지 파일 · 확장자 .${extension}`,
     image: "이미지 파일",
     formatNote: "· 형식은 등록할 때 엔진이 확인합니다.",
+    folderNoHash:
+      "· 폴더는 해시를 계산하지 않습니다. 해시는 이미지 증거에서만 계산됩니다.",
     missing: (reader: string, id: string, reason: string) =>
       `이 PC에서는 ${reader} 구성요소(${id})를 사용할 수 없습니다${reason}. 등록이 실패하거나 내부 파일을 읽지 못할 수 있습니다.`,
   },

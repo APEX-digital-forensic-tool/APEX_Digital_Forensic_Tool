@@ -19,6 +19,8 @@ export const evidence: Messages["evidence"] = {
       `Image file · extension .${extension}`,
     image: "Image file",
     formatNote: "· The engine confirms the format at registration.",
+    folderNoHash:
+      "· Folders are not hashed. Hashes are computed for image evidence only.",
     missing: (reader: string, id: string, reason: string) =>
       `The ${reader} component (${id}) is not available on this PC${reason}. Registration may fail, or files inside may not be readable.`,
   },
