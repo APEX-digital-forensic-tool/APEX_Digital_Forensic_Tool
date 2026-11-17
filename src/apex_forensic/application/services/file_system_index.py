@@ -227,11 +227,15 @@ class FileSystemIndexService:
             progress_callback=progress_callback,
         )
         try:
-            root = self._repository.upsert_fs_node(
-                provider.get_root_node(evidence, index_revision=index_revision)
-            )
+            root = provider.get_root_node(evidence, index_revision=index_revision)
+            lists_root = root.is_directory_like and root.is_traversed and options.include_background
+            stored_root = self._repository.get_fs_node(root.node_id)
+            # Keep what earlier listings established (a failed one left it partial); only a
+            # listing clears it. Not marked at job start: the open tree reindexes partial roots.
+            root.is_partial = stored_root is not None and stored_root.is_partial
+            root = self._repository.upsert_fs_node(root)
             coverage.discovered_items = 1
-            if root.is_directory_like and root.is_traversed and options.include_background:
+            if lists_root:
                 self._enqueue(
                     job.job_id, root.node_id, priority=10, depth=0, reason="ROOT", state_sequence=0
                 )
@@ -343,17 +347,24 @@ class FileSystemIndexService:
         return failed
 
     def _selected_node_ids(self, state: _RunState) -> frozenset[str]:
-        selected = set(state.options.selected_node_ids)
-        for selected_path in state.options.selected_paths:
-            node = self._repository.get_fs_node_by_relative_path(
+        """Selected folders this job lists; only these are cleared when the queue drains."""
+        nodes = [
+            self._repository.get_fs_node(node_id) for node_id in state.options.selected_node_ids
+        ]
+        nodes += [
+            self._repository.get_fs_node_by_relative_path(
                 state.evidence.evidence_id,
                 state.provider.provider_id,
                 state.provider.provider_version,
                 self._clean_relative_path(selected_path),
             )
-            if node is not None:
-                selected.add(node.node_id)
-        return frozenset(selected)
+            for selected_path in state.options.selected_paths
+        ]
+        return frozenset(
+            node.node_id
+            for node in nodes
+            if node is not None and node.is_directory_like and node.is_traversed
+        )
 
     def index_status(self, job_id: str) -> dict[str, Any]:
         """Return job, coverage, and scan events for a filesystem index job."""
@@ -562,6 +573,7 @@ class FileSystemIndexService:
                 # read, means its listing is not known to be complete.
                 if entry.severity != "WARNING" or entry.path == parent.display_path:
                     state.failed_listings.add(parent.node_id)
+                    self._mark_partial(parent)
                 if self._budget_reached(state):
                     self._repository.update_fs_queue_cursor(
                         str(item["queue_id"]), item.get("cursor_key")
@@ -652,6 +664,11 @@ class FileSystemIndexService:
             parent.is_partial = False
             self._repository.upsert_fs_node(parent)
 
+    def _mark_partial(self, node: FileSystemNode) -> None:
+        if not node.is_partial:
+            node.is_partial = True
+            self._repository.upsert_fs_node(node)
+
     def _clear_selected_partial(self, state: _RunState) -> None:
         for node_id in state.selected:
             node = self._repository.get_fs_node(node_id)
@@ -719,6 +736,7 @@ class FileSystemIndexService:
                 relative_path,
             )
             if node is not None and node.is_directory_like and node.is_traversed:
+                self._mark_partial(node)
                 self._enqueue(
                     job_id,
                     node.node_id,
@@ -736,6 +754,7 @@ class FileSystemIndexService:
                     "Selected node belongs to another evidence source.", target="selected_node_ids"
                 )
             if node.is_directory_like and node.is_traversed:
+                self._mark_partial(node)
                 self._enqueue(
                     job_id,
                     node.node_id,
