@@ -1,54 +1,58 @@
-"""Reject known incompatible speech targets before creating a background task."""
+"""Refuse speech targets before creating a background task, only on positive evidence."""
 
 import subprocess
-from typing import Any
+from enum import Enum
 
 from apex_forensic.adapters.filesystem.content import EvidenceFileContent
 from apex_forensic.domain.errors import ApexError
+from apex_forensic.domain.models.evidence import Evidence
 from apex_forensic.domain.models.filesystem import FileSystemNode
 from apex_forensic.runtime.assets import media_executable
 from apex_forensic.runtime.subprocess_env import subprocess_environment
 
-# Demuxers that carry speech; ffprobe may not open the file as any other format.
-_AUDIO_FORMATS = "mov,mp3,aac,wav,w64,flac,ogg,matroska,webm,avi,asf,caf,amr,aiff,mpeg,mpegts"
 _PROBE_SECONDS = 10
 _PROBE_MAX_BYTES = 64 * 1024 * 1024
 
 
-def _has_audio_stream(evidence: Any, node: FileSystemNode) -> bool | None:
-    """Ask ffprobe whether the file has an audio stream; None when it cannot be asked.
+class _Probe(Enum):
+    AUDIO = "audio"
+    # ffprobe opened the container and it has no audio stream.
+    NO_AUDIO = "no_audio"
+    # A working ffprobe could not open the bytes as any format it knows.
+    UNREADABLE = "unreadable"
+    # Nothing was learned: no ffprobe, too large, a crash, a timeout, an OS error.
+    UNKNOWN = "unknown"
 
-    A RawReadError (source changed, outside the evidence, unreadable node) goes out with its
-    own code. Other failures leave the decision to the name, then to the job.
-    """
+
+def _probe(evidence: Evidence, node: FileSystemNode) -> _Probe:
+    """Ask ffprobe about the bytes. A RawReadError goes out with its own code."""
     try:
         with EvidenceFileContent.open(evidence, node) as handle:
             EvidenceFileContent.read_range(handle, 0, min(node.file_size or 0, 1))
     except OSError:
-        return None
+        return _Probe.UNKNOWN
     ffprobe = media_executable("ffprobe")
     if ffprobe is None or (node.file_size or 0) > _PROBE_MAX_BYTES:
-        return None
+        return _Probe.UNKNOWN
     try:
         with EvidenceFileContent.materialize(evidence, node) as path:
             completed = _run(
                 ffprobe,
                 *("-v", "error", "-protocol_whitelist", "file"),
-                *("-format_whitelist", _AUDIO_FORMATS),
                 *("-select_streams", "a", "-show_entries", "stream=codec_type"),
                 *("-of", "csv=p=0", str(path)),
             )
         if b"audio" in completed.stdout.split():
-            return True
-        # ffprobe exits 1 for input it cannot open, which is the usual "not audio" answer.
-        # A crash, or an ffprobe that cannot even report its version, says nothing.
-        if completed.returncode < 0 or (
-            completed.returncode != 0 and _run(ffprobe, "-version").returncode != 0
-        ):
-            return None
+            return _Probe.AUDIO
+        if completed.returncode == 0:
+            return _Probe.NO_AUDIO
+        # Exit 1 is ffprobe's answer for bytes it cannot open, but only when ffprobe
+        # itself runs; a crash or a broken install says nothing about the file.
+        if completed.returncode > 0 and _run(ffprobe, "-version").returncode == 0:
+            return _Probe.UNREADABLE
     except (OSError, subprocess.TimeoutExpired):
-        return None
-    return False
+        pass
+    return _Probe.UNKNOWN
 
 
 def _run(*command: str) -> subprocess.CompletedProcess[bytes]:
@@ -61,19 +65,16 @@ def _run(*command: str) -> subprocess.CompletedProcess[bytes]:
     )
 
 
-def require_speech_source(node: FileSystemNode, evidence: Any) -> None:
+def require_speech_source(node: FileSystemNode, evidence: Evidence) -> None:
     if node.node_type.value != "FILE":
         raise _unsupported()
-    # The bytes decide (voice.dat holding m4a, a WAV named note.txt, text named a.wav).
-    has_audio = _has_audio_stream(evidence, node)
-    if has_audio is not None:
-        if not has_audio:
-            raise _unsupported()
-        return
-    # The bytes could not be judged, so the name is the only evidence left. An unclear
-    # name is queued, and the decoder reports its own MEDIA code.
+    probe = _probe(evidence, node)
+    if probe is _Probe.NO_AUDIO:
+        raise _unsupported()
+    # Unopenable bytes under a text or image name: both point away from audio. Under any
+    # other name, or when nothing was learned, the job runs and reports what it finds.
     mime = (node.mime_candidate or "").lower()
-    if mime.startswith(("image/", "text/")):
+    if probe is _Probe.UNREADABLE and mime.startswith(("image/", "text/")):
         raise _unsupported()
 
 
