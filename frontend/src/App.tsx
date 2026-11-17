@@ -865,7 +865,7 @@ export function App() {
   async function addEvidence(kind: "file" | "directory") {
     try {
       if (!window.apex) throw new GatewayError("DESKTOP_REQUIRED");
-      const picked = unwrap(await window.apex.pick(kind, locale));
+      const picked = unwrap(await window.apex.pick(kind, locale, "evidence"));
       if (!picked) return;
       const owner = caseId;
       setDialog(

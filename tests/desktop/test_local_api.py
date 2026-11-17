@@ -268,6 +268,36 @@ def test_rejects_evidence_overlapping_writable_data(client, tmp_path, target):
     assert call(client, "evidence.list", case_id=cid) == []
 
 
+def test_overlap_check_and_registration_use_the_same_path(client, tmp_path, monkeypatch):
+    from apex_forensic.application.services.evidence_manager import EvidenceManager
+
+    cid = call(client, "cases.create", name="Swapped path")["id"]
+    (tmp_path / "elsewhere" / "inner").mkdir(parents=True)
+    hop = tmp_path / "hop"
+    hop.symlink_to(tmp_path / "elsewhere" / "inner")
+    # Through the symlink this names elsewhere/data; through a real folder it names the data folder.
+    source = hop / ".." / "data"
+    register = EvidenceManager.register_evidence
+
+    def swap_then_register(self, *args, **kwargs):
+        hop.unlink()
+        hop.mkdir()
+        return register(self, *args, **kwargs)
+
+    monkeypatch.setattr(EvidenceManager, "register_evidence", swap_then_register)
+    response = client.post(
+        "/v1/operations/evidence.register",
+        json={"case_id": cid, "source_path": str(source)},
+    )
+    deadline = monotonic() + 15
+    while monotonic() < deadline and any(
+        r["status"] in {"QUEUED", "RUNNING"} for r in call(client, "tasks.list", case_id=cid)
+    ):
+        sleep(0.02)
+    assert call(client, "evidence.list", case_id=cid) == []
+    assert response.json()["ok"] is False
+
+
 def test_allows_sibling_evidence_with_same_path_prefix(client, tmp_path):
     cid = call(client, "cases.create", name="Separate evidence")["id"]
     source = tmp_path / "data-evidence"

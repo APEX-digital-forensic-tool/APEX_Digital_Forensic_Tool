@@ -149,7 +149,8 @@ def invoke(
     if operation == "evidence.list":
         return s.evidence.list_evidence(case_id)
     if operation == "evidence.register":
-        source = Path(p["source_path"]).resolve()
+        # Check and register the same resolved path; the original could be re-pointed in between.
+        source = s.evidence.normalize_source_path(Path(p["source_path"]))
         writable = tasks.database.parent.resolve()
         if source.is_relative_to(writable) or writable.is_relative_to(source):
             raise ValidationError("Evidence must not overlap the application's writable data.")
@@ -158,7 +159,7 @@ def invoke(
             case_id,
             "REGISTER",
             lambda b, _t, _cb: b.evidence.register_evidence(
-                case_id=case_id, source_path=Path(p["source_path"]), display_name=p["display_name"]
+                case_id=case_id, source_path=source, display_name=p["display_name"]
             ),
             cancellable=False,
         )

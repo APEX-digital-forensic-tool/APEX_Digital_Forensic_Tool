@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { request } from "node:http";
 import { createInterface } from "node:readline";
+import { MAX_AI_TIMEOUT_SECONDS } from "./aiConnection";
 import { stopChild } from "./engineGuard";
 
 /** How to run the engine. Read again on every start, so a restart picks up new AI settings. */
@@ -9,6 +11,70 @@ export interface EngineLaunch {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+}
+
+/**
+ * How long the shell waits for one engine operation. An AI request may try the provider twice
+ * (a retry after a server error), each try up to the longest AI timeout.
+ */
+export function operationTimeoutMs(operation: string) {
+  if (operation === "runtime") return 60000;
+  if (operation === "ai.analyze")
+    return (2 * MAX_AI_TIMEOUT_SECONDS + 60) * 1000;
+  return 120000;
+}
+
+/**
+ * POST one JSON operation to the engine and parse its JSON reply. Rejects on a redirect, a
+ * network error or after `timeoutMs`. Node's fetch cannot be used here: it stops waiting for
+ * response headers after 300s, and an AI request can take longer.
+ */
+export function postEngine(
+  url: string,
+  token: string,
+  payload: unknown,
+  timeoutMs: number,
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const req = request(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      (res) => {
+        if ((res.statusCode ?? 0) >= 300 && (res.statusCode ?? 0) < 400) {
+          req.destroy(new Error("Engine replied with a redirect"));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          clearTimeout(timer);
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch (error) {
+            reject(error);
+          }
+        });
+        res.on("error", reject);
+      },
+    );
+    const timer = setTimeout(
+      () => req.destroy(new Error("Engine request timed out")),
+      timeoutMs,
+    );
+    req.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    req.end(body);
+  });
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

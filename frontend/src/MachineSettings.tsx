@@ -3,6 +3,7 @@ import { gateway, GatewayError, unwrap, type Row } from "./gateway";
 import { ErrorState, Fields, Loading } from "./ui";
 import { useI18n } from "./i18n/I18nProvider";
 import { lookup } from "./i18n/catalog";
+import type { PickKind } from "./pickKinds";
 
 /** `compact` drops the card frame, title and intro for hosts that supply their own. */
 export function MachineSettings({ compact = false }: { compact?: boolean }) {
@@ -47,10 +48,13 @@ export function MachineSettings({ compact = false }: { compact?: boolean }) {
     setLoadFailed(false);
     setAttempt((n) => n + 1);
   }
-  async function pick(key: string, kind: "file" | "directory") {
+  async function pick<P extends "model" | "tessdata">(
+    key: P,
+    kind: PickKind<P>,
+  ) {
     if (!window.apex) return;
     try {
-      const picked = unwrap(await window.apex.pick(kind, locale));
+      const picked = unwrap(await window.apex.pick(kind, locale, key));
       if (picked)
         setSettings((s) => ({
           ...s,

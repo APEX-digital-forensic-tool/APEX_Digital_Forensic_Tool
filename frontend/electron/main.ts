@@ -8,7 +8,7 @@ import {
   type IpcMainInvokeEvent,
   type WebPreferences,
 } from "electron";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import {
   chmodSync,
@@ -38,8 +38,10 @@ import {
   isSetupComplete,
   markSetupComplete,
 } from "./appState";
-import { Engine } from "./engine";
+import { Engine, operationTimeoutMs, postEngine } from "./engine";
 import { hasActiveTasks } from "./engineGuard";
+import { authOrigin, PickedPaths } from "./shellGuards";
+import { pickAllowed } from "../src/pickKinds";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -101,7 +103,7 @@ const operations = new Set([
 let window: BrowserWindow | undefined;
 let setupWindow: BrowserWindow | undefined;
 const token = randomBytes(32).toString("hex");
-const picked = new Map<string, string>();
+const picked = new PickedPaths();
 let account:
   | {
       access_token: string;
@@ -181,20 +183,12 @@ function handle(
 }
 async function local(operation: string, payload: Record<string, unknown>) {
   if (!engine.url) return fail(engine.error);
-  const response = await fetch(`${engine.url}/v1/operations/${operation}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-    // Reasoning models can take minutes for one governed AI request.
-    signal: AbortSignal.timeout(
-      operation === "runtime" ? 60000 : operation === "ai.analyze" ? 300000 : 120000,
-    ),
-    redirect: "error",
-  });
-  return response.json();
+  return postEngine(
+    `${engine.url}/v1/operations/${operation}`,
+    token,
+    payload,
+    operationTimeoutMs(operation),
+  );
 }
 const engine = new Engine(token, () => {
   const repo = resolve(__dirname, "../..");
@@ -237,6 +231,8 @@ function lockDown(target: BrowserWindow) {
   target.webContents.session.setPermissionRequestHandler(
     (_wc, _permission, callback) => callback(false),
   );
+  // Synchronous checks (navigator.permissions, clipboard) are denied too.
+  target.webContents.session.setPermissionCheckHandler(() => false);
 }
 /** Assigns `window` before loading, so callers can close another window right away. */
 async function createMainWindow() {
@@ -318,7 +314,7 @@ if (!app.requestSingleInstanceLock()) {
       !app.isPackaged && process.env.APEX_DEV_URL === "http://127.0.0.1:5173"
         ? "http://127.0.0.1:5173/"
         : pathToFileURL(join(__dirname, "../dist/index.html")).href;
-    handle("apex:invoke", async (_event, operation: unknown, input: unknown) => {
+    handle("apex:invoke", async (event, operation: unknown, input: unknown) => {
       if (
         typeof operation !== "string" ||
         !operations.has(operation) ||
@@ -332,7 +328,7 @@ if (!app.requestSingleInstanceLock()) {
         return fail("RESOURCE_LIMIT_EXCEEDED");
       if (operation === "evidence.register") {
         const reference = String(payload.source_reference ?? "");
-        const path = picked.get(reference);
+        const path = picked.get(reference, "evidence", event.sender.id);
         if (!path) return fail("PICKER_REFERENCE_REQUIRED");
         delete payload.source_reference;
         payload.source_path = path;
@@ -348,16 +344,20 @@ if (!app.requestSingleInstanceLock()) {
           ocr_provider: payload.ocr_provider,
           stt_provider: payload.stt_provider,
         };
-        for (const [referenceKey, pathKey] of [
-          ["model_reference", "stt_model_path"],
-          ["tessdata_reference", "tessdata_path"],
-        ]) {
+        for (const [referenceKey, pathKey, purpose] of [
+          ["model_reference", "stt_model_path", "model"],
+          ["tessdata_reference", "tessdata_path", "tessdata"],
+        ] as const) {
           if (payload[referenceKey] !== undefined) {
             if (payload[referenceKey] === null) {
               configured[pathKey] = null;
               continue;
             }
-            const path = picked.get(String(payload[referenceKey]));
+            const path = picked.get(
+              String(payload[referenceKey]),
+              purpose,
+              event.sender.id,
+            );
             if (!path) return fail("PICKER_REFERENCE_REQUIRED");
             configured[pathKey] = path;
           }
@@ -370,9 +370,8 @@ if (!app.requestSingleInstanceLock()) {
       }
       return local(operation, payload);
     });
-    handle("apex:pick", async (event, kind: unknown, locale: unknown) => {
-      if (kind !== "file" && kind !== "directory")
-        return fail("VALIDATION_ERROR");
+    handle("apex:pick", async (event, kind: unknown, locale: unknown, purpose: unknown) => {
+      if (!pickAllowed(purpose, kind)) return fail("VALIDATION_ERROR");
       const text = messagesFor(locale).native;
       // trusted() guarantees the sender is one of this app's windows.
       const parent = BrowserWindow.fromWebContents(event.sender)!;
@@ -380,7 +379,7 @@ if (!app.requestSingleInstanceLock()) {
         title: text.pickTitle,
         properties: [kind === "directory" ? "openDirectory" : "openFile"],
         filters:
-          kind === "file"
+          kind === "file" && purpose === "evidence"
             ? [
                 {
                   name: text.evidenceImages,
@@ -391,9 +390,11 @@ if (!app.requestSingleInstanceLock()) {
             : undefined,
       });
       if (result.canceled) return { ok: true, data: null };
-      const reference = randomUUID();
-      if (picked.size > 64) picked.clear();
-      picked.set(reference, result.filePaths[0]);
+      const reference = picked.add(
+        result.filePaths[0],
+        purpose,
+        event.sender.id,
+      );
       return {
         ok: true,
         data: { reference, name: result.filePaths[0].split(/[\\/]/).pop() },
@@ -428,20 +429,8 @@ if (!app.requestSingleInstanceLock()) {
           typeof input.tenant_id !== "string"
         )
           return fail("VALIDATION_ERROR");
-        const url = new URL(input.origin);
-        if (
-          url.username ||
-          url.password ||
-          url.search ||
-          url.hash ||
-          url.pathname !== "/" ||
-          (url.protocol !== "https:" &&
-            !(
-              url.protocol === "http:" &&
-              ["127.0.0.1", "localhost"].includes(url.hostname)
-            ))
-        )
-          return fail("AUTH_ORIGIN_INVALID");
+        const url = authOrigin(input.origin);
+        if (!url) return fail("AUTH_ORIGIN_INVALID");
         const response = await fetch(`${url.origin}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -519,9 +508,7 @@ if (!app.requestSingleInstanceLock()) {
       markSetupComplete(stateFile);
       // Open the main window before closing setup so "all windows closed" never fires.
       if (!window)
-        void createMainWindow().catch(() => {
-          /* A failed load leaves a blank window; nothing safe to report. */
-        });
+        void createMainWindow().catch(() => quitWith(nativeText().startFailed));
       setup?.close();
       return { ok: true, data: null };
     });

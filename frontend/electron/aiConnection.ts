@@ -43,6 +43,8 @@ export type AiSaveResult =
     };
 
 const DEFAULTS = { temperature: 0, max_output: 4096, timeout: 30 };
+/** The engine accepts the same upper bound for one provider request. */
+export const MAX_AI_TIMEOUT_SECONDS = 600;
 
 interface Stored {
   base_url: string;
@@ -109,7 +111,7 @@ function readStored(deps: AiDeps): Stored | null {
       !inRange(s.temperature, 0, 2) ||
       !inRange(s.max_output, 1, 200000) ||
       !Number.isInteger(s.max_output) ||
-      !inRange(s.timeout, 1, 600) ||
+      !inRange(s.timeout, 1, MAX_AI_TIMEOUT_SECONDS) ||
       typeof s.key !== "string"
     )
       return null;
@@ -168,7 +170,7 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
     !inRange(temperature, 0, 2) ||
     !inRange(max_output, 1, 200000) ||
     !Number.isInteger(max_output) ||
-    !inRange(timeout, 1, 600)
+    !inRange(timeout, 1, MAX_AI_TIMEOUT_SECONDS)
   )
     return INVALID;
 
