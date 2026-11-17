@@ -46,6 +46,7 @@ class PageInput(CaseInput):
 
 class Files(PageInput):
     evidence_id: str
+    limit: int = Field(default=100, ge=1, le=500)
     parent_node_id: str | None = None
     directories_only: bool = False
     all_nodes: bool = False
