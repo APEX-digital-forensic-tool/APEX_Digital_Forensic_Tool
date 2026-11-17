@@ -600,7 +600,9 @@ export function App() {
         kind: "FILES",
         node_id: node.id,
       });
-      indexedFolders.current.set(key, task.task_id);
+      // Without a job id nothing can free the key later, so allow a retry.
+      if (task?.task_id) indexedFolders.current.set(key, task.task_id);
+      else indexedFolders.current.delete(key);
       refresh();
     } catch (err) {
       indexedFolders.current.delete(key);
@@ -1807,8 +1809,9 @@ export function App() {
                     className="search-form"
                     onSubmit={(e) => {
                       e.preventDefault();
+                      if (!query.trim()) return;
                       pendingSearch.current = true;
-                      setSearchText(query);
+                      setSearchText(query.trim());
                       setSubmittedSearchMode(searchMode);
                       setSearchScope(`${caseId}:${evidenceId}`);
                       refresh();
