@@ -249,6 +249,29 @@ def test_hash_verification_preserves_mismatch(client, tmp_path):
     assert changed["result"][0]["expected_digest"] == digest
 
 
+def test_custody_add_accepts_only_analyst_event_types(client, tmp_path):
+    source = tmp_path / "custody.dd"
+    source.write_bytes(b"custody evidence bytes" * 64)
+    cid = call(client, "cases.create", name="Custody types")["id"]
+    evidence = wait(
+        client, cid, call(client, "evidence.register", case_id=cid, source_path=str(source))
+    )["result"]
+    ids = {"case_id": cid, "evidence_id": evidence["id"]}
+    for engine_only in ("HASH_VERIFIED", "CORRECTION"):
+        response = client.post(
+            "/v1/operations/custody.add",
+            json={**ids, "event_type": engine_only, "action": "x", "reason": "y"},
+        )
+        assert response.status_code == 422, response.text
+    assert len(call(client, "custody.list", **ids)) == 1
+    added = call(client, "custody.add", **ids, event_type="TRANSFERRED", action="x", reason="y")
+    assert added["event_type"] == "TRANSFERRED"
+    corrected = call(
+        client, "custody.add", **ids, correction_of_event_id=added["event_id"],
+        action="fix", reason="typo",
+    )
+    assert corrected["event_type"] == "CORRECTION"
+
 @pytest.mark.parametrize("target", ["self", "ancestor", "child", "file"])
 def test_rejects_evidence_overlapping_writable_data(client, tmp_path, target):
     cid = call(client, "cases.create", name="Writable boundary")["id"]
