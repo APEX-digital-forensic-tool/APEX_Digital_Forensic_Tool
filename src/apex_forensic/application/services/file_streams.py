@@ -49,8 +49,28 @@ class FileStreamService:
 
     def list(self, *, case_id: str, node_id: str) -> dict[str, Any]:
         evidence, node = self.source(case_id, node_id)
+        filesystem_type = None
+        ancestor = node
+        seen: set[str] = set()
+        while ancestor is not None and ancestor.node_id not in seen:
+            seen.add(ancestor.node_id)
+            if ancestor.evidence_id != evidence.evidence_id:
+                break
+            filesystem_type = ancestor.fs_metadata.get("filesystem_type")
+            if filesystem_type:
+                break
+            ancestor = (
+                self.repository.get_fs_node(ancestor.parent_node_id)
+                if ancestor.parent_node_id
+                else None
+            )
         with PyTskFileSystemProvider().open_file(evidence, node) as handle:
-            return {"node_id": node_id, "streams": self._streams(handle)}
+            return {
+                "node_id": node_id,
+                "streams": self._streams(handle),
+                "filesystem_type": filesystem_type,
+                "ads_supported": filesystem_type == "NTFS" if filesystem_type else None,
+            }
 
     @staticmethod
     def _selected(handle: Any, stream_id: int) -> dict[str, Any]:

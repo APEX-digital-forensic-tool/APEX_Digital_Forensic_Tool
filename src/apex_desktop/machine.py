@@ -211,6 +211,14 @@ def _capabilities(root: Path) -> dict[str, Any]:
     }
 
 
+def _undecodable_image_errors() -> tuple[type[Exception], ...]:
+    try:
+        from PIL import UnidentifiedImageError
+    except ImportError:
+        return ()
+    return (UnidentifiedImageError,)
+
+
 def run(
     services: ServiceBundle,
     *,
@@ -248,7 +256,10 @@ def run(
     with EvidenceFileContent.materialize(evidence, node, cancellation_token=token) as source:
         if kind == "OCR":
             provider = ocr
-            rows = provider.analyze_image(source, languages=language.split("+"))
+            try:
+                rows = provider.analyze_image(source, languages=language.split("+"))
+            except _undecodable_image_errors() as error:
+                raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed") from error
         else:
             provider = stt
             rows = provider.analyze_audio(source, language=None if language == "auto" else language)

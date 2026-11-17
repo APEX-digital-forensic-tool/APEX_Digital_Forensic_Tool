@@ -32,6 +32,29 @@ Issue #70 (login/LLM provider development) has no description or acceptance
 criteria. It remains open; the fixes above do not claim that new feature is
 implemented.
 
+## Comparison with the other open fix PRs
+
+PRs #75–#81 were compared with this branch after the initial PR was opened.
+Their overlapping changes and regression cases are integrated here; those
+PRs have not been merged or closed by this work.
+
+| PR | Comparison and integration |
+| --- | --- |
+| #75 / #51 | The same Files limit was already present. Added its separate boundary tests. |
+| #76 / #48 | Removed the directory hash field entirely, retaining the explanation and the forced no-hash registration behavior. Added its intake regression. |
+| #77 / #54 | Adopted the existing-version argument to avoid an extra repository lookup. Both API and core tests verify the report-wide approval cursor. |
+| #78 / #62 | Integrated per-evidence warnings, a read-only `index.state` operation and explicit build buttons, including before the first search. State uses the latest applicable job, evidence creation time and filesystem coverage; historical success cannot hide missing or partial evidence. The build button targets the indicated evidence and offers file indexing first when needed. |
+| #79 / #68 | Added the correction-text limit and backend normalization of an existing HTML/PDF suffix to the selected format. Integrated request-error and filename tests. |
+| #80 / #65 | Integrated file-type guidance, OCR/STT button gating, speech queue admission and filesystem-specific ADS explanations. Unknown file labels remain eligible for actual decoding. OCR retains actual-byte validation before queueing, so a renamed or extensionless image can be handled through the API, and a broken image is rejected without a doomed task. ADS filesystem metadata follows the selected node's ancestry, avoiding a same-name folder lookup. |
+| #81 / #53 | Integrated stored custody fields in the context projection and the dedicated view/raw-read regression. Existing cross-case checks remain in place. |
+
+The initial remote CI failures were a TypeScript test option unsupported by
+`getByRole`, and stale line references in the reviewed Bandit findings
+manifest. The test now uses its supported name matcher. Existing security
+findings were relocated to the same unchanged source statements with their
+dispositions and justifications preserved; no new finding was waived. The
+new index coverage query uses fixed SQL strings without table interpolation.
+
 ## Reproducible checks
 
 Use the locked Python development/desktop extras and the frontend lockfile.
@@ -65,19 +88,23 @@ Final local results with Python 3.12.2 and Node 24.22.3:
 
 | Check | Result |
 | --- | --- |
-| Full Python suite | 932 passed, 17 skipped; 7 subtests passed |
-| Frontend suite | 251 passed in 34 files |
+| Full Python suite | 960 passed, 17 skipped; 7 subtests passed |
+| Frontend suite | 263 passed in 35 files |
 | Frontend release policy checks | 15 passed; CSP check passed |
 | Frontend production build | Passed contracts, TypeScript, Vite and Electron bundling |
 | Ruff on changed Python files | Passed |
-| Strict mypy on all source packages | Passed, 186 files |
-| Supplemental source-engine HTTP checks | 72 passed |
+| Strict mypy on all source packages | Passed, 188 files |
+| MCP release gate | Passed with limitations: strict schema CLI unavailable |
+| Bandit findings audit | Passed; 44 medium findings retain existing classifications, no unclassified/stale entries, no high findings |
+| Initial supplemental source-engine HTTP checks | 72 passed before the PR comparison follow-up |
 
 The Python run cleared inherited application/provider and proxy configuration
 and used offline model settings. Its executable search path excluded a broken
 host FFmpeg installation; optional tool availability is reflected in the
 skipped tests. No speech model was downloaded for this pass. Build output
 includes the existing large-chunk advisory; it is not a build failure.
+The MCP gate reports `AJV_CLI_OR_FORMATS_NOT_INSTALLED` for the optional strict
+JSON schema CLI check; this is the reason for `PASSED_WITH_LIMITATIONS`.
 
 The checks use source-built services on macOS ARM64 and frontend component
 tests. An additional source-engine HTTP verification passed 72 checks across

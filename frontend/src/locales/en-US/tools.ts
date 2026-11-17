@@ -26,6 +26,9 @@ export const tools: Messages["tools"] = {
       offset: "Stream offset",
       read: "Read stream",
       export: "Export stream",
+      noStreams: "No alternate data streams.",
+      notNtfs: (fs: string) =>
+        `${fs} has no alternate data streams (ADS). ADS are supported on NTFS.`,
     },
     machine: {
       title: "OCR and speech recognition",
@@ -38,6 +41,8 @@ export const tools: Messages["tools"] = {
       sttAuto: "Detect speech language",
       runOcr: "Extract text from the selected file",
       runStt: "Recognize speech in the selected file",
+      needsImage: "Select an image file (PNG, JPEG, GIF, TIFF, BMP or WebP).",
+      needsMedia: "Select an audio or video file.",
     },
     carve: {
       directoryUnavailable:

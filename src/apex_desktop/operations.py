@@ -28,7 +28,9 @@ from apex_forensic.runtime.capabilities import capability_report
 from . import ai as desktop_ai
 from . import machine
 from . import models as m
+from .index_state import index_state
 from .tasks import ProgressCallback, Tasks, encode
+from .tool_targets import require_speech_source
 
 MODELS: dict[str, type[m.Input]] = {
     "runtime": m.Empty,
@@ -51,6 +53,7 @@ MODELS: dict[str, type[m.Input]] = {
     "artifacts.list": m.Artifacts,
     "search.query": m.Search,
     "search.history": m.CaseInput,
+    "index.state": m.IndexState,
     "timeline.list": m.PageInput,
     "candidates.list": m.PageInput,
     "candidates.review": m.CandidateReview,
@@ -188,14 +191,18 @@ def invoke(
             s.repository.update_search_execution(search_result.execution)
         data = encode(search_result)
         data["index_coverage"] = coverage
+        data["index_state"] = index_state(s, case_id, evidence)
         return data
     if operation == "search.history":
         return s.search.history(case_id=case_id)
+    if operation == "index.state":
+        return index_state(s, case_id, p["evidence_id"])
     if operation == "timeline.list":
         timeline_result = s.timeline.list_events(**p)
         coverage = s.repository.analysis_index_coverage(case_id, p.get("evidence_id"), "TIMELINE")
         data = encode(timeline_result)
         data["index_coverage"] = coverage
+        data["index_state"] = index_state(s, case_id, p.get("evidence_id"))
         incomplete = [item for item in coverage if item["status"] != "COMPLETE"]
         if incomplete:
             data["warnings"].append({"code": "INDEX_COVERAGE_INCOMPLETE", "evidence": incomplete})
@@ -225,6 +232,8 @@ def invoke(
         node = s.fs.get_node(p["node_id"])
         if node.case_id != case_id:
             mismatch()
+        if operation == "machine.run" and p["kind"] == "STT":
+            require_speech_source(node)
     if operation == "files.streams":
         return FileStreamService(s.repository, s.images).list(**p)
     if operation == "streams.read":
@@ -249,8 +258,8 @@ def invoke(
         )
     if operation == "evidence.carve":
         if s.evidence.get_evidence(p["evidence_id"]).evidence_type.value == "DIRECTORY":
-            raise ValidationError(
-                "Directory evidence does not support signature carving.", target="evidence_id"
+            raise ApexError(
+                "CARVING_REQUIRES_IMAGE", "error.carving_requires_image", target="evidence_id"
             )
         arguments = {k: v for k, v in p.items() if k != "case_id"}
         arguments["formats"] = tuple(arguments["formats"])

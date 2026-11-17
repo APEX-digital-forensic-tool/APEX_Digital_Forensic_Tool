@@ -1,4 +1,5 @@
 import { ForensicTools } from "./ForensicTools";
+import { IndexWarning } from "./IndexWarning";
 import { MachineSettings } from "./MachineSettings";
 import { LanguageSettings } from "./LanguageSettings";
 import { AiConnectionForm } from "./setup/AiConnectionForm";
@@ -211,6 +212,7 @@ export function App() {
     [roots, setRoots] = useState<Row[]>([]),
     [folder, setFolder] = useState<Row | null>(null);
   const [page, setPage] = useState<Row | null>(null),
+    [indexState, setIndexState] = useState<Row[]>([]),
     [rows, setRows] = useState<Row[]>([]),
     [loading, setLoading] = useState(false),
     [error, setError] = useState<unknown>(null),
@@ -685,6 +687,23 @@ export function App() {
     };
   }, [route, evidenceId, caseId, treeRevision]);
   const pageCursor = useRef<string | null>(null);
+  useEffect(() => {
+    setIndexState([]);
+    if (!caseId || (route !== "SEARCH" && route !== "TIMELINE")) return;
+    let live = true;
+    void gateway
+      .call<Row[]>("index.state", {
+        case_id: caseId,
+        evidence_id: evidenceId || null,
+      })
+      .then((state) => {
+        if (live) setIndexState(state);
+      })
+      .catch((err) => live && setActionError(err));
+    return () => {
+      live = false;
+    };
+  }, [caseId, evidenceId, route, revision]);
   const pendingSearch = useRef(false);
   const loadPage = useCallback(
     async (
@@ -2004,26 +2023,17 @@ export function App() {
                 />
               )}
               <ResultState data={page?.execution ?? page} />
-              {page?.index_coverage?.some(
-                (item: Row) => item.status !== "COMPLETE",
-              ) && (
-                <div className="notice warn" role="status">
-                  <span>
-                    {m.views.indexCoverageIncomplete}{" "}
-                    {page.index_coverage
-                      .filter((item: Row) => item.status !== "COMPLETE")
-                      .map((item: Row) => item.display_name)
-                      .join(", ")}
-                  </span>
-                  <button
-                    disabled={!evidenceId}
-                    onClick={() =>
-                      void run(route === "TIMELINE" ? "TIMELINE" : "SEARCH")
-                    }
-                  >
-                    {m.views.indexCoverageBuild}
-                  </button>
-                </div>
+              {(route === "SEARCH" || route === "TIMELINE") && (
+                <IndexWarning
+                  key={`${caseId}:${evidenceId}:${route}`}
+                  route={route}
+                  caseId={caseId}
+                  state={indexState}
+                  onStarted={() => {
+                    setJobsOpen(true);
+                    refresh();
+                  }}
+                />
               )}
               {communication && (
                 <div className="notice">
@@ -2595,6 +2605,7 @@ export function App() {
                                                     .correctedText,
                                                 required: true,
                                                 type: "textarea",
+                                                max: 100000,
                                                 default:
                                                   selected.correction_text ??
                                                   selected.text,

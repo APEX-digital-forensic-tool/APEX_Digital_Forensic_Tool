@@ -137,3 +137,53 @@ it("confirms the source, registers it, then starts the chosen hash", async () =>
     { timeout: 5000 },
   );
 });
+
+it("registers a folder without a hash field or a HASH job (#48)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const calls: [string, Row][] = [];
+  let registered = false;
+  bridge.invoke = async (op, payload) => {
+    calls.push([op, payload]);
+    if (op === "evidence.register") {
+      registered = true;
+      return { ok: true, data: { task_id: "t-register", status: "QUEUED" } };
+    }
+    if (op === "tasks.list" && registered)
+      return {
+        ok: true,
+        data: [
+          {
+            task_id: "t-register",
+            case_id: payload.case_id,
+            kind: "REGISTER",
+            status: "SUCCEEDED",
+            result: { id: "ev-folder" },
+            actions: [],
+          },
+        ],
+      };
+    return original(op, payload) as Promise<Reply<Row>>;
+  };
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "폴더 추가" }));
+  const dialog = await screen.findByRole("dialog", { name: "폴더 증거 등록" });
+  expect(within(dialog).queryByLabelText("등록 후 무결성 해시")).toBeNull();
+  expect(dialog.textContent).toContain(koKR.evidence.folderHashUnavailable);
+  fireEvent.click(within(dialog).getByRole("button", { name: "증거 등록" }));
+  await waitFor(() =>
+    expect(calls.some(([op]) => op === "evidence.register")).toBe(true),
+  );
+  await waitFor(() =>
+    expect(calls.some(([op]) => op === "tasks.list")).toBe(true),
+  );
+  await new Promise((r) => setTimeout(r, 2200));
+  expect(
+    calls.filter(([op, p]) => op === "analysis.start" && p.kind === "HASH"),
+  ).toEqual([]);
+});

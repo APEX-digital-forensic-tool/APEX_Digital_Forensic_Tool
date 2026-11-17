@@ -5573,9 +5573,18 @@ class SQLiteRepository:
         kind: str,
     ) -> list[dict[str, Any]]:
         """Describe query coverage independently of whether it matched any rows."""
-        table = {"SEARCH": "search_jobs", "TIMELINE": "timeline_jobs"}[kind]
+        query = {
+            "SEARCH": (
+                "SELECT * FROM search_jobs WHERE case_id = ? "
+                "ORDER BY updated_at DESC, rowid DESC"
+            ),
+            "TIMELINE": (
+                "SELECT * FROM timeline_jobs WHERE case_id = ? "
+                "ORDER BY updated_at DESC, rowid DESC"
+            ),
+        }[kind]
         jobs = self.connection.execute(
-            f"SELECT * FROM {table} WHERE case_id = ? ORDER BY updated_at DESC, rowid DESC",
+            query,
             (case_id,),
         ).fetchall()
         result: list[dict[str, Any]] = []
@@ -5599,21 +5608,24 @@ class SQLiteRepository:
                     latest = job
                     break
             status = "NOT_INDEXED" if latest is None else str(latest["status"])
+            fs = self.latest_fs_coverage(evidence.evidence_id)
             if status == "SUCCEEDED" and latest is not None:
                 status = "COMPLETE"
-                fs = self.latest_fs_coverage(evidence.evidence_id)
                 if (
                     fs is not None
                     and fs.updated_at is not None
                     and to_json_timestamp(fs.updated_at) > latest["updated_at"]
                 ):
                     status = "STALE"
+                elif fs is not None and fs.status.value != "COMPLETE":
+                    status = "PARTIAL"
             result.append(
                 {
                     "evidence_id": evidence.evidence_id,
                     "display_name": evidence.display_name,
                     "status": status,
                     "job_id": None if latest is None else latest["job_id"],
+                    "source_status": fs.status.value if fs is not None else "NOT_INDEXED",
                 }
             )
         return result

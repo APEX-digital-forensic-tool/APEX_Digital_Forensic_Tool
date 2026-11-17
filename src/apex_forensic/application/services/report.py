@@ -1686,7 +1686,7 @@ class ReportService:
         return replace(
             version,
             review_state=self._review_state(version.report_version_id),
-            approval_state=self._approval_state(version.report_version_id),
+            approval_state=self._approval_state(version),
         )
 
     def _review_state(self, report_version_id: str) -> dict[str, Any]:
@@ -1699,16 +1699,10 @@ class ReportService:
             "section_status": _section_review_state(events),
         }
 
-    def _approval_state(self, report_version_id: str) -> dict[str, Any]:
-        approvals = self._repository.list_report_approval_records(
-            report_version_id=report_version_id
-        )
-        latest = approvals[-1] if approvals else None
-        version = self._repository.get_report_version(report_version_id)
-        report_approvals = (
-            self._repository.list_report_approval_records(report_id=version.report_id)
-            if version is not None
-            else []
+    def _approval_state(self, version: ReportVersion) -> dict[str, Any]:
+        latest = self._latest_approval(version.report_version_id)
+        report_approvals = self._repository.list_report_approval_records(
+            report_id=version.report_id
         )
         return {
             "decision": None if latest is None else latest.decision,
@@ -2651,7 +2645,13 @@ def _safe_filename(filename: str, format_value: str) -> str:
     cleaned = re.sub(r"\s+", "_", pure.name.strip())
     if not cleaned or len(cleaned) > MAX_FILENAME_LENGTH:
         raise ReportError("REPORT_OUTPUT_INVALID", "Export filename is invalid.", target="filename")
-    extension = ".pdf" if format_value == ReportExportFormat.PDF.value else ".html"
+    extension, other_extension = (
+        (".pdf", ".html")
+        if format_value == ReportExportFormat.PDF.value
+        else (".html", ".pdf")
+    )
+    if cleaned.casefold().endswith(other_extension) and len(cleaned) > len(other_extension):
+        cleaned = cleaned[: -len(other_extension)]
     if not cleaned.casefold().endswith(extension):
         cleaned = f"{cleaned}{extension}"
     if len(cleaned) > MAX_FILENAME_LENGTH:

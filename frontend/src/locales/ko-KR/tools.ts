@@ -23,6 +23,9 @@ export const tools = {
       offset: "스트림 오프셋",
       read: "스트림 읽기",
       export: "스트림 내보내기",
+      noStreams: "대체 데이터 스트림이 없습니다.",
+      notNtfs: (fs: string) =>
+        `${fs} 파일 시스템에는 대체 데이터 스트림(ADS)이 없습니다. ADS는 NTFS에서 지원됩니다.`,
     },
     machine: {
       title: "OCR·음성 인식",
@@ -35,10 +38,12 @@ export const tools = {
       sttAuto: "음성 언어 자동",
       runOcr: "선택 파일 문자 추출",
       runStt: "선택 파일 음성 인식",
+      needsImage: "이미지 파일(PNG·JPEG·GIF·TIFF·BMP·WebP)을 선택해야 합니다.",
+      needsMedia: "음성 또는 영상 파일을 선택해야 합니다.",
     },
     carve: {
       directoryUnavailable:
-        "폴더 증거는 카빙할 수 없습니다. 디스크 이미지 증거를 선택하세요.",
+        "폴더 증거에는 카빙을 사용할 수 없습니다. 디스크 이미지 증거를 선택하세요.",
       title: "파일 시그니처 카빙",
       body: "PNG·JPEG·PDF·ZIP·GIF의 연속 바이트를 찾습니다. 결과는 원본 이름을 알 수 없는 검토 후보입니다.",
       scope: "탐색 범위",

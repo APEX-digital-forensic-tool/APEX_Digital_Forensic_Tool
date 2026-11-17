@@ -101,6 +101,36 @@ def test_missing_search_and_timeline_indexes_are_explicit(client, tmp_path):
     assert result["execution"]["warnings"]
 
 
+def test_search_over_quick_triage_files_remains_partial(client, tmp_path):
+    root = tmp_path / "partial-evidence"
+    nested = root / "deep" / "nested"
+    nested.mkdir(parents=True)
+    (nested / "missing.txt").write_text("not yet traversed")
+    cid = call(client, "cases.create", name="Partial source index")["id"]
+    eid = wait(client, cid, call(client, "evidence.register", case_id=cid, source_path=str(root)))[
+        "result"
+    ]["id"]
+    for kind, profile in [("FILES", "QUICK_TRIAGE"), ("SEARCH", "FULL_ANALYSIS")]:
+        wait(
+            client,
+            cid,
+            call(
+                client,
+                "analysis.start",
+                case_id=cid,
+                evidence_id=eid,
+                kind=kind,
+                profile_type=profile,
+            ),
+        )
+    page = call(client, "search.query", case_id=cid, evidence_id=eid, query_text="missing")
+    assert page["execution"]["is_partial"]
+    assert page["index_coverage"][0]["source_status"] == "PARTIAL"
+    assert page["index_coverage"][0]["status"] == "PARTIAL"
+    state = call(client, "index.state", case_id=cid, evidence_id=eid)[0]
+    assert state["search"]["state"] == "PARTIAL"
+
+
 def test_invalid_ocr_and_directory_carving_are_rejected_before_queue(client, tmp_path):
     cid, eid = fixture_case(client, tmp_path)
     node = next(

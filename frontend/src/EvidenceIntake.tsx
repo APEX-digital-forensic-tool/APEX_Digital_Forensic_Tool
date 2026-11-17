@@ -137,24 +137,30 @@ export function intakeDialog({
         max: 255,
         default: picked.name,
       },
-      {
-        key: "hash_algorithm",
-        label: m.evidence.dialog.hashAfter,
-        options: kind === "directory" ? ["NONE"] : hashOptions,
-        optionLabel: (o) =>
-          o === "NONE"
-            ? m.evidence.hashNone
-            : o === "SHA256"
-              ? m.evidence.hashRecommended(HASH_NAMES[o])
-              : (HASH_NAMES[o] ?? o),
-        default: kind === "directory" ? "NONE" : "SHA256",
-      },
+      ...(kind === "directory"
+        ? []
+        : [
+            {
+              key: "hash_algorithm",
+              label: m.evidence.dialog.hashAfter,
+              options: hashOptions,
+              optionLabel: (o: string) =>
+                o === "NONE"
+                  ? m.evidence.hashNone
+                  : o === "SHA256"
+                    ? m.evidence.hashRecommended(HASH_NAMES[o])
+                    : (HASH_NAMES[o] ?? o),
+              default: "SHA256",
+            },
+          ]),
     ],
     submit: (f) =>
       register({
         displayName: String(f.display_name),
         algorithm:
-          kind === "directory" || f.hash_algorithm === "NONE"
+          kind === "directory" ||
+          f.hash_algorithm == null ||
+          f.hash_algorithm === "NONE"
             ? null
             : String(f.hash_algorithm),
       }),

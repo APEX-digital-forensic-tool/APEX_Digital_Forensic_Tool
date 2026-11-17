@@ -49,20 +49,25 @@ it("editing a search mode does not execute the previously submitted query", asyn
   };
   window.apex = bridge;
   await openCase();
-  fireEvent.click(screen.getByRole("button", { name: "검색", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "검색" }));
   const input = await screen.findByLabelText("검색어");
   fireEvent.change(input, { target: { value: "README" } });
   fireEvent.submit(input.closest("form")!);
   await waitFor(() => expect(searches.length).toBe(1));
   fireEvent.change(input, { target: { value: "different draft" } });
   await act(async () => {
-    fireEvent.change(screen.getByLabelText("검색 방식"), { target: { value: "PREFIX" } });
+    fireEvent.change(screen.getByLabelText("검색 방식"), {
+      target: { value: "PREFIX" },
+    });
     await new Promise((done) => setTimeout(done, 100));
   });
   expect(searches.length).toBe(1);
   fireEvent.submit(input.closest("form")!);
   await waitFor(() => expect(searches.length).toBe(2));
-  expect(searches[1]).toMatchObject({ query_text: "different draft", query_mode: "PREFIX" });
+  expect(searches[1]).toMatchObject({
+    query_text: "different draft",
+    query_mode: "PREFIX",
+  });
 });
 
 it("GUI-001: adding directory evidence must not request an unsupported default HASH", async () => {
