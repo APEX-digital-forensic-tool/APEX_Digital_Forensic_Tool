@@ -43,6 +43,8 @@ export type AiSaveResult =
     };
 
 const DEFAULTS = { temperature: 0, max_output: 4096, timeout: 30 };
+/** Above the server's own 90 s upstream wait, so the engine never gives up on an answer still being billed. */
+const SERVER_TIMEOUT = 120;
 
 interface Params {
   temperature: number;
@@ -184,7 +186,8 @@ export function aiConnectionStatus(deps: AiDeps): AiConnectionStatus {
     model_id: custom?.model_id ?? null,
     temperature: stored?.temperature ?? DEFAULTS.temperature,
     max_output: stored?.max_output ?? DEFAULTS.max_output,
-    timeout: stored?.timeout ?? DEFAULTS.timeout,
+    // Nothing stored: a new connection starts in server mode.
+    timeout: stored?.timeout ?? SERVER_TIMEOUT,
   };
 }
 
@@ -224,7 +227,8 @@ export function saveAiConnection(input: unknown, deps: AiDeps): AiSaveResult {
     return INVALID;
   const temperature = i.temperature ?? DEFAULTS.temperature;
   const max_output = i.max_output ?? DEFAULTS.max_output;
-  const timeout = i.timeout ?? DEFAULTS.timeout;
+  const timeout =
+    i.timeout ?? (mode === "server" ? SERVER_TIMEOUT : DEFAULTS.timeout);
   if (
     !inRange(temperature, 0, 2) ||
     !inRange(max_output, 1, 200000) ||

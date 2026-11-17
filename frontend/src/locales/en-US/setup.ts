@@ -56,7 +56,7 @@ export const setup: Messages["setup"] = {
     modeCustom: "Direct",
     modeCustomHint: "Call an OpenAI-compatible endpoint with your own API key.",
     serverSignedIn: (origin: string) => `Signed in to ${origin}.`,
-    serverSignedOut: "Sign in under Settings › APEX account to use AI.",
+    serverSignedOut: "Sign in to your APEX account to use AI.",
   },
   examiner: {
     title: "New case defaults",

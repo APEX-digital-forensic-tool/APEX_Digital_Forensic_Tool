@@ -221,6 +221,12 @@ describe("APEX server mode", () => {
       timeout: 120,
     });
   });
+  it("waits longer than the server does for the model by default", () => {
+    const d = deps();
+    expect(aiConnectionStatus(d).timeout).toBe(120);
+    saveAiConnection({ mode: "server" }, d);
+    expect(aiConnectionStatus(d).timeout).toBe(120);
+  });
   it("gives the engine secret-free settings only", () => {
     const d = deps();
     saveAiConnection(server, d);

@@ -158,7 +158,7 @@ it("starts a new connection on the APEX server and saves no key", async () => {
   ).toBe(true);
   expect(screen.queryByLabelText("API key")).toBeNull();
   expect(
-    screen.getByText("Sign in under Settings › APEX account to use AI."),
+    screen.getByText("Sign in to your APEX account to use AI."),
   ).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Configured");
