@@ -86,6 +86,8 @@ def real_gateway(tmp_path):
     async def answer(request: httpx.Request) -> httpx.Response:
         kimi["calls"] += 1
         await asyncio.sleep(kimi["delay"])
+        if kimi.get("raw") is not None:
+            return httpx.Response(200, content=kimi["raw"])
         content = json.dumps(
             {"title": "요약", "summary_text": "답", "key_points": [], "citations": []}
         )
@@ -150,3 +152,17 @@ def test_a_server_deadline_is_a_timeout_and_kimi_is_not_called_again(
         )
     assert kimi["calls"] == 1
     assert raised.value.code == "AI_PROVIDER_TIMEOUT"
+
+
+def test_a_server_error_after_kimi_answered_is_not_sent_to_kimi_again(
+    services, selection, monkeypatch, real_gateway
+):
+    base_url, token, kimi = real_gateway
+    kimi["raw"] = b"not json"
+    monkeypatch.setenv("APEX_DESKTOP_AI_CONFIG", json.dumps(SERVER_SETTINGS))
+    with pytest.raises(ApexError) as raised:
+        analyze(
+            services, **selection, server_connection={"base_url": base_url, "access_token": token}
+        )
+    assert kimi["calls"] == 1
+    assert raised.value.code == "AI_PROVIDER_FAILED"
