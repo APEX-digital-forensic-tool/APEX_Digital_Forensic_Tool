@@ -132,19 +132,10 @@ def test_tasks_journal_recovered_flag_set(tmp_path: Path) -> None:
 def test_tasks_journal_recovered_flag_not_set_for_valid(tmp_path: Path) -> None:
     journal = tmp_path / "tasks.json"
     journal.write_text(
-        json.dumps(
-            [
-                {
-                    "task_id": "t1",
-                    "case_id": "c1",
-                    "kind": "FILES",
-                    "status": "SUCCEEDED",
-                    "job": None,
-                    "error": None,
-                    "actions": [],
-                }
-            ]
-        ),
+        json.dumps([
+            {"task_id": "t1", "case_id": "c1", "kind": "FILES", "status": "SUCCEEDED",
+             "job": None, "error": None, "actions": []}
+        ]),
         encoding="utf-8",
     )
 
@@ -161,37 +152,14 @@ def test_tasks_journal_recovered_flag_not_set_for_valid(tmp_path: Path) -> None:
 def test_running_tasks_become_interrupted_on_reload(tmp_path: Path) -> None:
     journal = tmp_path / "tasks.json"
     journal.write_text(
-        json.dumps(
-            [
-                {
-                    "task_id": "r1",
-                    "case_id": "c1",
-                    "kind": "FILES",
-                    "status": "RUNNING",
-                    "job": None,
-                    "error": None,
-                    "actions": [],
-                },
-                {
-                    "task_id": "q1",
-                    "case_id": "c1",
-                    "kind": "FILES",
-                    "status": "QUEUED",
-                    "job": None,
-                    "error": None,
-                    "actions": [],
-                },
-                {
-                    "task_id": "s1",
-                    "case_id": "c1",
-                    "kind": "FILES",
-                    "status": "SUCCEEDED",
-                    "job": None,
-                    "error": None,
-                    "actions": [],
-                },
-            ]
-        ),
+        json.dumps([
+            {"task_id": "r1", "case_id": "c1", "kind": "FILES", "status": "RUNNING",
+             "job": None, "error": None, "actions": []},
+            {"task_id": "q1", "case_id": "c1", "kind": "FILES", "status": "QUEUED",
+             "job": None, "error": None, "actions": []},
+            {"task_id": "s1", "case_id": "c1", "kind": "FILES", "status": "SUCCEEDED",
+             "job": None, "error": None, "actions": []},
+        ]),
         encoding="utf-8",
     )
 

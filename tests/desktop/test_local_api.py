@@ -565,8 +565,7 @@ def test_report_snapshot_provenance_survives_desktop_edit(client, tmp_path):
     with_services = build_services(tmp_path / "data/apex.db")
     try:
         node = next(
-            item
-            for item in with_services.repository.list_fs_nodes_for_evidence(eid)
+            item for item in with_services.repository.list_fs_nodes_for_evidence(eid)
             if item.node_type.value == "FILE"
         )
         context = with_services.contexts.create(
@@ -576,59 +575,39 @@ def test_report_snapshot_provenance_survives_desktop_edit(client, tmp_path):
             context.session_context_id, purpose="REPORT_DRAFT", scopes=["filesystem"]
         )
         request = with_services.ai.create_request_from_context_snapshot(
-            case_id=cid,
-            context_snapshot_id=snapshot.context_snapshot_id,
-            purpose="REPORT_INPUT",
-            requested_operations=["SUMMARIZE_SCOPE"],
+            case_id=cid, context_snapshot_id=snapshot.context_snapshot_id,
+            purpose="REPORT_INPUT", requested_operations=["SUMMARIZE_SCOPE"],
             requested_scopes=["filesystem"],
         )
         source = with_services.reports.create_version_from_analyst_draft(
-            report_id=report["report_id"],
-            created_by="audit",
-            title="Snapshot report",
-            executive_summary="Original",
-            evidence_ids=[eid],
+            report_id=report["report_id"], created_by="audit", title="Snapshot report",
+            executive_summary="Original", evidence_ids=[eid],
             context_snapshot_ids=[snapshot.context_snapshot_id],
             citations=snapshot.citations,
             ai_assistance_request_ids=[request.assistance_request_id],
-            analyzer_versions={"fixture": "1"},
-            limitations=["Synthetic evidence"],
-            sections=[
-                {
-                    "section_type": "KEY_FINDINGS",
-                    "title": "Finding",
-                    "order": 1,
-                    "content": "Original",
-                    "context_snapshot_ids": [snapshot.context_snapshot_id],
-                    "source_resource_ids": [node.node_id],
-                    "citations": snapshot.citations,
-                }
-            ],
+            analyzer_versions={"fixture": "1"}, limitations=["Synthetic evidence"],
+            sections=[{
+                "section_type": "KEY_FINDINGS", "title": "Finding", "order": 1,
+                "content": "Original", "context_snapshot_ids": [snapshot.context_snapshot_id],
+                "source_resource_ids": [node.node_id],
+                "citations": snapshot.citations,
+            }],
         )
     finally:
         with_services.close()
     payload = {
-        "case_id": cid,
-        "report_id": report["report_id"],
-        "title": source.title,
-        "executive_summary": "Edited",
-        "evidence_ids": source.evidence_ids,
+        "case_id": cid, "report_id": report["report_id"], "title": source.title,
+        "executive_summary": "Edited", "evidence_ids": source.evidence_ids,
         "context_snapshot_ids": source.context_snapshot_ids,
         "ai_assistance_request_ids": source.ai_assistance_request_ids,
-        "analyzer_versions": source.analyzer_versions,
-        "limitations": source.limitations,
+        "analyzer_versions": source.analyzer_versions, "limitations": source.limitations,
         "citations": source.sections[0].citations,
-        "sections": [
-            {
-                "section_type": "KEY_FINDINGS",
-                "title": "Finding",
-                "order": 1,
-                "content": "Edited",
-                "context_snapshot_ids": source.context_snapshot_ids,
-                "source_resource_ids": [node.node_id],
-                "citations": source.sections[0].citations,
-            }
-        ],
+        "sections": [{
+            "section_type": "KEY_FINDINGS", "title": "Finding", "order": 1,
+            "content": "Edited", "context_snapshot_ids": source.context_snapshot_ids,
+            "source_resource_ids": [node.node_id],
+            "citations": source.sections[0].citations,
+        }],
     }
     edited = call(client, "reports.version", **payload)
     assert edited["context_snapshot_ids"] == source.context_snapshot_ids
@@ -645,14 +624,8 @@ def test_report_snapshot_provenance_survives_desktop_edit(client, tmp_path):
     # Newly exposed provenance fields still pass Core's case authorization checks.
     other = call(client, "cases.create", name="Other case")["id"]
     other_report = call(client, "reports.create", case_id=other, title="Other report")
-    denied = client.post(
-        "/v1/operations/reports.version",
-        json={
-            **payload,
-            "case_id": other,
-            "report_id": other_report["report_id"],
-            "evidence_ids": [],
-        },
-    )
+    denied = client.post("/v1/operations/reports.version", json={
+        **payload, "case_id": other, "report_id": other_report["report_id"], "evidence_ids": [],
+    })
     assert denied.status_code == 409
     assert denied.json()["error"]["code"] == "REPORT_REFERENCE_CASE_MISMATCH"

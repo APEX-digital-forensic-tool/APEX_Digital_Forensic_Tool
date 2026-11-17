@@ -17,7 +17,9 @@ client = api_client
 def test_raw_http_rejects_image_changed_after_indexing(client, tmp_path):
     pytest.importorskip("pytsk3")
     image = tmp_path / "source.img"
-    fixture = json.loads((Path(__file__).parents[1] / "fixtures/container-images.json").read_text())
+    fixture = json.loads(
+        (Path(__file__).parents[1] / "fixtures/container-images.json").read_text()
+    )
     image.write_bytes(gzip.decompress(base64.b64decode(fixture["streams.img"]["gzip_base64"])))
     cid, eid = registered(client, image)
     root = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]
