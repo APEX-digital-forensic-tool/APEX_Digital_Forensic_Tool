@@ -391,3 +391,55 @@ async def test_an_oversized_answer_logs_the_bytes_read(served, caplog) -> None:
     [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
     assert "response_bytes=0" not in line
     assert "request_bytes=0" not in line
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("number", [b"1e400", b"NaN", b"-Infinity"])
+async def test_a_non_finite_number_in_the_request_is_a_bad_request(served, number) -> None:
+    client, kimi = served
+    token = await _login(client)
+    body = b'{"messages": [{"role": "user", "content": "x"}], "temperature": ' + number + b"}"
+    response = await client.post(
+        "/llm/v1/chat/completions",
+        content=body,
+        headers={**_bearer(token), "Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert kimi.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_non_finite_number_in_the_answer_is_a_bad_gateway(served, caplog) -> None:
+    client, kimi = served
+    token = await _login(client)
+    kimi.reply = httpx.Response(
+        200, content=b'{"model": "kimi-k3.1-pro", "choices": [], "usage": {"total_tokens": NaN}}'
+    )
+    with caplog.at_level("INFO", logger="apex_backend.llm.router"):
+        response = await client.post(
+            "/llm/v1/chat/completions", json=CHAT, headers=_bearer(token)
+        )
+    assert response.status_code == 502
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("llm call")]
+    assert "status=502" in line
+
+
+@pytest.mark.asyncio
+async def test_an_answer_without_a_model_is_not_given_the_requested_one(served) -> None:
+    client, kimi = served
+    token = await _login(client)
+    kimi.reply = httpx.Response(200, json={"choices": []})
+    response = await client.post("/llm/v1/chat/completions", json=CHAT, headers=_bearer(token))
+    assert response.status_code == 200
+    assert "model" not in response.json()
+    assert response.json()["apex_requested_model"] == "kimi-k3.1-pro"
+
+
+@pytest.mark.asyncio
+async def test_the_reported_and_requested_models_travel_separately(served) -> None:
+    client, kimi = served
+    token = await _login(client)
+    kimi.reply = httpx.Response(200, json={"model": "kimi-k3.1-pro-0915", "choices": []})
+    response = await client.post("/llm/v1/chat/completions", json=CHAT, headers=_bearer(token))
+    assert response.json()["model"] == "kimi-k3.1-pro-0915"
+    assert response.json()["apex_requested_model"] == "kimi-k3.1-pro"

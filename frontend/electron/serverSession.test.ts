@@ -324,6 +324,31 @@ describe("server session", () => {
     });
   });
 
+  it("reports a sign-in that lost the race instead of the winner's session", async () => {
+    const h = harness();
+    const releaseFirst = h.hold("/auth/login");
+    const releaseSecond = h.hold("/auth/login");
+    const first = h.session.login(LOGIN);
+    const second = h.session.login({
+      ...LOGIN,
+      origin: "https://other.example/",
+      email: "b@example.com",
+    });
+    releaseFirst();
+    expect(await first).toMatchObject({ ok: true });
+    releaseSecond();
+    expect(await second).toEqual({
+      ok: false,
+      code: "AUTH_ALREADY_SIGNED_IN",
+    });
+    expect(h.session.status().origin).toBe(ORIGIN);
+    expect(h.calls.at(-1)).toEqual({
+      path: "/auth/logout",
+      body: null,
+      auth: "Bearer access-2",
+    });
+  });
+
   it("keeps one refresh at a time when an earlier session's refresh lands late", async () => {
     const h = harness();
     await h.session.login(LOGIN);

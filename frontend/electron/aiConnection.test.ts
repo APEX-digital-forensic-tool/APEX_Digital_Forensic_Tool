@@ -306,6 +306,48 @@ describe("APEX server mode", () => {
     },
   );
 
+  it("attaches the sign-in when the user's environment chooses the APEX server", async () => {
+    const managed = deps({
+      env: {
+        APEX_DESKTOP_AI_CONFIG: JSON.stringify({
+          connection: "APEX_SERVER",
+          temperature: 0,
+          max_output: 4096,
+          timeout: 120,
+        }),
+      },
+    });
+    const payload: Record<string, unknown> = {};
+    await attachServerConnection("ai.analyze", payload, managed, signedIn);
+    expect(payload.server_connection).toEqual({
+      base_url: "https://apex.example/llm/v1",
+      access_token: "access-token-1",
+    });
+  });
+  it.each([
+    [
+      "a direct endpoint",
+      JSON.stringify({
+        provider_id: "x",
+        base_url: "https://api.example.com/v1",
+      }),
+    ],
+    ["unreadable JSON", "{"],
+  ])(
+    "attaches nothing when the user's environment names %s",
+    async (_name, config) => {
+      const managed = deps({ env: { APEX_DESKTOP_AI_CONFIG: config } });
+      const payload: Record<string, unknown> = {
+        server_connection: {
+          base_url: "https://evil.example",
+          access_token: "x",
+        },
+      };
+      await attachServerConnection("ai.analyze", payload, managed, signedIn);
+      expect(payload).toEqual({});
+    },
+  );
+
   describe("a token the server rejects", () => {
     const rejected = { ok: false, error: { code: "AUTHENTICATION_FAILED" } };
     const answered = { ok: true, data: { status: "COMPLETED" } };
