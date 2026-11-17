@@ -36,6 +36,7 @@ import {
 } from "./aiConnection";
 import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
 import { hasActiveTasks, stopChild } from "./engineGuard";
+import { engineTimeoutMs, postEngine } from "./engineRequest";
 import { PickerReferences, type PickPurpose } from "./pickerReferences";
 import { IMAGE_EXTENSIONS } from "../src/imageExtensions";
 
@@ -188,24 +189,12 @@ function handle(
 }
 async function local(operation: string, payload: Record<string, unknown>) {
   if (!backendURL) return fail(backendError);
-  const response = await fetch(`${backendURL}/v1/operations/${operation}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-    // Reasoning models can take minutes for one governed AI request.
-    signal: AbortSignal.timeout(
-      operation === "runtime"
-        ? 60000
-        : operation === "ai.analyze"
-          ? 630000
-          : 120000,
-    ),
-    redirect: "error",
-  });
-  return response.json();
+  return postEngine(
+    `${backendURL}/v1/operations/${operation}`,
+    token,
+    payload,
+    engineTimeoutMs(operation),
+  );
 }
 async function startBackend() {
   if (quitting) return;
