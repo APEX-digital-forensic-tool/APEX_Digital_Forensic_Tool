@@ -2,9 +2,9 @@
 
 Each appender runs in its own thread with its own ServiceBundle (one SQLite
 connection each, like concurrent desktop requests and the task worker). The
-scheduler gates the two real steps of SQLiteRepository.append_custody_event:
-opening the write transaction (_begin_write, BEGIN IMMEDIATE, followed by the
-tail read) and inserting the new event (_insert_custody_event). It runs every
+scheduler gates the two real steps of a custody append: opening the write
+transaction (SQLiteRepository.custody_append, BEGIN IMMEDIATE, followed by the
+tail read) and inserting the new event (save_custody_event). It runs every
 ordering of those steps. A granted step that is still running after
 BLOCK_WAIT is waiting for SQLite's write lock; the scheduler then runs the next
 step whose appender is ready, so the executed order is the nearest one the lock
@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -175,17 +176,20 @@ def make_template(base: Path, mutant: str | None) -> tuple[Path, str]:
 def run_appender(index, outcome, database, evidence_id, exports, scheduler, mutant):
     bundle = build_services(database, initialize=False)
     repository = bundle.repository
-    real_begin = repository._begin_write
+    real_append = repository.custody_append
     real_list = repository.list_custody_events
-    real_insert = repository._insert_custody_event
+    real_insert = repository.save_custody_event
 
-    def gated_begin():
-        if mutant in UNLOCKED:
-            scheduler.run_step(index, "begin", lambda: None)
-            scheduler.note(f"{outcome.label} starts its append without a write lock")
-        else:
-            scheduler.run_step(index, "begin", real_begin)
-            scheduler.note(f"{outcome.label} holds the write lock (BEGIN IMMEDIATE)")
+    @contextmanager
+    def gated_append():
+        with ExitStack() as transaction:
+            if mutant in UNLOCKED:
+                scheduler.run_step(index, "begin", lambda: None)
+                scheduler.note(f"{outcome.label} starts its append without a write lock")
+            else:
+                scheduler.run_step(index, "begin", lambda: transaction.enter_context(real_append()))
+                scheduler.note(f"{outcome.label} holds the write lock (BEGIN IMMEDIATE)")
+            yield
 
     def traced_list(evidence: str):
         events = real_list(evidence)
@@ -209,9 +213,9 @@ def run_appender(index, outcome, database, evidence_id, exports, scheduler, muta
 
         scheduler.run_step(index, "write", insert)
 
-    repository._begin_write = gated_begin
+    repository.custody_append = gated_append
     repository.list_custody_events = traced_list
-    repository._insert_custody_event = gated_insert
+    repository.save_custody_event = gated_insert
     try:
         if outcome.kind == "export":
             result = bundle.images.export_range(
