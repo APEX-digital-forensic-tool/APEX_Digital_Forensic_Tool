@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -527,8 +528,7 @@ class EvidenceManager:
     @staticmethod
     def _reject_split_segment(path: Path) -> None:
         """Refuse any segment of a split image set, which the raw reader cannot join."""
-        suffix = path.suffix
-        if len(suffix) != 4 or not suffix[1:].isdigit():
+        if not _is_numbered_segment(path.name):
             return
         # x.7z.002 carries no archive signature; its name still says it is an archive part.
         if Path(path.stem).suffix.lower() in {".zip", ".7z", ".rar", ".gz", ".tar"}:
@@ -537,10 +537,19 @@ class EvidenceManager:
                 "error.archive_requires_extraction",
                 target="source_path",
             )
-        # A neighbouring segment, or the first one (.000 or .001), makes it a set.
-        number = int(suffix[1:])
-        siblings = {number - 1, number + 1, 0, 1} - {number}
-        if any(0 <= n <= 999 and path.with_suffix(f".{n:03d}").exists() for n in siblings):
+        # Any other numbered segment of the same name makes it a set, gaps included.
+        try:
+            with os.scandir(path.parent) as entries:
+                in_set = any(
+                    entry.name != path.name
+                    and _is_numbered_segment(entry.name)
+                    and Path(entry.name).stem == path.stem
+                    and entry.is_file()
+                    for entry in entries
+                )
+        except OSError:
+            return
+        if in_set:
             raise ApexError(
                 "SPLIT_IMAGE_UNSUPPORTED",
                 "error.split_image_unsupported",
@@ -618,3 +627,8 @@ class EvidenceManager:
                 "container_hash_only": True,
             },
         )
+
+
+def _is_numbered_segment(name: str) -> bool:
+    suffix = Path(name).suffix
+    return len(suffix) == 4 and suffix[1:].isdigit()
