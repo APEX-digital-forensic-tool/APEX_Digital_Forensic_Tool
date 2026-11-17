@@ -35,6 +35,8 @@ export const errors: Messages["errors"] = {
     "This file cannot be read as text. For images and audio, run OCR or STT, then request analysis from the extracted candidates.",
   ARCHIVE_REQUIRES_EXTRACTION:
     "This file is an archive. Keep the original, extract it into a separate folder, then import that folder with ‘Add folder’. File system analysis inside archives is not supported.",
+  SPLIT_IMAGE_UNVERIFIED:
+    "APEX could not check whether other numbered segments of this image exist, so it was not added. If the file is one segment of a split image, join every segment in numeric order and add the joined file. If it stands alone, check the folder and file permissions and try again.",
   SPLIT_IMAGE_UNSUPPORTED:
     "This image is split into numbered segments (.000 or .001, then .002, …), which are not supported yet. Join every segment in numeric order with your acquisition tool, or with a command that covers all of them (for example, on macOS or Linux: cat image.[0-9][0-9][0-9] > image.dd; on Windows: copy /b image.001+image.002+image.003 image.dd, listing every segment in order). Before you add the joined file, check its hash against the acquisition record, and keep the original segments.",
   MEDIA_LIMIT_EXCEEDED:

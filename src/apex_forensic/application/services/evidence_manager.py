@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -537,24 +537,29 @@ class EvidenceManager:
                 "error.archive_requires_extraction",
                 target="source_path",
             )
-        # Any other numbered segment of the same name makes it a set, gaps included.
-        try:
-            with os.scandir(path.parent) as entries:
-                in_set = any(
-                    entry.name != path.name
-                    and _is_numbered_segment(entry.name)
-                    and Path(entry.name).stem == path.stem
-                    and entry.is_file()
-                    for entry in entries
+        # Any other numbered segment of the same name makes it a set, gaps included. Each
+        # sibling is checked by path, which works where the folder cannot be listed.
+        for number in range(1000):
+            sibling = path.with_suffix(f".{number:03d}")
+            if sibling.name == path.name:
+                continue
+            try:
+                is_segment = stat.S_ISREG(sibling.stat().st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as error:
+                # A sibling that cannot be checked is no evidence that this file stands alone.
+                raise ApexError(
+                    "SPLIT_IMAGE_UNVERIFIED",
+                    "error.split_image_unverified",
+                    target="source_path",
+                ) from error
+            if is_segment:
+                raise ApexError(
+                    "SPLIT_IMAGE_UNSUPPORTED",
+                    "error.split_image_unsupported",
+                    target="source_path",
                 )
-        except OSError:
-            return
-        if in_set:
-            raise ApexError(
-                "SPLIT_IMAGE_UNSUPPORTED",
-                "error.split_image_unsupported",
-                target="source_path",
-            )
 
     @staticmethod
     def _detect_evidence_format(path: Path) -> EvidenceFormat:
