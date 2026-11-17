@@ -13,3 +13,9 @@ it.each([
   for (const errors of [koKR.errors, enUS.errors])
     expect(Object.hasOwn(errors, code)).toBe(true);
 });
+
+// OCR and speech jobs both end with this code when the bytes cannot be decoded.
+it("words a decode failure for audio as well as images", () => {
+  expect(koKR.errors.MEDIA_DECODE_FAILED).not.toContain("이미지");
+  expect(enUS.errors.MEDIA_DECODE_FAILED).not.toMatch(/image/i);
+});
