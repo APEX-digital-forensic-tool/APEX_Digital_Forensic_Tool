@@ -2,6 +2,7 @@
 
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from apex_forensic.adapters.ai.openai_compatible import (
@@ -23,14 +24,58 @@ from apex_forensic.domain.services.ai_projection import ai_data_reference
 
 from .ai_content import excerpt
 
+SERVER_PROVIDER_ID = "apex-server"
+# Stands in until the server's answer names the model that actually ran.
+SERVER_MODEL_PLACEHOLDER = "apex-server"
 
-def provider_config() -> OpenAICompatibleConfig | None:
+
+@dataclass(frozen=True)
+class ServerAiSettings:
+    """AI through the signed-in APEX server. Secret-free: the token arrives per request."""
+
+    timeout: float
+    max_output: int
+    temperature: float
+
+    def provider_config(self, base_url: str) -> OpenAICompatibleConfig:
+        return OpenAICompatibleConfig(
+            provider_id=SERVER_PROVIDER_ID,
+            base_url=base_url,
+            model=SERVER_MODEL_PLACEHOLDER,
+            api_key_env="",
+            timeout=self.timeout,
+            max_output=self.max_output,
+            temperature=self.temperature,
+            request_policy="SELECTED_CONTEXT_ONLY",
+        )
+
+
+def desktop_settings() -> OpenAICompatibleConfig | ServerAiSettings | None:
+    """The AI connection named by APEX_DESKTOP_AI_CONFIG, or None when unset."""
     raw = os.environ.get("APEX_DESKTOP_AI_CONFIG")
     if not raw:
         return None
     try:
-        config = AiProviderRuntimeConfig(**json.loads(raw)).validate()
-    except (TypeError, ValueError, AttributeError, ValidationError) as error:
+        data = json.loads(raw)
+        if isinstance(data, dict) and data.get("connection") == "APEX_SERVER":
+            settings = ServerAiSettings(
+                timeout=float(data["timeout"]),
+                max_output=int(data["max_output"]),
+                temperature=float(data["temperature"]),
+            )
+            # Reuse the custom-endpoint range checks for the shared parameters.
+            AiProviderRuntimeConfig(
+                provider_id=SERVER_PROVIDER_ID,
+                base_url="https://apex.invalid",
+                model_id=SERVER_MODEL_PLACEHOLDER,
+                api_key_env="UNUSED",
+                timeout=settings.timeout,
+                max_output=settings.max_output,
+                temperature=settings.temperature,
+            ).validate()
+            return settings
+        config = AiProviderRuntimeConfig(**data).validate()
+    except (TypeError, ValueError, AttributeError, KeyError, ValidationError) as error:
         raise ValidationError("Invalid desktop AI configuration.") from error
     return OpenAICompatibleConfig(
         provider_id=config.provider_id,
@@ -47,8 +92,9 @@ def provider_config() -> OpenAICompatibleConfig | None:
 def runtime(services: ServiceBundle) -> dict[str, Any]:
     result = services.ai.capabilities()
     result["configuration_error"] = None
+    result["connection"] = None
     try:
-        config = provider_config()
+        settings = desktop_settings()
     except ValidationError:
         # Optional AI setup must not prevent the local workbench from starting.
         result["configuration_error"] = {
@@ -56,9 +102,13 @@ def runtime(services: ServiceBundle) -> dict[str, Any]:
             "source": "APEX_DESKTOP_AI_CONFIG",
         }
         return result
-    if config is not None:
+    if isinstance(settings, ServerAiSettings):
+        # Availability depends on the app's server sign-in, which only the app knows.
+        result["connection"] = "APEX_SERVER"
+    elif settings is not None:
+        result["connection"] = "CUSTOM"
         result["runtime_capability"] = (
-            OpenAICompatibleProvider(config).capabilities().to_schema_dict()
+            OpenAICompatibleProvider(settings).capabilities().to_schema_dict()
         )
         if result["runtime_capability"]["is_available"]:
             result["engine_capabilities"].append("RUNTIME_LLM_PROVIDER")
@@ -77,12 +127,21 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
         config: OpenAICompatibleConfig,
         services: ServiceBundle,
         content: dict[str, Any] | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.services = services
         self.audit: Any = None
         self.projection: Any = None
         self.content = content
-        super().__init__(config, request_payload=self._approved_payload)
+        self.served_model: str | None = None
+        super().__init__(config, request_payload=self._approved_payload, api_key=api_key)
+
+    def _post_json(self, body: dict[str, Any], *, cancellation_requested: bool) -> dict[str, Any]:
+        response = super()._post_json(body, cancellation_requested=cancellation_requested)
+        model = response.get("model")
+        if isinstance(model, str) and 0 < len(model) <= 256:
+            self.served_model = model
+        return response
 
     def _approved_payload(self, request: AiAssistanceRequest) -> dict[str, Any]:
         if self.content is not None:
@@ -120,6 +179,9 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
 
     def generate_scope_summary(self, request: AiAssistanceRequest, **kwargs: Any) -> dict[str, Any]:
         result = super().generate_scope_summary(request, **kwargs)
+        if self.model_id == SERVER_MODEL_PLACEHOLDER and self.served_model:
+            # Record the model the server actually ran, not the placeholder we asked for.
+            result["model_id"] = self.served_model
         result["citations"] = request.citations
         result["scope_context_id"] = request.scope_context_ids[0]
         result["referenced_resource_ids"] = []
@@ -148,7 +210,13 @@ def analyze(
     mode: str = "STRUCTURE",
     reviewed_fingerprint: str | None = None,
     prepare_only: bool = False,
+    server_connection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Run governed AI on one selected resource.
+
+    *server_connection* (``base_url``, ``access_token``) is supplied by the app per
+    request when the APEX server connection is chosen. It is used for this call only.
+    """
     resources = {
         "FILE_SYSTEM_NODE",
         "ARTIFACT",
@@ -184,10 +252,20 @@ def analyze(
         raise ValidationError("Unknown AI analysis mode.")
     elif prepare_only:
         return {**response, "status": "PREPARED"}
-    config = provider_config()
-    if config is None:
+    settings = desktop_settings()
+    if settings is None:
         return {**response, "status": "CONFIGURATION_REQUIRED"}
-    provider = GovernedDesktopProvider(config, services, content=content)
+    if isinstance(settings, ServerAiSettings):
+        if server_connection is None:
+            return {**response, "status": "LOGIN_REQUIRED"}
+        provider = GovernedDesktopProvider(
+            settings.provider_config(server_connection["base_url"]),
+            services,
+            content=content,
+            api_key=server_connection["access_token"],
+        )
+    else:
+        provider = GovernedDesktopProvider(settings, services, content=content)
     try:
         execution = services.ai.execute_request(
             assistance_request_id=request.assistance_request_id,

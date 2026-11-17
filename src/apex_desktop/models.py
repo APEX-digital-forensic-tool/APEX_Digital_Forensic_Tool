@@ -74,6 +74,13 @@ class Raw(View):
     length: int = Field(default=4096, ge=1, le=1048576)
 
 
+class ServerConnection(Input):
+    """Set only by the app's main process, never by the renderer."""
+
+    base_url: str = Field(pattern=r"^https?://[^\s]+$", max_length=2048)
+    access_token: str = Field(min_length=1, max_length=8192, repr=False)
+
+
 class AiAnalyze(CaseInput):
     resource_type: Literal[
         "FILE_SYSTEM_NODE", "ARTIFACT", "TIMELINE_EVENT", "SEARCH_RESULT", "MACHINE_CANDIDATE"
@@ -81,6 +88,7 @@ class AiAnalyze(CaseInput):
     resource_id: str = Field(min_length=1, max_length=255)
     mode: Literal["STRUCTURE", "CONTENT"] = "STRUCTURE"
     reviewed_fingerprint: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    server_connection: ServerConnection | None = None
 
 
 class FileAction(CaseInput):

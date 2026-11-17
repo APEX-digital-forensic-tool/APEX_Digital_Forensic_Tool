@@ -81,9 +81,13 @@ class OpenAICompatibleProvider:
         config: OpenAICompatibleConfig,
         *,
         request_payload: Callable[[AiAssistanceRequest], dict[str, Any]] | None = None,
+        api_key: str | None = None,
     ) -> None:
         self._config = config
         self._request_payload = request_payload
+        # A credential held by the caller for this provider's lifetime only; otherwise
+        # the key is read from the configured environment variable at request time.
+        self._api_key = api_key
 
     @property
     def provider_id(self) -> str:
@@ -259,7 +263,7 @@ class OpenAICompatibleProvider:
     def _post_json(self, body: dict[str, Any], *, cancellation_requested: bool) -> dict[str, Any]:
         if cancellation_requested:
             raise OperationCancelledError("AI provider request was cancelled before dispatch.")
-        key = os.environ.get(self._config.api_key_env)
+        key = self._credential()
         if not key:
             raise AiAssistanceError(
                 "KEY_UNAVAILABLE",
@@ -433,9 +437,16 @@ class OpenAICompatibleProvider:
             return "CAPABILITY_UNAVAILABLE"
         if not self._config.model:
             return "CAPABILITY_UNAVAILABLE"
-        if not self._config.api_key_env or not os.environ.get(self._config.api_key_env):
+        if not self._credential():
             return "KEY_UNAVAILABLE"
         return None
+
+    def _credential(self) -> str | None:
+        if self._api_key is not None:
+            return self._api_key
+        if not self._config.api_key_env:
+            return None
+        return os.environ.get(self._config.api_key_env)
 
 
 def _chat_completions_url(base_url: str) -> str:
