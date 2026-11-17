@@ -126,6 +126,55 @@ def test_audio_with_a_misleading_name_reaches_speech_recognition(client, tmp_pat
         assert body["ok"] is True, (name, body)
 
 
+# (name, ffmpeg muxer, encoder, extra muxer flags). mp3 is written without an ID3 tag,
+# the hardest case for a probe; every one must be judged as audio by its bytes.
+CONTAINERS = [
+    ("song.mp3", "mp3", "libmp3lame", ("-write_id3v2", "0")),
+    ("raw.aac", "adts", "aac", ()),
+    ("tone.flac", "flac", "flac", ()),
+    ("tone.ogg", "ogg", "libopus", ()),
+    ("tone.opus", "opus", "libopus", ()),
+    ("tone.aiff", "aiff", "pcm_s16be", ()),
+    ("tone.caf", "caf", "pcm_s16be", ()),
+    ("tone.mkv", "matroska", "aac", ()),
+    ("tone.webm", "webm", "libopus", ()),
+    ("tone.avi", "avi", "libmp3lame", ()),
+    ("tone.wma", "asf", "wmav2", ()),
+    ("tone.amr", "amr", "libopencore_amrnb", ("-ar", "8000", "-ac", "1")),
+]
+
+
+@needs_ffmpeg
+def test_common_audio_containers_are_accepted_by_content(client, tmp_path):
+    ffmpeg = media_executable("ffmpeg")
+    assert ffmpeg is not None
+    encoders = subprocess.run(
+        [ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True, check=True
+    ).stdout
+    root = tmp_path / "containers"
+    root.mkdir()
+    made = []
+    for name, muxer, encoder, flags in CONTAINERS:
+        if f" {encoder} " not in encoders:
+            continue
+        subprocess.run(
+            [
+                ffmpeg,
+                *("-v", "error", "-f", "lavfi", "-i", "sine=duration=1"),
+                *("-c:a", encoder, *flags, "-f", muxer, str(root / name)),
+            ],
+            check=True,
+            timeout=60,
+        )
+        made.append(name)
+    assert len(made) >= 8, made
+    cid, nodes = nodes_of(client, root, "Containers")
+    refused = {name: stt(client, cid, nodes[name]) for name in made}
+    assert all(body["ok"] for body in refused.values()), {
+        name: body["error"]["code"] for name, body in refused.items() if not body["ok"]
+    }
+
+
 UTF16_REG = "\ufeffWindows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software]\r\n"
 
 
