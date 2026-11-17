@@ -3,7 +3,7 @@
 from typing import Any
 
 from apex_forensic.adapters.filesystem.content import EvidenceFileContent
-from apex_forensic.domain.errors import ApexError
+from apex_forensic.domain.errors import ApexError, RawReadError
 from apex_forensic.domain.models.filesystem import FileSystemNode
 
 _AUDIO_VIDEO = frozenset(
@@ -57,8 +57,12 @@ def _is_media_header(head: bytes) -> bool:
 
 def _looks_like_media(evidence: Any, node: FileSystemNode) -> bool:
     size = node.file_size or 0
-    with EvidenceFileContent.open(evidence, node) as handle:
-        return _is_media_header(EvidenceFileContent.read_range(handle, 0, min(size, 64)))
+    try:
+        with EvidenceFileContent.open(evidence, node) as handle:
+            return _is_media_header(EvidenceFileContent.read_range(handle, 0, min(size, 64)))
+    except (RawReadError, OSError):
+        # Unreadable bytes (deleted, changed, no image reader) cannot prove it is media.
+        return False
 
 
 def require_speech_source(node: FileSystemNode, evidence: Any = None) -> None:

@@ -530,11 +530,10 @@ class EvidenceManager:
         suffix = path.suffix
         if len(suffix) != 4 or not suffix[1:].isdigit():
             return
-        if suffix == ".001":
-            split = path.with_suffix(".002").exists()
-        else:
-            split = int(suffix[1:]) >= 2 and path.with_suffix(".001").exists()
-        if split:
+        # A neighbouring segment, or the first one (.000 or .001), makes it a set.
+        number = int(suffix[1:])
+        siblings = {number - 1, number + 1, 0, 1} - {number}
+        if any(0 <= n <= 999 and path.with_suffix(f".{n:03d}").exists() for n in siblings):
             raise ApexError(
                 "SPLIT_IMAGE_UNSUPPORTED",
                 "error.split_image_unsupported",
