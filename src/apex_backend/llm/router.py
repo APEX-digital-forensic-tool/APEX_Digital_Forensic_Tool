@@ -119,12 +119,15 @@ def _no_constant(name: str) -> Any:
 
 
 def _parse_json(raw: bytes) -> Any:
-    """Parsed JSON, or None for anything malformed: pathological nesting, and NaN,
-    Infinity or overflowing numbers, which strict JSON cannot carry onward."""
+    """Parsed JSON, or None for anything we could not send on as strict UTF-8 JSON:
+    pathological nesting, NaN, Infinity or overflowing numbers, lone surrogates."""
     try:
-        return json.loads(raw, parse_float=_finite, parse_constant=_no_constant)
-    except (ValueError, UnicodeDecodeError, RecursionError):
+        value = json.loads(raw, parse_float=_finite, parse_constant=_no_constant)
+        # Lone surrogates parse but cannot be encoded again.
+        json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (ValueError, UnicodeError, RecursionError):
         return None
+    return value
 
 
 @router.post("/chat/completions")

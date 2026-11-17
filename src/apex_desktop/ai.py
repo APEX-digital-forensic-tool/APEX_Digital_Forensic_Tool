@@ -87,7 +87,14 @@ def desktop_settings() -> OpenAICompatibleConfig | ServerAiSettings | None:
             )
             return settings
         config = AiProviderRuntimeConfig(**data).validate()
-    except (TypeError, ValueError, AttributeError, KeyError, ValidationError) as error:
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+        KeyError,
+        OverflowError,
+        ValidationError,
+    ) as error:
         raise ValidationError("Invalid desktop AI configuration.") from error
     return OpenAICompatibleConfig(
         provider_id=config.provider_id,
@@ -149,7 +156,13 @@ class GovernedDesktopProvider(OpenAICompatibleProvider):
         self.content = content
         self.served_model: str | None = None
         self.requested_model: str | None = None
-        super().__init__(config, request_payload=self._approved_payload, api_key=api_key)
+        super().__init__(
+            config,
+            request_payload=self._approved_payload,
+            api_key=api_key,
+            # The APEX server never retries Kimi itself; its 5xx is final.
+            retry_server_errors=server_origin is None,
+        )
 
     def _post_json(self, body: dict[str, Any], *, cancellation_requested: bool) -> dict[str, Any]:
         response = super()._post_json(body, cancellation_requested=cancellation_requested)
