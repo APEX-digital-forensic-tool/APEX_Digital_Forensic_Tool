@@ -77,6 +77,11 @@ it("words the split image guidance without Markdown marks", () => {
     expect(errors.SPLIT_IMAGE_UNSUPPORTED).not.toContain("`");
 });
 
+it("says when the other segments of a split image could not be checked", () => {
+  for (const errors of [koKR.errors, enUS.errors] as Record<string, string>[])
+    expect(errors.SPLIT_IMAGE_UNVERIFIED).toMatch(/\S/);
+});
+
 it("explains that a split image must be joined before it is added", async () => {
   const bridge = createDemoBridge();
   const original = bridge.invoke.bind(bridge);
