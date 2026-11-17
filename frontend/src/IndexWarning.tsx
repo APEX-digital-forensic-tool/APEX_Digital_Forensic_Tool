@@ -43,7 +43,7 @@ export function IndexWarning({
     let live = true;
     gateway
       .call("index.state", { case_id: caseId, evidence_id: evidenceId || null })
-      .then((rows) => live && setFetched(rows))
+      .then((rows) => live && setFetched(rows as Row[]))
       .catch(() => live && setFetched(undefined));
     return () => {
       live = false;
