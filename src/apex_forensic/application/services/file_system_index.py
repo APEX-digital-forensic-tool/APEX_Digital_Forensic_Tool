@@ -94,6 +94,8 @@ class _RunState:
     run_started: float = field(default_factory=time.monotonic)
     indexed_this_run: int = 0
     sequence: int = 0
+    # Folders whose own listing reported an error; they are never marked complete.
+    failed_listings: set[str] = field(default_factory=set)
 
 
 class FileSystemIndexService:
@@ -524,6 +526,10 @@ class FileSystemIndexService:
                 self._record_issue(state, entry)
                 if entry.severity == "WARNING":
                     state.coverage.skipped_items += 1
+                # An error, or any issue on the folder itself such as a denied
+                # read, means its listing is not known to be complete.
+                if entry.severity != "WARNING" or entry.path == parent.display_path:
+                    state.failed_listings.add(parent.node_id)
                 if self._budget_reached(state):
                     self._repository.update_fs_queue_cursor(
                         str(item["queue_id"]), item.get("cursor_key")
@@ -601,7 +607,11 @@ class FileSystemIndexService:
             self._repository.save_fs_nodes(batch)
         self._repository.mark_fs_queue_done(str(item["queue_id"]))
         state.coverage.processed_items += 1
-        if parent.is_partial and parent.node_id not in state.options.selected_node_ids:
+        if (
+            parent.is_partial
+            and parent.node_id not in state.options.selected_node_ids
+            and parent.node_id not in state.failed_listings
+        ):
             # A depth-limited folder that has now been listed completely. A folder
             # the analyst opened clears only when its job drains the queue.
             parent.is_partial = False
@@ -610,7 +620,7 @@ class FileSystemIndexService:
     def _clear_selected_partial(self, state: _RunState) -> None:
         for node_id in state.options.selected_node_ids:
             node = self._repository.get_fs_node(node_id)
-            if node is not None and node.is_partial:
+            if node is not None and node.is_partial and node_id not in state.failed_listings:
                 node.is_partial = False
                 self._repository.upsert_fs_node(node)
 

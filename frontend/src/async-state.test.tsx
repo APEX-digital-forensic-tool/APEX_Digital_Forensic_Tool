@@ -762,6 +762,16 @@ it("drops the results and the next-page cursor when the evidence changes (#66)",
   expect(screen.queryByRole("button", { name: /다음/ })).toBeNull();
 });
 
+it("ignores an empty or blank search submit (#66)", async () => {
+  const calls = recording();
+  await openRoute("통합 검색");
+  const input = screen.getByLabelText("검색어");
+  fireEvent.change(input, { target: { value: "   " } });
+  fireEvent.submit(input.closest("form")!);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(calls.filter(([op]) => op === "search.query")).toEqual([]);
+});
+
 it("reloads the search history after a search runs (#66)", async () => {
   const calls = recording();
   await openRoute("통합 검색");
@@ -990,6 +1000,38 @@ it.each(["CANCELLED", "FAILED", "INTERRUPTED"])(
     await waitFor(() => expect(starts.length).toBe(2), { timeout: 3000 });
   },
 );
+
+it("allows a retry when the folder job start returns no task id (#49)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const starts: Row[] = [];
+  bridge.invoke = async (op, payload) => {
+    if (op === "analysis.start") {
+      starts.push(payload);
+      return { ok: true, data: {} };
+    }
+    const reply = await original(op, payload);
+    if (op === "files.list" && reply.ok && payload.parent_node_id)
+      for (const node of reply.data.items)
+        if (node.node_type === "DIRECTORY") node.is_partial = true;
+    return reply;
+  };
+  window.apex = bridge;
+  await openFiles();
+  const row = async () =>
+    (
+      await within(await screen.findByRole("table")).findAllByText(
+        (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+      )
+    )
+      .find((el) => el.closest("tr")?.textContent?.includes("폴더"))!
+      .closest("tr")!;
+  fireEvent.doubleClick(await row());
+  await waitFor(() => expect(starts.length).toBe(1));
+  fireEvent.click(screen.getByRole("button", { name: "상위 폴더로 이동" }));
+  fireEvent.doubleClick(await row());
+  await waitFor(() => expect(starts.length).toBe(2), { timeout: 3000 });
+});
 
 it("lists a report right after it is created", async () => {
   const created = { ...reportFixture.report, title: "새로 만든 보고서" };

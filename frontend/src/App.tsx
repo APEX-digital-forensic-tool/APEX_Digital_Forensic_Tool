@@ -674,8 +674,10 @@ export function App() {
         kind: "FILES",
         node_id: node.id,
       });
-      if (indexedFolders.current.has(key))
-        indexedFolders.current.set(key, task?.task_id ?? "");
+      // Without a job id nothing can free the key later, so allow a retry.
+      if (!task?.task_id) indexedFolders.current.delete(key);
+      else if (indexedFolders.current.has(key))
+        indexedFolders.current.set(key, task.task_id);
       refresh();
     } catch (err) {
       indexedFolders.current.delete(key);
@@ -1820,8 +1822,10 @@ export function App() {
                     className="search-form"
                     onSubmit={(e) => {
                       e.preventDefault();
+                      const text = query.trim();
+                      if (!text) return;
                       setSearchRun({
-                        text: query,
+                        text,
                         mode: searchMode,
                         caseId,
                         evidenceId,

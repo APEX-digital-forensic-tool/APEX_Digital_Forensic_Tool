@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -507,6 +509,10 @@ def test_discovered_folder_stays_partial_until_it_is_listed(services, tmp_path: 
     assert not unlisted or unlisted[0].is_partial is True
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod(0) does not block a directory for root or on Windows",
+)
 def test_folder_job_that_drains_with_skipped_items_clears_partial(services, tmp_path: Path) -> None:
     evidence_dir = tmp_path / "skipped"
     (evidence_dir / "dir" / "locked").mkdir(parents=True)
@@ -543,3 +549,102 @@ def test_folder_job_that_drains_with_skipped_items_clears_partial(services, tmp_
     assert job.status == "PARTIAL"
     # The queue drained, so reopening the folder must not index it again.
     assert nodes["/dir"].is_partial is False
+
+
+class _FolderListingErrorProvider(LogicalDirectoryFileSystemProvider):
+    def iter_directory_entries(self, evidence, parent, *, index_revision, after_cursor=None):
+        if parent.display_path == "/dir":
+            return [
+                ProviderScanIssue(
+                    severity="ERROR",
+                    code="DIRECTORY_LISTING_FAILED",
+                    message_key="error.fs.directory_listing_failed",
+                    developer_message="Synthetic listing failure.",
+                    path=parent.display_path,
+                    node_id=parent.node_id,
+                )
+            ]
+        return super().iter_directory_entries(
+            evidence, parent, index_revision=index_revision, after_cursor=after_cursor
+        )
+
+
+def test_folder_whose_listing_failed_stays_partial(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "listing-error"
+    (evidence_dir / "dir").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+    folder = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/dir"
+    )
+    service = FileSystemIndexService(
+        case_repository=services.repository,
+        evidence_repository=services.repository,
+        repository=services.repository,
+        provider=_FolderListingErrorProvider(),
+        clock=SystemClock(),
+        id_generator=UuidGenerator(),
+    )
+
+    job, _ = service.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[folder.node_id],
+        include_background=False,
+    )
+    after = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/dir"
+    )
+
+    assert job.status == "PARTIAL"
+    # A listing error means the folder is not known to be complete.
+    assert after.is_partial is True
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod(0) does not block a directory for root or on Windows",
+)
+def test_unreadable_opened_folder_stays_partial(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "unreadable"
+    (evidence_dir / "dir").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+    folder = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/dir"
+    )
+    (evidence_dir / "dir").chmod(0)
+    try:
+        services.fs.index_evidence(
+            case_id=case.case_id,
+            evidence_id=evidence.evidence_id,
+            profile_type=AnalysisProfileType.SELECTED_SCOPE,
+            selected_node_ids=[folder.node_id],
+            include_background=False,
+        )
+    finally:
+        (evidence_dir / "dir").chmod(0o755)
+    after = next(
+        node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+        if node.display_path == "/dir"
+    )
+
+    assert after.is_partial is True
