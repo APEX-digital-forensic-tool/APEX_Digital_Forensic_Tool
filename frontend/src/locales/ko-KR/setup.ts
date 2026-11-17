@@ -47,6 +47,8 @@ export const setup = {
     storageUnavailable:
       "이 컴퓨터에서는 키를 암호화할 수 없어 앱에 저장하지 않습니다.",
     restartNote: "저장하면 분석 엔진을 다시 시작합니다.",
+    engineNotRestarted:
+      "AI 연결 설정 변경은 반영됐지만 분석 엔진이 다시 시작되지 않았습니다.",
     saving: "분석 엔진을 다시 시작하고 있습니다. 1분 남짓 걸릴 수 있습니다.",
     busy: "분석 작업이 끝난 뒤 변경할 수 있습니다.",
     policyNote: "무엇을 AI로 보낼지는 사건별 AI 데이터 정책이 결정합니다.",

@@ -21,13 +21,14 @@ from apex_forensic.domain.enums import (
 )
 from apex_forensic.domain.errors import UnsupportedCapabilityError, ValidationError
 from apex_forensic.domain.models import Evidence, FileSystemNode
+from apex_forensic.domain.raw_image_extensions import RAW_IMAGE_FORMATS
 from apex_forensic.ports.filesystem_provider import (
     FileSystemProviderCapabilities,
     ProviderEntry,
     ProviderScanIssue,
 )
 
-_DISK_IMAGE_SUFFIXES = {".e01", ".raw", ".dd", ".img", ".001", ".vhd", ".vhdx"}
+_DISK_IMAGE_SUFFIXES = {".e01", ".vhd", ".vhdx", *RAW_IMAGE_FORMATS}
 _DISK_IMAGE_FORMATS = {
     EvidenceFormat.E01,
     EvidenceFormat.DD,

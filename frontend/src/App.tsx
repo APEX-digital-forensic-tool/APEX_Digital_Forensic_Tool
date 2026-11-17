@@ -1638,9 +1638,7 @@ export function App() {
                         <dd>{m.views.overview.readOnly}</dd>
                       </div>
                     </dl>
-                    {tasks.some((t) =>
-                      ["PARTIAL", "FAILED", "INTERRUPTED"].includes(t.status),
-                    ) && (
+                    {attention > 0 && (
                       <div className="notice">
                         <span>{m.views.overview.attention}</span>
                         <button onClick={() => setJobsOpen(true)}>

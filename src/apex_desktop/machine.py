@@ -1,12 +1,13 @@
 """Local OCR/STT selection, bounded source extraction and candidate persistence."""
 
+import importlib
 import json
 import os
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, cast
 
 from apex_forensic.adapters.filesystem.content import EvidenceFileContent
 from apex_forensic.adapters.machine_extraction import (
@@ -213,10 +214,10 @@ def _capabilities(root: Path) -> dict[str, Any]:
 
 def _undecodable_image_errors() -> tuple[type[Exception], ...]:
     try:
-        from PIL import UnidentifiedImageError
+        pillow = importlib.import_module("PIL")
     except ImportError:
         return ()
-    return (UnidentifiedImageError,)
+    return (cast(type[Exception], pillow.UnidentifiedImageError),)
 
 
 def run(

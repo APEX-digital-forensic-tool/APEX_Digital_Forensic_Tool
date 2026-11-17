@@ -30,12 +30,14 @@ import {
   clearAiConnection,
   saveAiConnection,
   type AiDeps,
+  type AiConnectionChange,
   type KeyCrypto,
   type TextFile,
 } from "./aiConnection";
 import { firstWindow, isSetupComplete, markSetupComplete } from "./appState";
 import { hasActiveTasks, stopChild } from "./engineGuard";
 import { PickerReferences, type PickPurpose } from "./pickerReferences";
+import { IMAGE_EXTENSIONS } from "../src/imageExtensions";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -549,7 +551,7 @@ else {
                 ? [
                     {
                       name: text.evidenceImages,
-                      extensions: ["e01", "dd", "raw", "img", "vhd", "vhdx"],
+                      extensions: IMAGE_EXTENSIONS,
                     },
                     { name: text.allFiles, extensions: ["*"] },
                   ]
@@ -671,21 +673,29 @@ else {
           ? { ok: true, data: null }
           : fail(backendError || "BACKEND_START_FAILED");
       });
+      const restartWithConnection = async (): Promise<AiConnectionChange> => {
+        let ready = false;
+        try {
+          ready = await restartBackend();
+        } catch {
+          /* Settings are already stored. */
+        }
+        return {
+          ...aiConnectionStatus(aiDeps),
+          engine_error: ready ? null : backendError || "BACKEND_START_FAILED",
+        };
+      };
       handle("apex:ai-connection-save", async (_event, input: unknown) => {
         if (await engineBusy()) return fail("AI_ENGINE_BUSY");
         const result = saveAiConnection(input, aiDeps);
         if (!result.ok) return fail(result.code);
-        if (!(await restartBackend()))
-          return fail("AI_CONNECTION_APPLIED_ENGINE_FAILED");
-        return { ok: true, data: aiConnectionStatus(aiDeps) };
+        return { ok: true, data: await restartWithConnection() };
       });
       handle("apex:ai-connection-clear", async () => {
         if (await engineBusy()) return fail("AI_ENGINE_BUSY");
         const result = clearAiConnection(aiDeps);
         if (!result.ok) return fail(result.code);
-        if (!(await restartBackend()))
-          return fail("AI_CONNECTION_APPLIED_ENGINE_FAILED");
-        return { ok: true, data: aiConnectionStatus(aiDeps) };
+        return { ok: true, data: await restartWithConnection() };
       });
       handle("apex:setup-complete", (event) => {
         if (!sentBy(event, setupWindow)) return fail("DESKTOP_SENDER_DENIED");

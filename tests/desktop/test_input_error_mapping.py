@@ -39,3 +39,23 @@ def test_malformed_timezone_is_a_409_naming_the_field(client, timezone):
     response = client.post("/v1/operations/cases.create", json={"name": "tz", "timezone": timezone})
     assert response.status_code == 409, response.text
     assert response.json()["error"]["target"] == "timezone"
+
+
+@pytest.mark.parametrize("failure", [PermissionError, IsADirectoryError])
+def test_windows_timezone_directory_errors_are_input_errors_but_valid_zone_io_is_not(
+    client, monkeypatch, failure
+):
+    from apex_forensic.application.services import case_manager
+
+    def unavailable(_key):
+        raise failure("Synthetic timezone resource error")
+
+    monkeypatch.setattr(case_manager, "ZoneInfo", unavailable)
+    invalid = client.post(
+        "/v1/operations/cases.create", json={"name": "bad", "timezone": "America"}
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["error"]["target"] == "timezone"
+    valid = client.post("/v1/operations/cases.create", json={"name": "good", "timezone": "UTC"})
+    assert valid.status_code == 500
+    assert valid.json()["error"]["code"] == "DESKTOP_OPERATION_FAILED"

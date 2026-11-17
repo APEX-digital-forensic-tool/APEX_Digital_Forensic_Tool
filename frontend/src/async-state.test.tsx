@@ -15,6 +15,7 @@ import { AccountPanel, Reports } from "./panels";
 import { AiAssistant } from "./AiAssistant";
 import { createDemoBridge } from "./demoBridge";
 import type { Reply, Row } from "./gateway";
+import { koKR } from "./locales/ko-KR";
 import core from "./__fixtures__/core.json";
 // Synthetic report/version DTOs generated through the real Core services.
 import reportFixture from "./__fixtures__/report.json";
@@ -436,6 +437,120 @@ it("re-searches a history entry through search.query", async () => {
   );
   expect((screen.getByLabelText("검색어") as HTMLInputElement).value).toBe(
     "README",
+  );
+});
+
+it("counts an interrupted job in the attention badge (#67)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) =>
+    op === "tasks.list"
+      ? {
+          ok: true,
+          data: [
+            {
+              task_id: "interrupted",
+              case_id: payload.case_id,
+              kind: "FILES",
+              status: "INTERRUPTED",
+              actions: [],
+            },
+          ],
+        }
+      : original(op, payload);
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  await screen.findByText("확인 1");
+});
+
+async function openPartialFolder(bridge: ReturnType<typeof createDemoBridge>) {
+  const original = bridge.invoke.bind(bridge);
+  const listed: Row[] = [];
+  bridge.invoke = async (op, payload) => {
+    const reply = await original(op, payload);
+    if (op === "files.list") {
+      listed.push(payload);
+      if (reply.ok && payload.parent_node_id)
+        for (const node of reply.data.items)
+          if (node.node_type === "DIRECTORY") node.is_partial = true;
+    }
+    return reply;
+  };
+  window.apex = bridge;
+  await openFiles();
+  const cells = await within(await screen.findByRole("table")).findAllByText(
+    (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+  );
+  fireEvent.doubleClick(
+    cells
+      .find((el) => el.closest("tr")?.textContent?.includes("폴더"))!
+      .closest("tr")!,
+  );
+  return listed;
+}
+
+it("does not call a folder 'indexing' because another job is running (#67)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) => {
+    if (op === "analysis.start")
+      return { ok: false, error: { code: "WORK_QUEUE_FULL" } };
+    if (op === "tasks.list")
+      return {
+        ok: true,
+        data: [
+          {
+            task_id: "other",
+            case_id: payload.case_id,
+            kind: "FILES",
+            status: "RUNNING",
+            actions: [],
+          },
+        ],
+      };
+    return original(op, payload);
+  };
+  await openPartialFolder(bridge);
+  await screen.findByRole("alert");
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  expect(document.body.textContent).not.toContain(
+    koKR.views.empty.indexingFolder,
+  );
+});
+
+it("syncs an evidence item the status poll selects (#67)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const updates: Row[] = [];
+  let listed = false;
+  bridge.invoke = async (op, payload) => {
+    if (op === "evidence.list")
+      return listed ? original(op, payload) : { ok: true, data: [] };
+    if (op === "context.update") updates.push(payload.patch);
+    return original(op, payload);
+  };
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  await waitFor(() => expect(updates.length).toBeGreaterThan(0)).catch(
+    () => undefined,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "분석" }));
+  await waitFor(() => expect(updates.length).toBeGreaterThan(0));
+  listed = true;
+  await waitFor(
+    () =>
+      expect(updates).toContainEqual(
+        expect.objectContaining({ active_evidence_id: core.evidence[0].id }),
+      ),
+    { timeout: 4000 },
   );
 });
 
