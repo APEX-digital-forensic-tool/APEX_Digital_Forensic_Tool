@@ -265,6 +265,9 @@ export function App() {
   const lastTab = useRef<Record<string, Tab>>({});
   /** Registration task id → hash algorithm to start once the task succeeds. */
   const pendingHashes = useRef(new Map<string, string>());
+  // Folder key → the job indexing it. A job that ends cancelled or failed
+  // frees the key so opening the folder again retries.
+  const indexedFolders = useRef(new Map<string, string>());
   /** Appended to time column headers so every cell's zone is explicit. */
   const inZone = (label: string) => `${label} (${zoneLabel(zone)})`;
   /** Screen name; routes without their own screen have none. */
@@ -366,6 +369,14 @@ export function App() {
             );
           statuses = new Map(ts.map((t) => [t.task_id, t.status]));
           firstPoll = false;
+          for (const [key, taskId] of indexedFolders.current) {
+            const job = ts.find((t) => t.task_id === taskId);
+            if (
+              job &&
+              ["CANCELLED", "FAILED", "INTERRUPTED"].includes(job.status)
+            )
+              indexedFolders.current.delete(key);
+          }
           for (const t of ts) {
             const algorithm = pendingHashes.current.get(t.task_id);
             if (!algorithm || activeTask(t)) continue;
@@ -571,20 +582,21 @@ export function App() {
   }
   // Quick triage stops at a depth limit and marks those folders partial. Opening
   // one indexes just that folder's subtree instead of showing it as empty.
-  const indexedFolders = useRef(new Set<string>());
   async function indexFolder(id: string, node: Row | null | undefined) {
     if (!node?.is_partial || !["ROOT", "DIRECTORY"].includes(node.node_type))
       return;
     const key = `${id}:${node.id}`;
     if (indexedFolders.current.has(key)) return;
-    indexedFolders.current.add(key);
+    indexedFolders.current.set(key, "");
     try {
-      await gateway.call("analysis.start", {
+      const task = await gateway.call("analysis.start", {
         case_id: caseId,
         evidence_id: id,
         kind: "FILES",
         node_id: node.id,
       });
+      if (indexedFolders.current.has(key))
+        indexedFolders.current.set(key, task?.task_id ?? "");
       refresh();
     } catch (err) {
       indexedFolders.current.delete(key);
