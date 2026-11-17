@@ -218,3 +218,44 @@ def test_text_file_is_still_rejected_for_stt(client, tmp_path):
     node = file_named(client, cid, eid, "note.dat")
     error = rejected(client, "machine.run", case_id=cid, node_id=node["id"], kind="STT")
     assert error["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"
+
+
+def end_ifd_tiff(side: int = 2400) -> bytes:
+    """A grayscale TIFF whose pixel data comes first and whose directory is the last bytes."""
+    import random
+    import struct
+
+    pixels = random.Random(2).randbytes(side * side)
+    entries = [  # tag, type (3=SHORT, 4=LONG), value
+        (256, 4, side),
+        (257, 4, side),
+        (258, 3, 8),
+        (259, 3, 1),
+        (262, 3, 1),
+        (273, 4, 8),
+        (277, 3, 1),
+        (278, 4, side),
+        (279, 4, len(pixels)),
+    ]
+    directory = struct.pack("<H", len(entries))
+    for tag, kind, value in entries:
+        directory += struct.pack("<HHII", tag, kind, 1, value)
+    directory += struct.pack("<I", 0)
+    return b"II*\x00" + struct.pack("<I", 8 + len(pixels)) + pixels + directory
+
+
+def test_large_tiff_with_trailing_directory_is_accepted_for_ocr(client, tmp_path):
+    from PIL import Image
+
+    root = tmp_path / "folder"
+    root.mkdir()
+    path = root / "scan.tif"
+    path.write_bytes(end_ifd_tiff())
+    assert path.stat().st_size > 4 * 1024 * 1024
+    with Image.open(path) as image:  # a full decode succeeds; only a truncated header cannot
+        assert image.size == (2400, 2400)
+    cid = call(client, "cases.create", name="Large TIFF")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "scan.tif")
+    task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    assert task["task_id"]
