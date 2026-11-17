@@ -109,10 +109,10 @@ def test_ads_task_and_case_boundaries(client, tmp_path):
 
 @pytest.mark.parametrize("kind", ["OCR", "STT"])
 def test_machine_task_persists_candidates_and_real_source_locator(
-    client, tmp_path, monkeypatch, kind, valid_png
+    client, tmp_path, monkeypatch, kind, valid_png, valid_wav
 ):
     source = tmp_path / ("image.png" if kind == "OCR" else "audio.wav")
-    payload = valid_png if kind == "OCR" else b"synthetic local source"
+    payload = valid_png if kind == "OCR" else valid_wav
     source.write_bytes(payload)
     cid, eid = registered(client, source)
     node = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]

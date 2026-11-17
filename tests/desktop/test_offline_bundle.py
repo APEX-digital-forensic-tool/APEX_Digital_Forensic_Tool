@@ -42,9 +42,11 @@ def test_reopening_services_is_read_only_even_with_another_writer(tmp_path):
         initial.close()
 
 
-def test_task_status_remains_readable_during_native_inference(client, tmp_path, monkeypatch):
+def test_task_status_remains_readable_during_native_inference(
+    client, tmp_path, monkeypatch, valid_wav
+):
     source = tmp_path / "audio.wav"
-    source.write_bytes(b"synthetic audio; provider below does not decode it")
+    source.write_bytes(valid_wav)
     cid, eid = registered(client, source)
     node = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]
     entered, release = Event(), Event()

@@ -4,7 +4,9 @@ import base64
 import gzip
 import json
 import os
+import wave
 from collections.abc import Iterator
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -23,6 +25,18 @@ def valid_png(project_root: Path) -> bytes:
     """Use real, redistributable image bytes even when an OCR provider is mocked."""
     fixture = json.loads((project_root / "tests/fixtures/container-images.json").read_text())
     return gzip.decompress(base64.b64decode(fixture["ocr.png"]["gzip_base64"]))
+
+
+@pytest.fixture
+def valid_wav() -> bytes:
+    """Real WAV bytes: the speech pre-check judges content even when STT is mocked."""
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(8000)
+        out.writeframes(b"\x00\x00" * 800)
+    return buffer.getvalue()
 
 
 @pytest.fixture
