@@ -1,7 +1,8 @@
 /** What a native pick is for, and the dialog kinds each purpose may open. The shell enforces it. */
 export const PICK_KINDS = {
   evidence: ["file", "directory"],
-  model: ["file"],
+  // whisper.cpp takes a model file; faster-whisper takes a model folder.
+  model: ["file", "directory"],
   tessdata: ["directory"],
 } as const;
 export type PickPurpose = keyof typeof PICK_KINDS;

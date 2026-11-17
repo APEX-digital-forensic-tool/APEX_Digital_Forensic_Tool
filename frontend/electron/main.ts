@@ -40,7 +40,8 @@ import {
 } from "./appState";
 import { Engine, operationTimeoutMs, postEngine } from "./engine";
 import { hasActiveTasks } from "./engineGuard";
-import { authOrigin, PickedPaths, type PickPurpose } from "./shellGuards";
+import { authOrigin, PickedPaths } from "./shellGuards";
+import { pickAllowed } from "../src/pickKinds";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -369,19 +370,8 @@ if (!app.requestSingleInstanceLock()) {
       }
       return local(operation, payload);
     });
-    // Evidence may be a file or a folder; an STT model is a file; tessdata is a folder.
-    const pickKinds: Record<PickPurpose, readonly string[]> = {
-      evidence: ["file", "directory"],
-      model: ["file"],
-      tessdata: ["directory"],
-    };
     handle("apex:pick", async (event, kind: unknown, locale: unknown, purpose: unknown) => {
-      if (
-        typeof purpose !== "string" ||
-        !Object.hasOwn(pickKinds, purpose) ||
-        !pickKinds[purpose as PickPurpose].includes(String(kind))
-      )
-        return fail("VALIDATION_ERROR");
+      if (!pickAllowed(purpose, kind)) return fail("VALIDATION_ERROR");
       const text = messagesFor(locale).native;
       // trusted() guarantees the sender is one of this app's windows.
       const parent = BrowserWindow.fromWebContents(event.sender)!;
@@ -402,7 +392,7 @@ if (!app.requestSingleInstanceLock()) {
       if (result.canceled) return { ok: true, data: null };
       const reference = picked.add(
         result.filePaths[0],
-        purpose as PickPurpose,
+        purpose,
         event.sender.id,
       );
       return {

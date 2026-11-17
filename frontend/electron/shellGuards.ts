@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-/** What a native pick is for; a path picked for one use is not accepted for another. */
-export type PickPurpose = "evidence" | "model" | "tessdata";
+import type { PickPurpose } from "../src/pickKinds";
 
 /** Paths from native file dialogs, handed to the renderer only as opaque references. */
 export class PickedPaths {

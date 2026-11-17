@@ -1,5 +1,6 @@
 import type { Messages } from "./i18n/catalog";
 import type { Locale } from "./i18n/locales";
+import type { PickKind, PickPurpose } from "./pickKinds";
 import * as validators from "./contracts/validators.js";
 import type {
   AiConnectionChange,
@@ -19,10 +20,10 @@ export interface DesktopBridge {
    * `locale` selects the language of the native file dialog. The reference is accepted only
    * for `purpose` and only from the window that picked it.
    */
-  pick(
-    kind: "file" | "directory",
+  pick<P extends PickPurpose>(
+    kind: PickKind<P>,
     locale: Locale,
-    purpose: "evidence" | "model" | "tessdata",
+    purpose: P,
   ): Promise<Reply<{ reference: string; name: string } | null>>;
   openExports(): Promise<Reply<null>>;
   account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;
