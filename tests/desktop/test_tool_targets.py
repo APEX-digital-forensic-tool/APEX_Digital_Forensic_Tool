@@ -177,3 +177,44 @@ def test_streams_filesystem_comes_from_the_volume_not_node_names(client, tmp_pat
     result = call(client, "files.streams", case_id=cid, node_id=node["id"])
     assert result["filesystem_type"] == "NTFS"
     assert result["ads_supported"] is True
+
+
+def wav_bytes() -> bytes:
+    import io
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(8000)
+        out.writeframes(b"\x00\x00" * 800)
+    return buffer.getvalue()
+
+
+M4A_HEADER = b"\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00M4A mp42isom" + b"\x00" * 16
+
+
+def test_audio_with_a_misleading_name_is_accepted_for_stt(client, tmp_path):
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "voice.dat").write_bytes(M4A_HEADER)
+    (root / "memo.3ga").write_bytes(b"\x00\x00\x00\x18ftyp3ga6" + b"\x00" * 24)
+    (root / "tape").write_bytes(wav_bytes())
+    cid = call(client, "cases.create", name="Audio names")["id"]
+    eid = register(client, cid, root)
+    for name in ("voice.dat", "memo.3ga", "tape"):
+        node = file_named(client, cid, eid, name)
+        task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="STT")
+        assert task["task_id"], name
+
+
+def test_text_file_is_still_rejected_for_stt(client, tmp_path):
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "note.dat").write_text("just text, not audio", encoding="utf-8")
+    cid = call(client, "cases.create", name="Not audio")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "note.dat")
+    error = rejected(client, "machine.run", case_id=cid, node_id=node["id"], kind="STT")
+    assert error["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"
