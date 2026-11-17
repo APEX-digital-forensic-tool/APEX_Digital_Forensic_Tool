@@ -323,3 +323,27 @@ def test_overflowing_numbers_in_the_settings_are_diagnosed(services, monkeypatch
     raw = json.dumps(settings).replace("Infinity", "1e400")
     monkeypatch.setenv("APEX_DESKTOP_AI_CONFIG", raw)
     assert runtime(services)["configuration_error"]["code"] == "AI_CONFIGURATION_INVALID"
+
+
+def test_a_gateway_timeout_from_a_direct_endpoint_is_a_timeout_asked_once(
+    services, selection, monkeypatch, apex_server, reply
+):
+    url, seen = apex_server
+    monkeypatch.setenv("DIRECT_KEY", "direct-key")
+    monkeypatch.setenv(
+        "APEX_DESKTOP_AI_CONFIG",
+        json.dumps(
+            {
+                "provider_id": "direct",
+                "base_url": url,
+                "model_id": "m",
+                "api_key_env": "DIRECT_KEY",
+                "timeout": 10,
+            }
+        ),
+    )
+    reply["status"] = 504
+    with pytest.raises(ApexError) as raised:
+        analyze(services, **selection)
+    assert raised.value.code == "AI_PROVIDER_TIMEOUT"
+    assert len(seen) == 1
