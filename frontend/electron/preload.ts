@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld("apex", {
     ipcRenderer.invoke("apex:ai-connection-save", input),
   clearAiConnection: () => ipcRenderer.invoke("apex:ai-connection-clear"),
   completeSetup: () => ipcRenderer.invoke("apex:setup-complete"),
+  restartEngine: () => ipcRenderer.invoke("apex:engine-restart"),
 });
