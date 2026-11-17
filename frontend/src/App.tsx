@@ -1811,7 +1811,7 @@ export function App() {
                       e.preventDefault();
                       if (!query.trim()) return;
                       pendingSearch.current = true;
-                      setSearchText(query.trim());
+                      setSearchText(query);
                       setSubmittedSearchMode(searchMode);
                       setSearchScope(`${caseId}:${evidenceId}`);
                       refresh();

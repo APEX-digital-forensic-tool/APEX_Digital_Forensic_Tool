@@ -565,6 +565,9 @@ class FileSystemIndexService:
                     >= state.options.max_queue_size
                 ):
                     state.coverage.skipped_items += 1
+                    # Never listed in this job, so it must not look complete.
+                    stored.is_partial = True
+                    self._repository.upsert_fs_node(stored)
                     self._record_issue(
                         state,
                         ProviderScanIssue(

@@ -530,6 +530,13 @@ class EvidenceManager:
         suffix = path.suffix
         if len(suffix) != 4 or not suffix[1:].isdigit():
             return
+        # x.7z.002 carries no archive signature; its name still says it is an archive part.
+        if Path(path.stem).suffix.lower() in {".zip", ".7z", ".rar", ".gz", ".tar"}:
+            raise ApexError(
+                "ARCHIVE_REQUIRES_EXTRACTION",
+                "error.archive_requires_extraction",
+                target="source_path",
+            )
         # A neighbouring segment, or the first one (.000 or .001), makes it a set.
         number = int(suffix[1:])
         siblings = {number - 1, number + 1, 0, 1} - {number}
