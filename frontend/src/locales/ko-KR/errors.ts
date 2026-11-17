@@ -103,6 +103,12 @@ export const errors = {
   RAW_SOURCE_UNAVAILABLE:
     "원본 파일을 읽을 수 없습니다. 증거 경로와 접근 권한을 확인해주세요.",
   RAW_RANGE_NOT_SATISFIABLE: "원본 데이터 범위를 벗어났습니다.",
+  AUTH_LOGOUT_INCOMPLETE:
+    "이 앱에서는 로그아웃했지만 서버에 세션 종료를 알리지 못했습니다. 서버 세션은 만료될 때까지 남아 있을 수 있습니다.",
+  AUTH_ALREADY_SIGNED_IN:
+    "이미 로그인되어 있습니다. 다른 계정은 로그아웃한 뒤 연결하세요.",
+  AUTH_LOGIN_CANCELLED:
+    "로그인하는 동안 로그아웃되어 로그인을 취소했습니다. 다시 시도하세요.",
   AUTH_LOGIN_FAILED: "이메일, 비밀번호 또는 테넌트 ID를 확인해주세요.",
   AUTH_ORIGIN_INVALID:
     "인증 서버 주소는 HTTPS 주소 또는 로컬 HTTP 주소여야 합니다.",

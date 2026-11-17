@@ -324,7 +324,13 @@ export function createDemoBridge(): DesktopBridge {
       return ok(null);
     },
     async account() {
-      return ok({ connected: false, origin: null });
+      return ok({
+        state: "signed_out" as const,
+        connected: false,
+        origin: null,
+        expires_at: null,
+        reason: null,
+      });
     },
     async login() {
       return fail("DEMO_READ_ONLY");
