@@ -15,6 +15,7 @@ import type { Reply, Row } from "./gateway";
 import { integritySummary, missingReaders } from "./EvidenceIntake";
 import core from "./__fixtures__/core.json";
 import { koKR } from "./locales/ko-KR";
+import { enUS } from "./locales/en-US";
 
 afterEach(() => {
   cleanup();
@@ -68,6 +69,12 @@ it("surfaces a mismatch ahead of other hashes", () => {
   expect(integritySummary({ hashes: [], status: "HASHING" }, koKR).label).toBe(
     "해시 계산 중",
   );
+});
+
+// The UI shows message text as typed, so Markdown backticks would appear literally.
+it("words the split image guidance without Markdown marks", () => {
+  for (const errors of [koKR.errors, enUS.errors])
+    expect(errors.SPLIT_IMAGE_UNSUPPORTED).not.toContain("`");
 });
 
 it("explains that a split image must be joined before it is added", async () => {

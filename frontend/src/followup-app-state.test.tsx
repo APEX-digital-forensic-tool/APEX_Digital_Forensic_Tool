@@ -51,6 +51,26 @@ it("ignores a blank search submit", async () => {
   expect(queries).toEqual([]);
 });
 
+// Spaces can matter to exact, phrase and regex searches; only an all-blank query is ignored.
+it("sends the search text as typed", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const queries: Row[] = [];
+  bridge.invoke = async (op, payload) => {
+    if (op === "search.query") queries.push(payload);
+    return original(op, payload);
+  };
+  window.apex = bridge;
+  await openCase();
+  fireEvent.click(screen.getByRole("button", { name: "분석" }));
+  fireEvent.click(screen.getByRole("button", { name: "통합 검색" }));
+  const input = screen.getByLabelText("검색어");
+  fireEvent.change(input, { target: { value: " exact phrase " } });
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() => expect(queries.length).toBeGreaterThan(0));
+  expect(queries[0].query_text).toBe(" exact phrase ");
+});
+
 it("allows a retry when a folder job start returns no task id", async () => {
   const bridge = createDemoBridge();
   const original = bridge.invoke.bind(bridge);

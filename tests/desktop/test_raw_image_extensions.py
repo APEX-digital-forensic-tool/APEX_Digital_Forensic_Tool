@@ -105,13 +105,16 @@ def test_a_segment_of_either_numbering_style_is_refused(client, tmp_path, names,
     assert call(client, "tasks.list", case_id=cid) == []
 
 
-def test_split_archive_is_told_to_extract_not_to_join(client, tmp_path):
+@pytest.mark.parametrize("picked", ["x.7z.001", "x.7z.002", "x.zip.002"])
+def test_split_archive_is_told_to_extract_not_to_join(client, tmp_path, picked):
     (tmp_path / "x.7z.001").write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\0" * 64)
     (tmp_path / "x.7z.002").write_bytes(b"\0" * 64)
+    (tmp_path / "x.zip.001").write_bytes(b"PK\x03\x04" + b"\0" * 64)
+    (tmp_path / "x.zip.002").write_bytes(b"\0" * 64)
     cid = call(client, "cases.create", name="분할 압축")["id"]
     response = client.post(
         "/v1/operations/evidence.register",
-        json={"case_id": cid, "source_path": str(tmp_path / "x.7z.001")},
+        json={"case_id": cid, "source_path": str(tmp_path / picked)},
     )
     assert response.json()["error"]["code"] == "ARCHIVE_REQUIRES_EXTRACTION"
 

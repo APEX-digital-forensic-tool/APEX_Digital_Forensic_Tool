@@ -313,6 +313,31 @@ def test_bounded_queue_records_warning(services, tmp_path: Path) -> None:
     assert any(warning["code"] == "WORK_QUEUE_FULL" for warning in job.warnings)
 
 
+def test_folder_left_out_of_a_full_queue_stays_partial(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "full"
+    for name in ["a", "b", "c"]:
+        directory = evidence_dir / name
+        directory.mkdir(parents=True)
+        (directory / "file.txt").write_text("x", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+        max_queue_size=1,
+    )
+    nodes = services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+    folders = [
+        n
+        for n in nodes
+        if n.is_directory_like and n.display_path != "/" and n.display_path.count("/") == 1
+    ]
+    listed = {n.display_path.rsplit("/", 1)[0] for n in nodes if n.original_name == "file.txt"}
+    unlisted = [folder for folder in folders if folder.display_path not in listed]
+    assert unlisted, [n.display_path for n in nodes]
+    assert all(folder.is_partial for folder in unlisted)
+
+
 def test_malformed_e01_returns_validation_error(services, tmp_path: Path) -> None:
     image = tmp_path / "disk.e01"
     image.write_bytes(b"image metadata only")
