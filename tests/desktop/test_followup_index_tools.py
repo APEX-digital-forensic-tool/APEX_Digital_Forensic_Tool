@@ -107,3 +107,24 @@ def test_text_and_random_binary_are_still_rejected_for_speech(client, tmp_path):
         body = response.json()
         assert body["ok"] is False, name
         assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"
+
+
+def test_unreadable_file_keeps_the_audio_format_refusal(client, tmp_path):
+    root = tmp_path / "gone"
+    root.mkdir()
+    (root / "x.dat").write_text("not audio", encoding="utf-8")
+    cid = call(client, "cases.create", name="Unreadable")["id"]
+    eid = register(client, cid, root)
+    nodes = {
+        n["original_name"]: n
+        for n in call(client, "files.list", case_id=cid, evidence_id=eid, all_nodes=True)["items"]
+    }
+    # The indexed file is gone, so its bytes cannot be read to judge it.
+    (root / "x.dat").unlink()
+    response = client.post(
+        "/v1/operations/machine.run",
+        json={"case_id": cid, "node_id": nodes["x.dat"]["id"], "kind": "STT"},
+    )
+    body = response.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"

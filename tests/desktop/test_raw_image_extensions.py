@@ -83,6 +83,28 @@ def test_any_later_segment_gets_the_same_split_guidance(client, tmp_path, picked
     assert call(client, "evidence.list", case_id=cid) == []
 
 
+# `split -d -a 3` numbers from .000; FTK-style sets number from .001.
+@pytest.mark.parametrize(
+    ("names", "picked"),
+    [
+        (("disk.dd.000", "disk.dd.001"), "disk.dd.000"),
+        (("disk.dd.000", "disk.dd.001"), "disk.dd.001"),
+        (("disk.dd.000", "disk.dd.001", "disk.dd.002"), "disk.dd.000"),
+        (("disk.001", "disk.002"), "disk.002"),
+    ],
+)
+def test_a_segment_of_either_numbering_style_is_refused(client, tmp_path, names, picked):
+    for name in names:
+        (tmp_path / name).write_bytes(b"\0" * 512)
+    cid = call(client, "cases.create", name="분할 번호")["id"]
+    response = client.post(
+        "/v1/operations/evidence.register",
+        json={"case_id": cid, "source_path": str(tmp_path / picked)},
+    )
+    assert response.json()["error"]["code"] == "SPLIT_IMAGE_UNSUPPORTED", picked
+    assert call(client, "tasks.list", case_id=cid) == []
+
+
 def test_split_archive_is_told_to_extract_not_to_join(client, tmp_path):
     (tmp_path / "x.7z.001").write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\0" * 64)
     (tmp_path / "x.7z.002").write_bytes(b"\0" * 64)
@@ -94,11 +116,12 @@ def test_split_archive_is_told_to_extract_not_to_join(client, tmp_path):
     assert response.json()["error"]["code"] == "ARCHIVE_REQUIRES_EXTRACTION"
 
 
-def test_lone_numbered_file_is_not_treated_as_a_split_set(client, tmp_path):
-    (tmp_path / "orphan.002").write_bytes(b"data")
+@pytest.mark.parametrize("name", ["orphan.002", "lone.001", "lone.000"])
+def test_lone_numbered_file_is_not_treated_as_a_split_set(client, tmp_path, name):
+    (tmp_path / name).write_bytes(b"data")
     cid = call(client, "cases.create", name="단독 조각")["id"]
     response = client.post(
         "/v1/operations/evidence.register",
-        json={"case_id": cid, "source_path": str(tmp_path / "orphan.002")},
+        json={"case_id": cid, "source_path": str(tmp_path / name)},
     )
     assert response.status_code == 200, response.text
