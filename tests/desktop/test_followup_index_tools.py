@@ -245,6 +245,55 @@ def test_without_ffprobe_every_file_is_queued(client, tmp_path, monkeypatch):
         assert stt(client, cid, nodes[name])["ok"] is True, name
 
 
+# Older ffprobe builds detect an HLS playlist by its content alone. Recreate that by
+# giving the probed copy an .m3u8 name, then check the probe never reaches outside it.
+@needs_ffmpeg
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a POSIX script around ffprobe")
+def test_speech_probe_never_follows_a_playlist_outside_the_evidence(client, tmp_path, monkeypatch):
+    import apex_desktop.tool_targets as targets
+
+    ffmpeg, ffprobe = media_executable("ffmpeg"), media_executable("ffprobe")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    segment = outside / "segment.ts"
+    subprocess.run(
+        [
+            *(ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=duration=1"),
+            *("-c:a", "aac", "-f", "mpegts", str(segment)),
+        ],
+        check=True,
+        timeout=60,
+    )
+    root = tmp_path / "evidence"
+    root.mkdir()
+    (root / "playlist.txt").write_text(
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n"
+        f"#EXTINF:1.0,\n{segment}\n#EXT-X-ENDLIST\n",
+        encoding="utf-8",
+    )
+    wrapper = tmp_path / "ffprobe"
+    wrapper.write_text(
+        f"#!{sys.executable}\n"
+        "import os, shutil, sys\n"
+        "args = sys.argv[1:]\n"
+        "prefix = 'file:' if args and args[-1].startswith('file:') else ''\n"
+        "path = args[-1][len(prefix):] if args else ''\n"
+        "if os.path.isfile(path):\n"
+        "    shutil.copy(path, path + '.m3u8')\n"
+        "    args[-1] = prefix + path + '.m3u8'\n"
+        f"os.execv({ffprobe!r}, [{ffprobe!r}, *args])\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    cid, nodes = nodes_of(client, root, "Playlist")
+    monkeypatch.setattr(targets, "media_executable", lambda _name: str(wrapper))
+
+    body = stt(client, cid, nodes["playlist.txt"])
+    # Following the playlist would find the outside segment's audio and queue the job.
+    assert body["ok"] is False, body
+    assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"
+
+
 # A broken ffprobe (missing library, exit 127) says nothing about the file.
 @pytest.mark.skipif(sys.platform == "win32", reason="uses a POSIX shell script as ffprobe")
 def test_a_broken_ffprobe_leaves_the_decision_to_the_job(client, tmp_path, monkeypatch):

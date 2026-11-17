@@ -904,3 +904,45 @@ def test_folders_a_selected_job_never_lists_are_not_complete(services, tmp_path:
     # Only /dir/nested was listed; the root and /dir were never read.
     assert nodes["/"].is_partial is True
     assert nodes["/dir"].is_partial is True
+
+
+def test_root_cancelled_before_its_listing_is_partial(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "early-cancel"
+    (evidence_dir / "dir").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+
+    def root():
+        return next(
+            node
+            for node in services.fs.list_nodes(
+                evidence_id=evidence.evidence_id, all_nodes=True
+            ).items
+            if node.display_path == "/"
+        )
+
+    def cancelled_full_job():
+        token = CancellationToken.new()
+        token.cancel()
+        job, _ = services.fs.index_evidence(
+            case_id=case.case_id,
+            evidence_id=evidence.evidence_id,
+            profile_type=AnalysisProfileType.FULL_ANALYSIS,
+            cancellation_token=token,
+        )
+        assert job.status == "CANCELLED"
+
+    cancelled_full_job()
+    assert root().is_partial is True
+
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+    )
+    assert root().is_partial is False
+
+    # A complete root with new files, reindexed and cancelled before its listing.
+    (evidence_dir / "new.txt").write_text("y", encoding="utf-8")
+    cancelled_full_job()
+    assert root().is_partial is True
