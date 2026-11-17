@@ -387,6 +387,8 @@ async function createSetupWindow() {
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
+    // Windows hidden while the engine stops must stay hidden.
+    if (quitting) return;
     const open = window ?? setupWindow;
     open?.show();
     open?.focus();
@@ -628,9 +630,13 @@ else {
 }
 async function confirmQuit() {
   const parent = window ?? setupWindow;
-  const lang = await parent?.webContents
-    .executeJavaScript("document.documentElement.lang")
-    .catch(() => "");
+  // A frozen renderer must not block quitting; fall back to the system language.
+  const lang = await Promise.race([
+    parent?.webContents
+      .executeJavaScript("document.documentElement.lang")
+      .catch(() => ""),
+    wait(1000).then(() => ""),
+  ]);
   const text = messagesFor(
     resolveInitialLocale(null, [
       String(lang ?? ""),
