@@ -522,6 +522,24 @@ class EvidenceManager:
                 "error.archive_requires_extraction",
                 target="source_path",
             )
+        EvidenceManager._reject_split_segment(path)
+
+    @staticmethod
+    def _reject_split_segment(path: Path) -> None:
+        """Refuse any segment of a split image set, which the raw reader cannot join."""
+        suffix = path.suffix
+        if len(suffix) != 4 or not suffix[1:].isdigit():
+            return
+        if suffix == ".001":
+            split = path.with_suffix(".002").exists()
+        else:
+            split = int(suffix[1:]) >= 2 and path.with_suffix(".001").exists()
+        if split:
+            raise ApexError(
+                "SPLIT_IMAGE_UNSUPPORTED",
+                "error.split_image_unsupported",
+                target="source_path",
+            )
 
     @staticmethod
     def _detect_evidence_format(path: Path) -> EvidenceFormat:
