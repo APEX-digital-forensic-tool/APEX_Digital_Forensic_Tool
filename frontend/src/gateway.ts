@@ -26,8 +26,9 @@ export interface DesktopBridge {
   onAccountChange?(listener: (status: AccountStatus) => void): () => void;
   aiConnection(): Promise<Reply<AiConnectionStatus>>;
   saveAiConnection(input: {
-    base_url: string;
-    model_id: string;
+    mode?: "server" | "custom";
+    base_url?: string;
+    model_id?: string;
     api_key?: string;
     temperature?: number;
     max_output?: number;

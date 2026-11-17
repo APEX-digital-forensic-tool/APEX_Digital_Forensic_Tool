@@ -388,3 +388,31 @@
 .setup-footer .primary {
   min-width: 92px;
 }
+
+/* ---- AI connection mode: the same large choices, side by side ---- */
+.setup-mode {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+}
+.setup-mode .setup-legend {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  padding: 0;
+  color: var(--text-soft);
+}
+.setup-mode .setup-choice {
+  min-height: 0;
+  padding: 12px 16px;
+}
+.setup-mode .setup-choice span {
+  display: grid;
+  gap: 4px;
+}
+.setup-mode .setup-choice small {
+  color: var(--text-muted);
+  font-size: var(--fs-ui);
+  font-weight: 400;
+  line-height: 1.5;
+}

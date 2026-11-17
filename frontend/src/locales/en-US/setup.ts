@@ -49,6 +49,14 @@ export const setup: Messages["setup"] = {
       "Restarting the analysis engine. This can take up to a minute or so.",
     busy: "You can change this after the running analysis tasks finish.",
     policyNote: "What is sent to AI is decided by each case's AI data policy.",
+    modeLabel: "Connection",
+    modeServer: "APEX server",
+    modeServerHint:
+      "The APEX server you sign in to handles AI requests. No API key needed.",
+    modeCustom: "Direct",
+    modeCustomHint: "Call an OpenAI-compatible endpoint with your own API key.",
+    serverSignedIn: (origin: string) => `Signed in to ${origin}.`,
+    serverSignedOut: "Sign in under Settings › APEX account to use AI.",
   },
   examiner: {
     title: "New case defaults",

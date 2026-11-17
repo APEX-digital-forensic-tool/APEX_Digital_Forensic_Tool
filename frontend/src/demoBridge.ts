@@ -341,6 +341,7 @@ export function createDemoBridge(): DesktopBridge {
       // Storage reads as available so the preview renders the connection form.
       return ok({
         configured: false,
+        mode: null,
         managed: false,
         has_key: false,
         storage_available: true,

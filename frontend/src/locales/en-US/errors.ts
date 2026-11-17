@@ -9,6 +9,9 @@ export const errors: Messages["errors"] = {
     "This computer cannot encrypt the key, so it is not stored in the app.",
   AI_CONNECTION_MANAGED:
     "Managed by the APEX_DESKTOP_AI_CONFIG environment variable. Change it in the runtime environment.",
+  AUTHENTICATION_FAILED:
+    "The AI provider rejected the credentials. For the APEX server, sign in again; for a direct connection, check the API key.",
+  RATE_LIMITED: "The AI provider is rate limiting requests. Try again shortly.",
   AI_ENGINE_BUSY:
     "An analysis task is running, so this cannot be changed now. Try again after it finishes.",
   AI_CONFIGURATION_INVALID:

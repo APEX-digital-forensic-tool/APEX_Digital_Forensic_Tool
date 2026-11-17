@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import type { AiConnectionStatus } from "../../electron/aiConnection";
+import type { AiConnectionStatus, AiMode } from "../../electron/aiConnection";
+import type { AccountStatus } from "../../electron/serverSession";
 import { unwrap, type Reply } from "../gateway";
 import { useI18n } from "../i18n/I18nProvider";
 import { ErrorState, Loading } from "../ui";
@@ -34,6 +35,9 @@ export function AiConnectionForm({
   const t = m.setup.ai;
   const keyHintId = useId();
   const [status, setStatus] = useState<AiConnectionStatus | null>(null);
+  // A new connection starts on the APEX server: it needs no key.
+  const [mode, setMode] = useState<AiMode>("server");
+  const [account, setAccount] = useState<AccountStatus | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [temperature, setTemperature] = useState("0");
@@ -50,6 +54,7 @@ export function AiConnectionForm({
 
   function adopt(next: AiConnectionStatus) {
     setStatus(next);
+    setMode(next.mode ?? (next.configured ? "custom" : "server"));
     setBaseUrl(next.base_url ?? "");
     setModelId(next.model_id ?? "");
     setTemperature(String(next.temperature));
@@ -72,13 +77,32 @@ export function AiConnectionForm({
       live = false;
     };
   }, [bridge, attempt]);
-
-  const editable =
-    status != null && !status.managed && status.storage_available;
-  const configured = status?.configured ?? false;
   useEffect(() => {
-    onState?.({ editable, busy, configured });
-  }, [onState, editable, busy, configured]);
+    if (!bridge) return;
+    let live = true;
+    bridge
+      .account()
+      .then((reply) => {
+        if (live && reply.ok) setAccount(reply.data);
+      })
+      .catch(() => {
+        /* The hint is optional; the AI request reports a missing sign-in itself. */
+      });
+    const stop = bridge.onAccountChange?.(setAccount);
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, [bridge]);
+
+  const editable = status != null && !status.managed;
+  // A direct connection stores a key, which needs OS encryption; the server mode stores none.
+  const canStore = mode === "server" || (status?.storage_available ?? false);
+  const configured = status?.configured ?? false;
+  const savable = editable && canStore;
+  useEffect(() => {
+    onState?.({ editable: savable, busy, configured });
+  }, [onState, savable, busy, configured]);
 
   if (!bridge) return null;
 
@@ -105,16 +129,25 @@ export function AiConnectionForm({
 
   function save(event: React.FormEvent) {
     event.preventDefault();
+    if (!canStore) return;
     const apiKey = keyRef.current?.value ?? "";
+    const params = {
+      temperature: Number(temperature),
+      max_output: Number(maxOutput),
+      timeout: Number(timeout),
+    };
     void run("save", () =>
-      bridge!.saveAiConnection({
-        base_url: baseUrl.trim(),
-        model_id: modelId.trim(),
-        ...(apiKey ? { api_key: apiKey } : {}),
-        temperature: Number(temperature),
-        max_output: Number(maxOutput),
-        timeout: Number(timeout),
-      }),
+      bridge!.saveAiConnection(
+        mode === "server"
+          ? { mode, ...params }
+          : {
+              mode,
+              base_url: baseUrl.trim(),
+              model_id: modelId.trim(),
+              ...(apiKey ? { api_key: apiKey } : {}),
+              ...params,
+            },
+      ),
     );
   }
 
@@ -144,9 +177,7 @@ export function AiConnectionForm({
     return (
       <div className="setup-fields">
         {state}
-        <p className="setup-note">
-          {status.managed ? t.managed : t.storageUnavailable}
-        </p>
+        <p className="setup-note">{t.managed}</p>
         <p className="setup-note">{t.policyNote}</p>
       </div>
     );
@@ -154,43 +185,75 @@ export function AiConnectionForm({
   return (
     <form className="setup-fields" id={formId} onSubmit={save}>
       {state}
-      <div className="setup-grid">
-        <label>
-          {t.baseUrl}
-          <input
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            spellCheck={false}
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-          />
-        </label>
-        <label>
-          {t.model}
-          <input
-            type="text"
-            autoComplete="off"
-            spellCheck={false}
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-          />
-        </label>
-        <label className="setup-wide">
-          {t.apiKey}
-          <input
-            ref={keyRef}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            aria-describedby={status.has_key ? keyHintId : undefined}
-          />
-        </label>
-      </div>
-      {status.has_key && (
-        <p id={keyHintId} className="setup-note">
-          {t.keepKey}
+      <fieldset className="setup-choices setup-mode">
+        <legend className="setup-legend">{t.modeLabel}</legend>
+        {(["server", "custom"] as const).map((value) => (
+          <label key={value} className="setup-choice">
+            <input
+              type="radio"
+              name={`${formId ?? "ai"}-mode`}
+              value={value}
+              checked={mode === value}
+              onChange={() => setMode(value)}
+            />
+            <span>
+              {value === "server" ? t.modeServer : t.modeCustom}
+              <small>
+                {value === "server" ? t.modeServerHint : t.modeCustomHint}
+              </small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      {mode === "server" ? (
+        <p className="setup-note" role="status">
+          {account?.state === "signed_in" && account.origin
+            ? t.serverSignedIn(account.origin)
+            : t.serverSignedOut}
         </p>
+      ) : !status.storage_available ? (
+        <p className="setup-note">{t.storageUnavailable}</p>
+      ) : (
+        <>
+          <div className="setup-grid">
+            <label>
+              {t.baseUrl}
+              <input
+                type="text"
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+              />
+            </label>
+            <label>
+              {t.model}
+              <input
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+              />
+            </label>
+            <label className="setup-wide">
+              {t.apiKey}
+              <input
+                ref={keyRef}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                aria-describedby={status.has_key ? keyHintId : undefined}
+              />
+            </label>
+          </div>
+          {status.has_key && (
+            <p id={keyHintId} className="setup-note">
+              {t.keepKey}
+            </p>
+          )}
+        </>
       )}
       <details className="setup-advanced">
         <summary>{t.advanced}</summary>
@@ -232,7 +295,11 @@ export function AiConnectionForm({
       {blockedReason && <p className="setup-note">{blockedReason}</p>}
       {!hideActions && (
         <div className="actions">
-          <button type="submit" className="primary" disabled={busy || blocked}>
+          <button
+            type="submit"
+            className="primary"
+            disabled={busy || blocked || !canStore}
+          >
             {action === "save" ? m.setup.saving : t.save}
           </button>
           {showRemove && (

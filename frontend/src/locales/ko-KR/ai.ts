@@ -15,6 +15,8 @@ export const ai = {
   consent: "발췌문을 확인했고 이 내용의 분석 요청에 동의합니다.",
   request: "현재 선택 분석 요청",
   configRequired: "분석 요청을 저장했습니다. AI 제공자 연결 설정이 필요합니다.",
+  loginRequired:
+    "분석 요청을 저장했습니다. APEX 서버로 AI를 쓰려면 설정의 APEX 계정에서 로그인하세요.",
   policyDenied:
     "사건의 AI 데이터 정책이 전송을 허용하지 않았습니다. 설정에서 평가 사유를 확인하세요.",
   policyEvaluation: "데이터 정책 평가",

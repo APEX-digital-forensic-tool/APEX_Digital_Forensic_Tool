@@ -15,6 +15,11 @@ afterEach(() => {
   delete window.apex;
 });
 
+async function chooseDirect() {
+  await userEvent.click(await screen.findByRole("radio", { name: /^Direct/ }));
+  return screen.getByLabelText("Base URL");
+}
+
 it("walks the five steps and finishes", async () => {
   const done = vi.fn(async () => ({ ok: true as const, data: null }));
   window.apex = { ...createDemoBridge(), completeSetup: done };
@@ -82,6 +87,7 @@ it("stays on the last step and reports when finishing fails", async () => {
 
 const noConnection = {
   configured: false,
+  mode: null as "server" | "custom" | null,
   managed: false,
   has_key: false,
   storage_available: true,
@@ -135,10 +141,7 @@ it("saves the AI connection with the step's own primary button and moves on", as
   window.apex = { ...createDemoBridge(), saveAiConnection: save };
   renderInEnglish(<SetupApp />);
   await userEvent.click(screen.getByRole("button", { name: "AI connection" }));
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "https://api.example.com/v1",
-  );
+  await userEvent.type(await chooseDirect(), "https://api.example.com/v1");
   await userEvent.type(screen.getByLabelText("Model name"), "model-x");
   await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
   // One primary action on this step: no separate Save next to Next.
@@ -173,7 +176,7 @@ it("stays on the AI step and explains a rejected save", async () => {
   };
   renderInEnglish(<SetupApp />);
   await userEvent.click(screen.getByRole("button", { name: "AI connection" }));
-  await screen.findByLabelText("Base URL");
+  await chooseDirect();
   await userEvent.click(
     screen.getByRole("button", { name: "Save and continue" }),
   );
@@ -236,10 +239,7 @@ async function saveOnAiStep(save: unknown) {
   renderInEnglish(<SetupApp />);
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "http://127.0.0.1:9/v1",
-  );
+  await userEvent.type(await chooseDirect(), "http://127.0.0.1:9/v1");
   await userEvent.type(screen.getByLabelText("Model name"), "test-model");
   await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
   await userEvent.click(

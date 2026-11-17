@@ -7,6 +7,9 @@ export const errors = {
     "이 컴퓨터에서는 키를 암호화할 수 없어 앱에 저장하지 않습니다.",
   AI_CONNECTION_MANAGED:
     "환경변수(APEX_DESKTOP_AI_CONFIG)로 관리되는 설정입니다. 실행 환경에서 변경해주세요.",
+  AUTHENTICATION_FAILED:
+    "AI 제공자가 인증을 거부했습니다. APEX 서버 연결이면 다시 로그인하고, 직접 연결이면 API 키를 확인하세요.",
+  RATE_LIMITED: "AI 제공자의 요청 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.",
   AI_ENGINE_BUSY:
     "분석 작업이 실행 중이라 지금은 변경할 수 없습니다. 작업이 끝난 뒤 다시 시도해주세요.",
   AI_CONFIGURATION_INVALID:
