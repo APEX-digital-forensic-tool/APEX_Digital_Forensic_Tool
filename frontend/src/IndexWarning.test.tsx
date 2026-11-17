@@ -168,3 +168,24 @@ it("drops an old error when switching between search and timeline", async () => 
   view.rerender(<IndexWarning route="TIMELINE" {...common} />);
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+it("looks the index state up itself before any query has run", async () => {
+  const call = vi
+    .spyOn(gateway, "call")
+    .mockResolvedValue(state("NONE", "NONE"));
+  render(
+    <IndexWarning
+      route="SEARCH"
+      caseId="c"
+      evidenceId="e1"
+      state={undefined}
+      tasks={[]}
+      onStarted={() => {}}
+    />,
+  );
+  expect(await screen.findByText("검색 인덱스 만들기")).toBeTruthy();
+  expect(call).toHaveBeenCalledWith("index.state", {
+    case_id: "c",
+    evidence_id: "e1",
+  });
+});
