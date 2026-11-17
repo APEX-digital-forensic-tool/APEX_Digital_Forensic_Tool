@@ -144,19 +144,54 @@ def test_text_and_random_binary_are_still_rejected_for_speech(client, tmp_path):
         assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED", name
 
 
-# An image or text name is refused before any probe, so this holds without ffprobe too.
-def test_image_and_text_names_are_refused_without_probing(client, tmp_path, monkeypatch):
+@needs_ffmpeg
+def test_speech_is_decided_by_content_whatever_the_name(client, tmp_path):
+    root = tmp_path / "content"
+    root.mkdir()
+    (root / "note.txt").write_bytes(wav())
+    (root / "fake.wav").write_text("just text", encoding="utf-8")
+    (root / "utf16.txt").write_bytes("\ufeffhello".encode("utf-16-le"))
+    (root / "IMG.heic").write_bytes(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 32)
+    cid, nodes = nodes_of(client, root, "Content")
+    assert stt(client, cid, nodes["note.txt"])["ok"] is True
+    for name in ("fake.wav", "utf16.txt", "IMG.heic"):
+        body = stt(client, cid, nodes[name])
+        assert body["ok"] is False, name
+        assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED", name
+
+
+# Without ffprobe the bytes cannot be judged, so the name is the only evidence left.
+def test_without_ffprobe_the_name_decides(client, tmp_path, monkeypatch):
     import apex_desktop.tool_targets as targets
 
     root = tmp_path / "named"
     root.mkdir()
     (root / "note.txt").write_bytes("\ufeffhello".encode("utf-16-le"))
     (root / "IMG.heic").write_bytes(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 32)
+    (root / "call.wav").write_bytes(wav())
     cid, nodes = nodes_of(client, root, "Named")
-    monkeypatch.setattr(targets, "media_executable", lambda _name: pytest.fail("probed"))
+    monkeypatch.setattr(targets, "media_executable", lambda _name: None)
     for name in ("note.txt", "IMG.heic"):
         body = stt(client, cid, nodes[name])
         assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED", name
+    assert stt(client, cid, nodes["call.wav"])["ok"] is True
+
+
+# A broken ffprobe (missing library, exit 127) says nothing about the file.
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a POSIX shell script as ffprobe")
+def test_a_broken_ffprobe_leaves_the_decision_to_the_job(client, tmp_path, monkeypatch):
+    import apex_desktop.tool_targets as targets
+
+    broken = tmp_path / "ffprobe"
+    broken.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+    broken.chmod(0o755)
+    root = tmp_path / "probe"
+    root.mkdir()
+    (root / "tape").write_bytes(wav())
+    cid, nodes = nodes_of(client, root, "Broken ffprobe")
+    monkeypatch.setattr(targets, "media_executable", lambda _name: str(broken))
+    body = stt(client, cid, nodes["tape"])
+    assert body["ok"] is True, body
 
 
 def test_without_ffprobe_an_unclear_file_is_queued_for_the_decoder(

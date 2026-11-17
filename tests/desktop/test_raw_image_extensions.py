@@ -91,6 +91,10 @@ def test_any_later_segment_gets_the_same_split_guidance(client, tmp_path, picked
         (("disk.dd.000", "disk.dd.001"), "disk.dd.001"),
         (("disk.dd.000", "disk.dd.001", "disk.dd.002"), "disk.dd.000"),
         (("disk.001", "disk.002"), "disk.002"),
+        # A set delivered with a gap is still a set, from either side of the gap.
+        (("a.001", "a.003"), "a.001"),
+        (("a.001", "a.003"), "a.003"),
+        (("a.002", "a.005"), "a.002"),
     ],
 )
 def test_a_segment_of_either_numbering_style_is_refused(client, tmp_path, names, picked):
@@ -122,6 +126,8 @@ def test_split_archive_is_told_to_extract_not_to_join(client, tmp_path, picked):
 @pytest.mark.parametrize("name", ["orphan.002", "lone.001", "lone.000"])
 def test_lone_numbered_file_is_not_treated_as_a_split_set(client, tmp_path, name):
     (tmp_path / name).write_bytes(b"data")
+    (tmp_path / "other.003").write_bytes(b"another image")
+    (tmp_path / f"{name}.txt").write_text("notes", encoding="utf-8")
     cid = call(client, "cases.create", name="단독 조각")["id"]
     response = client.post(
         "/v1/operations/evidence.register",

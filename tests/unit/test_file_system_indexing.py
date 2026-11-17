@@ -530,8 +530,8 @@ def test_discovered_folder_stays_partial_until_it_is_listed(services, tmp_path: 
         for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
     }
 
-    unlisted = [n for p, n in nodes.items() if p.endswith("/b") and n.is_directory_like]
-    assert not unlisted or unlisted[0].is_partial is True
+    assert not any(path.startswith("/a/b/") for path in nodes), list(nodes)
+    assert nodes["/a/b"].is_partial is True
 
 
 @pytest.mark.skipif(
@@ -673,3 +673,99 @@ def test_unreadable_opened_folder_stays_partial(services, tmp_path: Path) -> Non
     )
 
     assert after.is_partial is True
+
+
+def test_failed_listing_survives_a_resume_of_the_job(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "listing-error-resume"
+    (evidence_dir / "dir").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+
+    def folder():
+        return next(
+            node
+            for node in services.fs.list_nodes(
+                evidence_id=evidence.evidence_id, all_nodes=True
+            ).items
+            if node.display_path == "/dir"
+        )
+
+    service = FileSystemIndexService(
+        case_repository=services.repository,
+        evidence_repository=services.repository,
+        repository=services.repository,
+        provider=_FolderListingErrorProvider(),
+        clock=SystemClock(),
+        id_generator=UuidGenerator(),
+    )
+    job, _ = service.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[folder().node_id],
+        include_background=False,
+    )
+    assert job.status == "PARTIAL"
+
+    service.resume_index_job(job.job_id)
+
+    # Resuming lists nothing new, so the earlier listing error still stands.
+    assert folder().is_partial is True
+
+
+def test_folder_selected_by_path_stays_partial_when_cancelled(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "by-path"
+    (evidence_dir / "dir" / "nested").mkdir(parents=True)
+    (evidence_dir / "dir" / "a.txt").write_text("x", encoding="utf-8")
+    (evidence_dir / "dir" / "nested" / "b.txt").write_text("y", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+
+    def nodes():
+        return {
+            node.display_path: node
+            for node in services.fs.list_nodes(
+                evidence_id=evidence.evidence_id, all_nodes=True
+            ).items
+        }
+
+    token = CancellationToken.new()
+
+    def cancel_after_dir_is_listed(job) -> None:
+        if job.progress.processed_items >= 1:
+            token.cancel()
+
+    job, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_paths=["dir"],
+        include_background=False,
+        cancellation_token=token,
+        progress_callback=cancel_after_dir_is_listed,
+    )
+
+    assert job.status == "CANCELLED"
+    assert nodes()["/dir/nested"].is_partial is True
+    # /dir itself was listed, but its subtree was not; it must not look complete.
+    assert nodes()["/dir"].is_partial is True
+
+    retry, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_paths=["dir"],
+        include_background=False,
+    )
+    assert retry.status == "SUCCEEDED"
+    assert nodes()["/dir"].is_partial is False
+    assert nodes()["/dir/nested"].is_partial is False
