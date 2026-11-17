@@ -1692,7 +1692,7 @@ class ReportService:
         return replace(
             version,
             review_state=self._review_state(version.report_version_id),
-            approval_state=self._approval_state(version.report_version_id),
+            approval_state=self._approval_state(version),
         )
 
     def _review_state(self, report_version_id: str) -> dict[str, Any]:
@@ -1705,14 +1705,14 @@ class ReportService:
             "section_status": _section_review_state(events),
         }
 
-    def _approval_state(self, report_version_id: str) -> dict[str, Any]:
-        approvals = self._repository.list_report_approval_records(
-            report_version_id=report_version_id
+    def _approval_state(self, version: ReportVersion) -> dict[str, Any]:
+        latest = self._latest_approval(version.report_version_id)
+        report_approvals = self._repository.list_report_approval_records(
+            report_id=version.report_id
         )
-        latest = approvals[-1] if approvals else None
         return {
             "decision": None if latest is None else latest.decision,
-            "approval_revision": 0 if latest is None else latest.approval_revision,
+            "approval_revision": report_approvals[-1].approval_revision if report_approvals else 0,
             "approval_id": None if latest is None else latest.approval_id,
             "approval_hash": None if latest is None else latest.approval_hash,
         }

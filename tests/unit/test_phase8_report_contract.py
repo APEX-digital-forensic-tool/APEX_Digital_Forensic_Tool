@@ -188,6 +188,54 @@ def _review_and_approve(services: Any, version: Any):
     )
 
 
+def test_new_version_reports_the_revision_that_approval_compares_against(
+    tmp_path: Path,
+) -> None:
+    services = build_services(tmp_path / "apex.db")
+    try:
+        base = _base_fixture(services, tmp_path)
+        first = _create_version(services, base)
+        assert first.approval_state["approval_revision"] == 0
+        rejected = services.reports.reject(
+            report_version_id=first.report_version_id,
+            approver_id="approver-1",
+            reason="Needs changes.",
+            expected_approval_revision=0,
+        )
+        second = _create_version(services, base, content="rewritten after rejection")
+        state = services.reports.get_version(second.report_version_id).approval_state
+        assert state["decision"] is None
+        assert state["approval_revision"] == rejected.approval_revision == 1
+
+        services.reports.submit_review(
+            report_version_id=second.report_version_id, actor_id="reviewer-1", reason="Submit."
+        )
+        services.reports.accept_section(
+            report_version_id=second.report_version_id,
+            section_id=second.sections[0].section_id,
+            actor_id="reviewer-1",
+            reason="Accepted.",
+            expected_review_revision=1,
+        )
+        services.reports.complete_review(
+            report_version_id=second.report_version_id,
+            actor_id="reviewer-1",
+            reason="Complete.",
+            expected_review_revision=2,
+        )
+        approval = services.reports.approve(
+            report_version_id=second.report_version_id,
+            approver_id="approver-1",
+            reason="Approved.",
+            expected_review_revision=3,
+            expected_approval_revision=state["approval_revision"],
+        )
+        assert approval.approval_revision == 2
+        assert approval.previous_approval_hash == rejected.approval_hash
+    finally:
+        services.close()
+
+
 @pytest.mark.parametrize("scope", ["missing", "undeclared", "other_case"])
 def test_section_snapshot_must_belong_to_report_context(tmp_path: Path, scope: str) -> None:
     services = build_services(tmp_path / "apex.db")
