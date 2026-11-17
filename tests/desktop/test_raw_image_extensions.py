@@ -61,3 +61,44 @@ def test_joined_split_image_registers_like_any_raw_image(client, tmp_path):
     (tmp_path / "joined.dd").write_bytes(data)
     cid, eid = registered(client, tmp_path / "joined.dd")
     assert call(client, "files.roots", case_id=cid, evidence_id=eid)
+
+
+@pytest.mark.parametrize("picked", ["split.002", "split.003", "split.010"])
+def test_any_later_segment_gets_the_same_split_guidance(client, tmp_path, picked):
+    data = _streams_image()
+    third = len(data) // 3
+    for name, part in (
+        ("split.001", data[:third]),
+        ("split.002", data[third : 2 * third]),
+        ("split.003", data[2 * third :]),
+        ("split.010", b"tail"),
+    ):
+        (tmp_path / name).write_bytes(part)
+    cid = call(client, "cases.create", name="분할 이미지")["id"]
+    response = client.post(
+        "/v1/operations/evidence.register",
+        json={"case_id": cid, "source_path": str(tmp_path / picked)},
+    )
+    assert response.json()["error"]["code"] == "SPLIT_IMAGE_UNSUPPORTED"
+    assert call(client, "evidence.list", case_id=cid) == []
+
+
+def test_split_archive_is_told_to_extract_not_to_join(client, tmp_path):
+    (tmp_path / "x.7z.001").write_bytes(b"7z\xbc\xaf\x27\x1c" + b"\0" * 64)
+    (tmp_path / "x.7z.002").write_bytes(b"\0" * 64)
+    cid = call(client, "cases.create", name="분할 압축")["id"]
+    response = client.post(
+        "/v1/operations/evidence.register",
+        json={"case_id": cid, "source_path": str(tmp_path / "x.7z.001")},
+    )
+    assert response.json()["error"]["code"] == "ARCHIVE_REQUIRES_EXTRACTION"
+
+
+def test_lone_numbered_file_is_not_treated_as_a_split_set(client, tmp_path):
+    (tmp_path / "orphan.002").write_bytes(b"data")
+    cid = call(client, "cases.create", name="단독 조각")["id"]
+    response = client.post(
+        "/v1/operations/evidence.register",
+        json={"case_id": cid, "source_path": str(tmp_path / "orphan.002")},
+    )
+    assert response.status_code == 200, response.text

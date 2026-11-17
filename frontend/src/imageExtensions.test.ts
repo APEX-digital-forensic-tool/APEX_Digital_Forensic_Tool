@@ -9,13 +9,14 @@ it("offers the engine's raw image extensions, .001 included", () => {
   );
 });
 
-it("lists exactly the shared extensions in the native file picker", () => {
+it("gives the native file picker the shared extension list", () => {
   const main = readFileSync("electron/main.ts", "utf8");
-  const filter =
-    /extensions: (\[[^\]]*\]),\s*\},\s*\{ name: text\.allFiles/.exec(main);
-  expect(filter).not.toBeNull();
-  expect(new Set(JSON.parse(filter![1]) as string[])).toEqual(
-    new Set(IMAGE_EXTENSIONS),
+  expect(main).toMatch(/extensions: IMAGE_EXTENSIONS,/);
+  expect(main).toMatch(
+    /import \{ IMAGE_EXTENSIONS \} from "..\/src\/imageExtensions"/,
+  );
+  expect(IMAGE_EXTENSIONS).toEqual(
+    expect.arrayContaining(["e01", "vhd", "vhdx", ...RAW_IMAGE_EXTENSIONS]),
   );
 });
 

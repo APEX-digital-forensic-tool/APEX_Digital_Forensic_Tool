@@ -97,7 +97,7 @@ it("explains that a split image must be joined before it is added", async () => 
     name: "이미지 증거 등록",
   });
   fireEvent.click(within(dialog).getByRole("button", { name: "증거 등록" }));
-  await waitFor(() => expect(dialog.textContent).toMatch(/여러 조각.*합친 뒤/));
+  await waitFor(() => expect(dialog.textContent).toMatch(/여러 조각.*해시가 수집 기록과 같은지/));
 });
 
 it("confirms the source, registers it, then starts the chosen hash", async () => {

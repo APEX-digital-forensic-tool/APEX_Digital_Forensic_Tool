@@ -24,6 +24,7 @@ import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { runtimeExecutable } from "./runtime";
 import { messagesFor } from "../src/i18n/catalog";
+import { IMAGE_EXTENSIONS } from "../src/imageExtensions";
 import {
   aiConnectionStatus,
   aiEnvironment,
@@ -449,7 +450,7 @@ else {
             ? [
                 {
                   name: text.evidenceImages,
-                  extensions: ["e01", "vhd", "vhdx", "dd", "img", "raw", "001"],
+                  extensions: IMAGE_EXTENSIONS,
                 },
                 { name: text.allFiles, extensions: ["*"] },
               ]

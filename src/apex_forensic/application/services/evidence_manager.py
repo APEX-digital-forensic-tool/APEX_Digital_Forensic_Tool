@@ -505,14 +505,6 @@ class EvidenceManager:
         """Give an actionable error before treating an archive as a raw disk image."""
         if not path.is_file():
             return
-        if path.suffix == ".001" and any(
-            sibling.name.casefold() == f"{path.stem}.002".casefold()
-            for sibling in path.parent.iterdir()
-        ):
-            raise ApexError(
-                "SPLIT_IMAGE_UNSUPPORTED", "error.split_image_unsupported",
-                target="source_path",
-            )
         with path.open("rb") as handle:
             signature = handle.read(8)
         if path.suffix.lower() in {".zip", ".7z", ".rar", ".gz", ".tar"} or signature.startswith(
@@ -523,6 +515,24 @@ class EvidenceManager:
         ):
             raise ApexError(
                 "ARCHIVE_REQUIRES_EXTRACTION", "error.archive_requires_extraction",
+                target="source_path",
+            )
+        EvidenceManager._reject_split_segment(path)
+
+    @staticmethod
+    def _reject_split_segment(path: Path) -> None:
+        """Refuse any segment of a split image set, which the raw reader cannot join."""
+        suffix = path.suffix
+        if len(suffix) != 4 or not suffix[1:].isdigit():
+            return
+        first = path.with_suffix(".001")
+        if suffix == ".001":
+            split = path.with_suffix(".002").exists()
+        else:
+            split = int(suffix[1:]) >= 2 and first.exists()
+        if split:
+            raise ApexError(
+                "SPLIT_IMAGE_UNSUPPORTED", "error.split_image_unsupported",
                 target="source_path",
             )
 
