@@ -29,6 +29,8 @@ export const errors: Messages["errors"] = {
     "This file cannot be read as text. For images and audio, run OCR or STT, then request analysis from the extracted candidates.",
   ARCHIVE_REQUIRES_EXTRACTION:
     "This file is an archive. Keep the original, extract it into a separate folder, then import that folder with ‘Add folder’. File system analysis inside archives is not supported.",
+  SPLIT_IMAGE_UNSUPPORTED:
+    "This image is split into several segments (.001, .002, …), which are not supported yet. Join the segments into one raw image first (for example `cat image.0* > image.dd`, or `copy /b image.001+image.002 image.dd` on Windows), keep the originals, then add the joined file.",
   MEDIA_LIMIT_EXCEEDED:
     "The image exceeds the analysis limit. Up to 64 MiB and 25 million pixels are supported. Try again with a smaller preview size.",
   MEDIA_SOURCE_CHANGED:

@@ -505,6 +505,14 @@ class EvidenceManager:
         """Give an actionable error before treating an archive as a raw disk image."""
         if not path.is_file():
             return
+        if path.suffix == ".001" and any(
+            sibling.name.casefold() == f"{path.stem}.002".casefold()
+            for sibling in path.parent.iterdir()
+        ):
+            raise ApexError(
+                "SPLIT_IMAGE_UNSUPPORTED", "error.split_image_unsupported",
+                target="source_path",
+            )
         with path.open("rb") as handle:
             signature = handle.read(8)
         if path.suffix.lower() in {".zip", ".7z", ".rar", ".gz", ".tar"} or signature.startswith(

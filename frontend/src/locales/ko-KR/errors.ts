@@ -27,6 +27,8 @@ export const errors = {
     "텍스트로 읽을 수 없는 파일입니다. 이미지·음성은 OCR·STT를 실행하고 추출 후보에서 분석을 요청하세요.",
   ARCHIVE_REQUIRES_EXTRACTION:
     "이 파일은 압축 파일입니다. 원본을 보관하고 별도 폴더에 압축을 해제한 뒤 ‘폴더 추가’로 가져오세요. 압축 파일 내부의 파일시스템 분석은 지원하지 않습니다.",
+  SPLIT_IMAGE_UNSUPPORTED:
+    "이 이미지는 여러 조각(.001, .002 …)으로 나뉘어 있어 아직 지원하지 않습니다. 조각을 하나의 원시 이미지로 합친 뒤(예: `cat image.0* > image.dd`, Windows는 `copy /b image.001+image.002 image.dd`) 원본은 보관하고 합친 파일을 추가하세요.",
   MEDIA_LIMIT_EXCEEDED:
     "이미지 분석 한도를 초과했습니다. 최대 64 MiB·2,500만 픽셀을 지원합니다. 미리보기 크기를 줄여 다시 시도할 수 있습니다.",
   MEDIA_SOURCE_CHANGED:

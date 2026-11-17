@@ -70,6 +70,36 @@ it("surfaces a mismatch ahead of other hashes", () => {
   );
 });
 
+it("explains that a split image must be joined before it is added", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) => {
+    if (op === "evidence.register")
+      return {
+        ok: false,
+        error: {
+          code: "SPLIT_IMAGE_UNSUPPORTED",
+          message_key: "error.split_image_unsupported",
+          retryable: false,
+          target: "source_path",
+        },
+      } as Reply<Row>;
+    return original(op, payload) as Promise<Reply<Row>>;
+  };
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "이미지 추가" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "이미지 증거 등록",
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "증거 등록" }));
+  await waitFor(() => expect(dialog.textContent).toMatch(/여러 조각.*합친 뒤/));
+});
+
 it("confirms the source, registers it, then starts the chosen hash", async () => {
   const bridge = createDemoBridge();
   const original = bridge.invoke.bind(bridge);
