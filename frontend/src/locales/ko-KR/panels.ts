@@ -14,9 +14,11 @@ export const panels = {
     logoutHint: "이 앱에서 세션을 지우고 서버에도 세션 종료를 요청합니다.",
     signedIn: "로그인됨",
     reconnecting: "다시 연결 중",
-    reconnectingBody: "서버에 연결할 수 없어 세션을 갱신하지 못했습니다. 연결되면 자동으로 이어집니다.",
+    reconnectingBody:
+      "서버에 연결할 수 없어 세션을 갱신하지 못했습니다. 연결되면 자동으로 이어집니다.",
     renewsAt: (time: string) => `세션은 ${time} 전에 자동으로 갱신됩니다.`,
-    sessionExpired: "서버 세션이 만료되어 로그아웃되었습니다. 다시 로그인하세요.",
+    sessionExpired:
+      "서버 세션이 만료되어 로그아웃되었습니다. 다시 로그인하세요.",
     origin: "기존 인증 서버 주소",
     originPlaceholder: "https://인증-서버-주소",
     tenant: "테넌트 ID",

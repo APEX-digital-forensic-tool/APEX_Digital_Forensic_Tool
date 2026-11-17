@@ -16,9 +16,11 @@ export const panels: Messages["panels"] = {
     logoutHint: "Clears the session in this app and asks the server to end it.",
     signedIn: "Signed in",
     reconnecting: "Reconnecting",
-    reconnectingBody: "The server could not be reached to renew the session. It resumes on its own once the server answers.",
+    reconnectingBody:
+      "The server could not be reached to renew the session. It resumes on its own once the server answers.",
     renewsAt: (time: string) => `The session renews on its own before ${time}.`,
-    sessionExpired: "Your server session expired and you were signed out. Sign in again.",
+    sessionExpired:
+      "Your server session expired and you were signed out. Sign in again.",
     origin: "Existing authentication server address",
     originPlaceholder: "https://auth-server-address",
     tenant: "Tenant ID",
