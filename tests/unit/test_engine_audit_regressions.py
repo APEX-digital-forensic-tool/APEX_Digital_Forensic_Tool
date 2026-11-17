@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,7 +15,12 @@ from apex_forensic.adapters.evidence import RawImageReader
 from apex_forensic.adapters.filesystem.pytsk import PyTskFileSystemProvider
 from apex_forensic.application.services.context import SafeRawRangeReader
 from apex_forensic.domain.enums import AnalysisProfileType, EvidenceFormat
-from apex_forensic.domain.errors import RawReadError, StateConflictError, ValidationError
+from apex_forensic.domain.errors import (
+    PersistenceError,
+    RawReadError,
+    StateConflictError,
+    ValidationError,
+)
 from apex_forensic.domain.models import CustodyEvent
 from apex_forensic.domain.services.canonical import canonical_sha256
 
@@ -76,16 +80,13 @@ def test_exports_remove_output_when_custody_append_fails(
 ):
     _, evidence, nodes, _ = image_case
 
-    def lost_race(_event):
-        raise sqlite3.IntegrityError(
-            "UNIQUE constraint failed: custody_events.evidence_id, "
-            "custody_events.immutable_revision"
-        )
+    def locked(_evidence_id, _build):
+        raise PersistenceError("DATABASE_LOCKED", "busy", retryable=True)
 
-    monkeypatch.setattr(services.repository, "save_custody_event", lost_race)
+    monkeypatch.setattr(services.repository, "append_custody_event", locked)
     before = len(services.custody.list_events(evidence.evidence_id))
     output_root = tmp_path / "exports"
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(PersistenceError):
         if operation == "range":
             services.images.export_range(
                 evidence_id=evidence.evidence_id, offset=0, length=4, output_root=output_root
