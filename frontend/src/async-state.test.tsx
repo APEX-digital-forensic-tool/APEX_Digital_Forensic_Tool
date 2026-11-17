@@ -439,6 +439,43 @@ it("re-searches a history entry through search.query", async () => {
   );
 });
 
+it("runs a search only when the analyst submits it (#66)", async () => {
+  const calls = recording();
+  await openRoute("통합 검색");
+  const queries = () => calls.filter(([op]) => op === "search.query");
+  fireEvent.change(screen.getByLabelText("검색어"), {
+    target: { value: "readme" },
+  });
+  fireEvent.submit(screen.getByLabelText("검색어").closest("form")!);
+  await waitFor(() => expect(queries().length).toBe(1));
+  fireEvent.change(screen.getByLabelText("검색 방식"), {
+    target: { value: "PHRASE" },
+  });
+  fireEvent.change(screen.getByLabelText("현재 증거"), {
+    target: { value: core.evidence[1]?.id ?? core.evidence[0].id },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(queries().length).toBe(1);
+});
+
+it("reloads the search history after a search runs (#66)", async () => {
+  const calls = recording();
+  await openRoute("통합 검색");
+  const details = screen.getByText("검색 이력").closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  await waitFor(() =>
+    expect(calls.filter(([op]) => op === "search.history").length).toBe(1),
+  );
+  fireEvent.change(screen.getByLabelText("검색어"), {
+    target: { value: "readme" },
+  });
+  fireEvent.submit(screen.getByLabelText("검색어").closest("form")!);
+  await waitFor(() =>
+    expect(calls.filter(([op]) => op === "search.history").length).toBe(2),
+  );
+});
+
 it("shows receipt failure and retries persistence without starting another task", async () => {
   const bridge = createDemoBridge();
   const original = bridge.invoke.bind(bridge);

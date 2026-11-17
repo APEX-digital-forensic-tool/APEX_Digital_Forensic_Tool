@@ -235,7 +235,15 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [folderTrail, setFolderTrail] = useState<Row[]>([]);
   const [query, setQuery] = useState(""),
-    [searchText, setSearchText] = useState(""),
+    // The search the analyst last submitted. The mode select and the scope
+    // pickers never run a search by themselves.
+    [searchRun, setSearchRun] = useState<{
+      text: string;
+      mode: string;
+      caseId: string;
+      evidenceId: string;
+    } | null>(null),
+    [searchesDone, setSearchesDone] = useState(0),
     [searchMode, setSearchMode] = useState("TERM"),
     [revision, setRevision] = useState(0),
     [treeRevision, setTreeRevision] = useState(0),
@@ -510,6 +518,7 @@ export function App() {
   }
   function navigate(next: Route, comm = false) {
     if (next === route && comm === communication) return;
+    if (route === "SEARCH") setSearchRun(null);
     setRoute(next);
     setCommunication(comm);
     setArtifactType(
@@ -635,6 +644,13 @@ export function App() {
       live = false;
     };
   }, [route, evidenceId, caseId, treeRevision]);
+  useEffect(() => {
+    if (
+      searchRun &&
+      (searchRun.caseId !== caseId || searchRun.evidenceId !== evidenceId)
+    )
+      setSearchRun(null);
+  }, [searchRun, caseId, evidenceId]);
   const pageCursor = useRef<string | null>(null);
   const loadPage = useCallback(
     async (cursor: string | null = null, background = false) => {
@@ -668,13 +684,20 @@ export function App() {
         op = "artifacts.list";
         input.artifact_type = artifactType || null;
       } else if (route === "SEARCH") {
-        if (!searchText) {
+        // Only a submitted search runs. A background refresh must not record
+        // another execution in the engine's search history.
+        if (
+          !searchRun ||
+          background ||
+          searchRun.caseId !== caseId ||
+          searchRun.evidenceId !== evidenceId
+        ) {
           setLoading(false);
           return;
         }
         op = "search.query";
-        input.query_text = searchText;
-        input.query_mode = searchMode;
+        input.query_text = searchRun.text;
+        input.query_mode = searchRun.mode;
       } else if (route === "TIMELINE") op = "timeline.list";
       else if (route === "CANDIDATES") op = "candidates.list";
       else if (route === "CHAIN_OF_CUSTODY") {
@@ -709,11 +732,16 @@ export function App() {
             : null,
         );
         if (background) setError(null);
-        if (op === "search.query")
+        if (op === "search.query") {
+          setSearchesDone((n) => n + 1);
           sync({
             active_search_execution_id: result.execution.execution_id,
-            active_filters: { query_mode: searchMode, query_text: searchText },
+            active_filters: {
+              query_mode: searchRun?.mode,
+              query_text: searchRun?.text,
+            },
           });
+        }
       } catch (err) {
         if (rid !== requestRevision.current) return;
         if (background) setPollError(err);
@@ -725,23 +753,21 @@ export function App() {
         if (rid === requestRevision.current) setLoading(false);
       }
     },
-    [
-      caseId,
-      evidenceId,
-      route,
-      folder?.id,
-      artifactType,
-      searchText,
-      searchMode,
-      sync,
-    ],
+    [caseId, evidenceId, route, folder?.id, artifactType, searchRun, sync],
   );
+  const executedSearch = useRef<object | null>(null);
   const lastLoadPage = useRef(loadPage);
   useEffect(() => {
     const keepPage =
       keepPageOnNextLoad.current && lastLoadPage.current === loadPage;
     keepPageOnNextLoad.current = false;
     lastLoadPage.current = loadPage;
+    // A submitted search runs once. Other changes that rebuild loadPage, such
+    // as the open folder, must not run it again and add to the history.
+    if (route === "SEARCH" && searchRun) {
+      if (executedSearch.current === searchRun) return;
+      executedSearch.current = searchRun;
+    }
     void loadPage(keepPage ? pageCursor.current : null, keepPage);
     return () => {
       requestRevision.current++;
@@ -1699,8 +1725,12 @@ export function App() {
                     className="search-form"
                     onSubmit={(e) => {
                       e.preventDefault();
-                      setSearchText(query);
-                      refresh();
+                      setSearchRun({
+                        text: query,
+                        mode: searchMode,
+                        caseId,
+                        evidenceId,
+                      });
                     }}
                   >
                     <Search size={16} />
@@ -1870,13 +1900,18 @@ export function App() {
               </div>
               {route === "SEARCH" && (
                 <SearchHistory
+                  version={searchesDone}
                   caseId={caseId}
                   zone={zone}
                   onSearch={(text, mode) => {
                     setQuery(text);
                     setSearchMode(mode);
-                    setSearchText(text);
-                    refresh();
+                    setSearchRun({
+                      text,
+                      mode,
+                      caseId,
+                      evidenceId,
+                    });
                   }}
                 />
               )}
@@ -1891,6 +1926,7 @@ export function App() {
                       className={artifactType === t ? "active" : ""}
                       onClick={() => {
                         setArtifactType(t);
+                        setPage(null);
                         sync({ active_filters: { artifact_type: t } });
                       }}
                     >
@@ -2011,7 +2047,7 @@ export function App() {
                 ) : (
                   <Empty
                     title={
-                      route === "SEARCH" && !searchText
+                      route === "SEARCH" && !searchRun
                         ? m.views.empty.enterQuery
                         : m.ui.empty.title
                     }
@@ -2035,7 +2071,10 @@ export function App() {
                 <div>
                   <span className="muted">{m.views.pagination.sortScope}</span>
                   {page?.page?.has_more && (
-                    <button onClick={() => loadPage(page.page.next_cursor)}>
+                    <button
+                      disabled={loading}
+                      onClick={() => loadPage(page.page.next_cursor)}
+                    >
                       {m.views.pagination.next} <ChevronRight size={13} />
                     </button>
                   )}
