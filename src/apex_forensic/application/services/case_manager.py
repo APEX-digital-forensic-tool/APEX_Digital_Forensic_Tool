@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from apex_forensic.constants import DEFAULT_LOCALE, DEFAULT_TIMEZONE, SCHEMA_VERSION
 from apex_forensic.domain.enums import CaseStatus
@@ -140,7 +140,10 @@ class CaseManager:
     def _validate_timezone(timezone: str) -> None:
         try:
             ZoneInfo(timezone)
-        except (ZoneInfoNotFoundError, ValueError) as error:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as error:
+            # A key naming a directory (such as "America") raises PermissionError on Windows.
+            if isinstance(error, OSError) and timezone in available_timezones():
+                raise
             raise ValidationError(
                 "Invalid IANA timezone identifier.",
                 target="timezone",
