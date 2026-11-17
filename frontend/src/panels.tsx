@@ -939,7 +939,7 @@ export function Reports({
             {
               key: "filename",
               label: m.report.export.filename,
-              default: "report.html",
+              default: "report",
               required: true,
               max: 200,
             },

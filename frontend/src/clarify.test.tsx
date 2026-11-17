@@ -141,6 +141,20 @@ describe("decision copy", () => {
     );
   });
 
+  it("stops the candidate reason at the length the API accepts", async () => {
+    recording();
+    await openRoute("추출 후보 검토");
+    const table = await screen.findByRole("table");
+    fireEvent.click(
+      await within(table).findByText("다음 주까지 수정본을 전달해 주세요."),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "반려" }));
+    const reason = within(
+      screen.getByRole("dialog", { name: "후보 반려" }),
+    ).getByLabelText("반려 사유") as HTMLTextAreaElement;
+    expect(reason.maxLength).toBe(4096);
+  });
+
   it("shows candidate sources as paths, not node IDs", async () => {
     recording();
     await openRoute("추출 후보 검토");

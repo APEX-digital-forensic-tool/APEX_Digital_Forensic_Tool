@@ -2658,7 +2658,13 @@ def _safe_filename(filename: str, format_value: str) -> str:
     cleaned = re.sub(r"\s+", "_", pure.name.strip())
     if not cleaned or len(cleaned) > MAX_FILENAME_LENGTH:
         raise ReportError("REPORT_OUTPUT_INVALID", "Export filename is invalid.", target="filename")
-    extension = ".pdf" if format_value == ReportExportFormat.PDF.value else ".html"
+    extension, other_extension = (
+        (".pdf", ".html")
+        if format_value == ReportExportFormat.PDF.value
+        else (".html", ".pdf")
+    )
+    if cleaned.casefold().endswith(other_extension) and len(cleaned) > len(other_extension):
+        cleaned = cleaned[: -len(other_extension)]
     if not cleaned.casefold().endswith(extension):
         cleaned = f"{cleaned}{extension}"
     if len(cleaned) > MAX_FILENAME_LENGTH:

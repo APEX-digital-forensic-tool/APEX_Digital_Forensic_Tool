@@ -2456,6 +2456,7 @@ export function App() {
                                           label: copy.reason,
                                           required: true,
                                           type: "textarea",
+                                          max: 4096,
                                         },
                                         ...(status === "CORRECTED"
                                           ? [
@@ -2466,6 +2467,7 @@ export function App() {
                                                     .correctedText,
                                                 required: true,
                                                 type: "textarea",
+                                                max: 100000,
                                                 default:
                                                   selected.correction_text ??
                                                   selected.text,
@@ -2505,11 +2507,13 @@ export function App() {
                                       key: "action",
                                       label: m.views.custodyCorrection.action,
                                       required: true,
+                                      max: 4096,
                                     },
                                     {
                                       key: "reason",
                                       label: m.views.custodyCorrection.reason,
                                       required: true,
+                                      max: 4096,
                                     },
                                   ],
                                   submit: async (f) => {

@@ -140,7 +140,7 @@ class CaseManager:
     def _validate_timezone(timezone: str) -> None:
         try:
             ZoneInfo(timezone)
-        except ZoneInfoNotFoundError as error:
+        except (ZoneInfoNotFoundError, ValueError) as error:
             raise ValidationError(
                 "Invalid IANA timezone identifier.",
                 target="timezone",
