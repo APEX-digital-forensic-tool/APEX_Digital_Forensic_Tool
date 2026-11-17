@@ -102,6 +102,10 @@ export const errors = {
     "원본 읽기 또는 분석용 사본의 크기 제한을 초과했습니다. 범위를 줄이거나 해당 기능의 파일 크기 제한을 확인해주세요.",
   RAW_SOURCE_CHANGED:
     "인덱싱 이후 또는 읽는 중에 원본 파일이 변경되었습니다. 증거 무결성을 확인하고 다시 인덱싱해주세요.",
+  RAW_LOCATOR_UNSUPPORTED:
+    "이 항목은 내용을 읽을 수 없습니다. 링크이거나 삭제된 파일, 또는 이 증거 형식에서 내용을 읽을 수 없는 항목입니다.",
+  RAW_SOURCE_OUTSIDE_EVIDENCE:
+    "원본이 증거 범위 밖을 가리켜 읽지 않았습니다. 증거 경로를 확인해주세요.",
   RAW_SOURCE_UNAVAILABLE:
     "원본 파일을 읽을 수 없습니다. 증거 경로와 접근 권한을 확인해주세요.",
   RAW_RANGE_NOT_SATISFIABLE: "원본 데이터 범위를 벗어났습니다.",

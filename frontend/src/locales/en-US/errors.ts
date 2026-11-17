@@ -104,6 +104,10 @@ export const errors: Messages["errors"] = {
     "The size limit for raw reads or analysis copies was exceeded. Narrow the range or check the file size limit for this feature.",
   RAW_SOURCE_CHANGED:
     "The source file changed after indexing or while being read. Verify evidence integrity and index again.",
+  RAW_LOCATOR_UNSUPPORTED:
+    "This item's content cannot be read. It is a link or a deleted file, or this evidence format cannot read its content.",
+  RAW_SOURCE_OUTSIDE_EVIDENCE:
+    "The source points outside the evidence, so it was not read. Check the evidence path.",
   RAW_SOURCE_UNAVAILABLE:
     "The source file cannot be read. Check the evidence path and permissions.",
   RAW_RANGE_NOT_SATISFIABLE: "The range is outside the source data.",

@@ -4,7 +4,7 @@ import subprocess
 from typing import Any
 
 from apex_forensic.adapters.filesystem.content import EvidenceFileContent
-from apex_forensic.domain.errors import ApexError, RawReadError
+from apex_forensic.domain.errors import ApexError
 from apex_forensic.domain.models.filesystem import FileSystemNode
 from apex_forensic.runtime.assets import media_executable
 from apex_forensic.runtime.subprocess_env import subprocess_environment
@@ -43,13 +43,16 @@ _PROBE_MAX_BYTES = 64 * 1024 * 1024
 
 
 def _has_audio_stream(evidence: Any, node: FileSystemNode) -> bool | None:
-    """Ask ffprobe whether the file has an audio stream; None when it cannot be asked."""
+    """Ask ffprobe whether the file has an audio stream; None when it cannot be asked.
+
+    A RawReadError (source changed, outside the evidence, unreadable node) goes out with its
+    own code. Other failures leave the decision to the job, which reports its real error.
+    """
     try:
         with EvidenceFileContent.open(evidence, node) as handle:
             EvidenceFileContent.read_range(handle, 0, min(node.file_size or 0, 1))
-    except (RawReadError, OSError):
-        # Bytes that cannot be read cannot be speech for this tool.
-        return False
+    except OSError:
+        return None
     ffprobe = media_executable("ffprobe")
     if ffprobe is None or (node.file_size or 0) > _PROBE_MAX_BYTES:
         return None
@@ -68,9 +71,7 @@ def _has_audio_stream(evidence: Any, node: FileSystemNode) -> bool | None:
                 timeout=_PROBE_SECONDS,
                 check=False,
             )
-    except (RawReadError, OSError):
-        return False
-    except subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     return b"audio" in completed.stdout.split()
 
