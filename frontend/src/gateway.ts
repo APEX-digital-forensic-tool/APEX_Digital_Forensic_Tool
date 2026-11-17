@@ -2,6 +2,7 @@ import type { Messages } from "./i18n/catalog";
 import type { Locale } from "./i18n/locales";
 import * as validators from "./contracts/validators.js";
 import type { AiConnectionStatus } from "../electron/aiConnection";
+import type { AccountStatus } from "../electron/serverSession";
 export type Row = Record<string, any>; // Heterogeneous Core projection/plugin fields.
 export interface ApiError {
   code: string;
@@ -18,9 +19,11 @@ export interface DesktopBridge {
     locale?: Locale,
   ): Promise<Reply<{ reference: string; name: string } | null>>;
   openExports(): Promise<Reply<null>>;
-  account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;
-  login(input: Row): Promise<Reply<{ connected: boolean; origin: string }>>;
+  account(): Promise<Reply<AccountStatus>>;
+  login(input: Row): Promise<Reply<AccountStatus>>;
   logout(): Promise<Reply<null>>;
+  /** Called whenever the sign-in changes in the main process (refresh, expiry, logout). Returns an unsubscribe. */
+  onAccountChange?(listener: (status: AccountStatus) => void): () => void;
   aiConnection(): Promise<Reply<AiConnectionStatus>>;
   saveAiConnection(input: {
     base_url: string;
