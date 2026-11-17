@@ -10,7 +10,22 @@ function folder() {
   folders.push(path);
   return path;
 }
-afterEach(() => {
+const engines: Engine[] = [];
+function track(engine: Engine) {
+  engines.push(engine);
+  return engine;
+}
+// Windows refuses to delete a folder while a fake engine still runs in it.
+afterEach(async () => {
+  await Promise.all(
+    engines.splice(0).map((engine) => {
+      const child = engine.child;
+      engine.stop();
+      return child && child.exitCode === null && child.signalCode === null
+        ? new Promise((r) => child.once("exit", r))
+        : undefined;
+    }),
+  );
   for (const path of folders.splice(0))
     rmSync(path, { recursive: true, force: true });
 });
@@ -60,14 +75,6 @@ function fakeEngine(source: string, extra: Record<string, string> = {}) {
     cwd: dir,
     env: { ...process.env, APEX_FAKE_DIR: dir },
   });
-}
-const engines: Engine[] = [];
-afterEach(() => {
-  for (const engine of engines.splice(0)) engine.stop();
-});
-function track(engine: Engine) {
-  engines.push(engine);
-  return engine;
 }
 async function until(done: () => boolean, ms = 8000) {
   const deadline = Date.now() + ms;
