@@ -16,6 +16,7 @@ from apex_forensic._time import utc_now
 from apex_forensic.constants import ENGINE_VERSION
 from apex_forensic.domain.errors import OperationCancelledError, UnsupportedCapabilityError
 from apex_forensic.domain.models import ProviderCapability
+from apex_forensic.runtime.tool_env import external_tool_env
 
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_TESSERACT_OUTPUT_BYTES = 5 * 1024 * 1024
@@ -220,6 +221,7 @@ class TesseractCliOcrProvider:
             command,
             check=False,
             capture_output=True,
+            env=external_tool_env(),
             timeout=self._timeout,
         )
         if len(completed.stdout) > MAX_TESSERACT_OUTPUT_BYTES:
@@ -245,6 +247,7 @@ class TesseractCliOcrProvider:
                 command,
                 check=False,
                 capture_output=True,
+                env=external_tool_env(),
                 timeout=5,
             )
         except (OSError, subprocess.TimeoutExpired):

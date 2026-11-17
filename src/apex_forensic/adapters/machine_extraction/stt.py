@@ -23,6 +23,7 @@ from apex_forensic.domain.errors import (
     UnsupportedCapabilityError,
 )
 from apex_forensic.domain.models import ProviderCapability
+from apex_forensic.runtime.tool_env import external_tool_env
 
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
 MAX_STT_OUTPUT_BYTES = 10 * 1024 * 1024
@@ -148,6 +149,7 @@ class WhisperCppCliSttProvider:
                     command,
                     check=False,
                     capture_output=True,
+                    env=external_tool_env(),
                     timeout=self._timeout,
                 )
             except subprocess.TimeoutExpired as exc:
