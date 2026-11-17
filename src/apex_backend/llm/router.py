@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -70,6 +71,7 @@ def _outgoing(body: Any, upstream: LlmUpstream) -> dict[str, Any]:
         or not 1 <= len(messages) <= _MAX_MESSAGES
         or any(
             not isinstance(m, dict)
+            or not isinstance(m.get("role"), str)
             or m.get("role") not in _ROLES
             or not isinstance(m.get("content"), str | list)
             for m in messages
@@ -87,10 +89,18 @@ def _outgoing(body: Any, upstream: LlmUpstream) -> dict[str, Any]:
     return outgoing
 
 
-async def _read_capped(chunks: AsyncIterator[bytes], limit: int, too_large: HTTPException) -> bytes:
+async def _read_capped(
+    chunks: AsyncIterator[bytes],
+    limit: int,
+    too_large: HTTPException,
+    sizes: dict[str, int],
+    key: str,
+) -> bytes:
+    """Read up to *limit* bytes, counting what was read in ``sizes[key]`` even when it fails."""
     data = bytearray()
     async for chunk in chunks:
         data += chunk
+        sizes[key] = len(data)
         if len(data) > limit:
             raise too_large
     return bytes(data)
@@ -151,15 +161,16 @@ async def _complete(
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
         raise too_large
-    raw = await _read_capped(request.stream(), MAX_REQUEST_BYTES, too_large)
-    sizes["request"] = len(raw)
+    raw = await _read_capped(request.stream(), MAX_REQUEST_BYTES, too_large, sizes, "request")
     body = _parse_json(raw)
     if body is None:
         raise _fail(status.HTTP_400_BAD_REQUEST, "Request body must be JSON.")
     outgoing = _outgoing(body, upstream)
 
     try:
-        async with gateway.client.stream(
+        # httpx's timeout bounds each read; this bounds the whole answer, so a
+        # slowly dribbling upstream cannot outlast the clients waiting on us.
+        async with asyncio.timeout(upstream.timeout), gateway.client.stream(
             "POST",
             upstream.completions_url,
             json=outgoing,
@@ -172,14 +183,15 @@ async def _complete(
                 response.aiter_bytes(),
                 MAX_RESPONSE_BYTES,
                 _fail(status.HTTP_502_BAD_GATEWAY, "The model answer is too large."),
+                sizes,
+                "response",
             )
-    except httpx.TimeoutException as exc:
+    except (httpx.TimeoutException, TimeoutError) as exc:
         raise _fail(status.HTTP_504_GATEWAY_TIMEOUT, "The model did not answer in time.") from exc
     except httpx.HTTPError as exc:
         _logger.warning("LLM upstream unreachable: %s", type(exc).__name__)
         raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service is unreachable.") from exc
 
-    sizes["response"] = len(content)
     payload = _parse_json(content)
     if not isinstance(payload, dict):
         raise _fail(status.HTTP_502_BAD_GATEWAY, "The model service returned invalid JSON.")
