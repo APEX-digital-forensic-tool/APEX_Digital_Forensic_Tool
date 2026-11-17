@@ -4,7 +4,6 @@ import base64
 import gzip
 import json
 from pathlib import Path
-from time import monotonic, sleep
 
 from test_local_api import call, wait
 from test_local_api import client as api_client
@@ -88,21 +87,28 @@ def test_ntfs_streams_are_marked_supported(client, tmp_path):
     assert {s["name"] for s in result["streams"]} >= {"hidden", "large"}
 
 
-def test_undecodable_image_fails_with_a_media_code(client, tmp_path):
+def test_undecodable_image_is_rejected_before_queueing(client, tmp_path):
     root = tmp_path / "folder"
     root.mkdir()
     (root / "fake.png").write_text("not really a png", encoding="utf-8")
     cid = call(client, "cases.create", name="Decode")["id"]
     eid = register(client, cid, root)
     node = file_named(client, cid, eid, "fake.png")
+    before = len(call(client, "tasks.list", case_id=cid))
+    error = rejected(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
+    assert error["code"] == "MEDIA_DECODE_FAILED"
+    assert len(call(client, "tasks.list", case_id=cid)) == before
+
+
+def test_image_without_extension_is_accepted_by_its_bytes(client, tmp_path):
+    fixture = json.loads((FIXTURES / "container-images.json").read_text())
+    root = tmp_path / "folder"
+    root.mkdir()
+    (root / "scan").write_bytes(
+        gzip.decompress(base64.b64decode(fixture["ocr.png"]["gzip_base64"]))
+    )
+    cid = call(client, "cases.create", name="No extension")["id"]
+    eid = register(client, cid, root)
+    node = file_named(client, cid, eid, "scan")
     task = call(client, "machine.run", case_id=cid, node_id=node["id"], kind="OCR")
-    deadline = monotonic() + 15
-    while monotonic() < deadline:
-        record = next(
-            r for r in call(client, "tasks.list", case_id=cid) if r["task_id"] == task["task_id"]
-        )
-        if record["status"] not in {"QUEUED", "RUNNING"}:
-            break
-        sleep(0.02)
-    assert record["status"] == "FAILED", record
-    assert record["error"]["code"] == "MEDIA_DECODE_FAILED", record
+    assert task["task_id"]
