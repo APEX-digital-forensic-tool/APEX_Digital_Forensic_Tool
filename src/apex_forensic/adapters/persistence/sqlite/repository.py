@@ -6,6 +6,8 @@ import base64
 import json
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -2709,9 +2711,7 @@ class SQLiteRepository:
             unresolved_verifications = self.connection.execute(
                 "SELECT COUNT(*) AS count FROM hash_verifications WHERE case_id IS NULL"
             ).fetchone()
-            if unresolved_verifications is not None and int(
-                unresolved_verifications["count"]
-            ):
+            if unresolved_verifications is not None and int(unresolved_verifications["count"]):
                 raise PersistenceError(
                     "DATABASE_MIGRATION_FAILED",
                     "Existing hash verifications could not be assigned to an evidence case.",
@@ -2726,9 +2726,7 @@ class SQLiteRepository:
             )
             self._ensure_column("artifact_sources", "source_fingerprint", "TEXT")
             self._ensure_column("artifact_sources", "source_checkpoint_json", "TEXT")
-            self._ensure_column(
-                "artifact_sources", "inspected_count", "INTEGER NOT NULL DEFAULT 0"
-            )
+            self._ensure_column("artifact_sources", "inspected_count", "INTEGER NOT NULL DEFAULT 0")
             self.connection.execute(
                 """
                 INSERT OR IGNORE INTO schema_migrations(version, applied_at)
@@ -2946,9 +2944,7 @@ class SQLiteRepository:
         rows = self.connection.execute("SELECT * FROM evidence").fetchall()
         return [self._row_to_evidence(row) for row in rows]
 
-    def replace_evidence_volumes(
-        self, evidence_id: str, volumes: list[EvidenceVolume]
-    ) -> None:
+    def replace_evidence_volumes(self, evidence_id: str, volumes: list[EvidenceVolume]) -> None:
         """Replace partition enumeration results for an evidence source."""
 
         with self.connection:
@@ -3156,6 +3152,18 @@ class SQLiteRepository:
             (job_id,),
         ).fetchone()
         return None if row is None else self._row_to_job(row)
+
+    @contextmanager
+    def custody_append(self) -> Iterator[None]:
+        """Acquire the SQLite writer lock before reading the ledger's tail."""
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self.connection.rollback()
+            raise
+        else:
+            self.connection.commit()
 
     def save_custody_event(self, event: CustodyEvent) -> None:
         """Append a custody event."""
@@ -5558,6 +5566,58 @@ class SQLiteRepository:
             )
         return next_revision
 
+    def analysis_index_coverage(
+        self,
+        case_id: str,
+        evidence_id: str | None,
+        kind: str,
+    ) -> list[dict[str, Any]]:
+        """Describe query coverage independently of whether it matched any rows."""
+        table = {"SEARCH": "search_jobs", "TIMELINE": "timeline_jobs"}[kind]
+        jobs = self.connection.execute(
+            f"SELECT * FROM {table} WHERE case_id = ? ORDER BY updated_at DESC, rowid DESC",
+            (case_id,),
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for evidence in self.list_evidence_for_case(case_id):
+            if evidence_id is not None and evidence.evidence_id != evidence_id:
+                continue
+            latest = None
+            for job in jobs:
+                options = json.loads(job["options_json"])
+                selected = options.get("evidence_ids") or []
+                covers = (
+                    job["evidence_id"] == evidence.evidence_id
+                    or evidence.evidence_id in selected
+                    or (
+                        job["evidence_id"] is None
+                        and not selected
+                        and to_json_timestamp(evidence.created_at) <= job["created_at"]
+                    )
+                )
+                if covers:
+                    latest = job
+                    break
+            status = "NOT_INDEXED" if latest is None else str(latest["status"])
+            if status == "SUCCEEDED" and latest is not None:
+                status = "COMPLETE"
+                fs = self.latest_fs_coverage(evidence.evidence_id)
+                if (
+                    fs is not None
+                    and fs.updated_at is not None
+                    and to_json_timestamp(fs.updated_at) > latest["updated_at"]
+                ):
+                    status = "STALE"
+            result.append(
+                {
+                    "evidence_id": evidence.evidence_id,
+                    "display_name": evidence.display_name,
+                    "status": status,
+                    "job_id": None if latest is None else latest["job_id"],
+                }
+            )
+        return result
+
     def current_search_index_revision(self, case_id: str) -> int:
         """Return the latest search index revision known for a case."""
 
@@ -6847,7 +6907,6 @@ class SQLiteRepository:
         ).fetchone()
         return None if row is None else self._row_to_timeline_coverage(row)
 
-
     def save_gui_session_context(self, context: GuiSessionContext) -> None:
         """Persist the latest live GUI session context and its revision snapshot."""
 
@@ -7111,8 +7170,11 @@ class SQLiteRepository:
     def save_case_ai_policy(self, policy: CaseAiPolicy, *, expected_revision: int) -> None:
         """Append a revision only if the caller observed the current revision."""
 
-        if (type(expected_revision) is not int or expected_revision < 0
-                or policy.revision != expected_revision + 1):
+        if (
+            type(expected_revision) is not int
+            or expected_revision < 0
+            or policy.revision != expected_revision + 1
+        ):
             raise ValidationError("Invalid expected policy revision.")
         data = policy.to_schema_dict()
         with self.connection:
@@ -7128,12 +7190,22 @@ class SQLiteRepository:
                     WHERE case_id = ?), 0) = ?
                 """,
                 (
-                    policy.policy_id, policy.case_id, policy.revision, int(policy.ai_enabled),
-                    int(policy.external_allowed), int(policy.local_only),
-                    self._json(data["allowed_classifications"]), policy.secret_handling.value,
-                    int(policy.raw_allowed), int(policy.redaction_required),
-                    int(policy.projection_required), policy.content_fingerprint, data["created_at"],
-                    SCHEMA_VERSION, policy.case_id, expected_revision,
+                    policy.policy_id,
+                    policy.case_id,
+                    policy.revision,
+                    int(policy.ai_enabled),
+                    int(policy.external_allowed),
+                    int(policy.local_only),
+                    self._json(data["allowed_classifications"]),
+                    policy.secret_handling.value,
+                    int(policy.raw_allowed),
+                    int(policy.redaction_required),
+                    int(policy.projection_required),
+                    policy.content_fingerprint,
+                    data["created_at"],
+                    SCHEMA_VERSION,
+                    policy.case_id,
+                    expected_revision,
                 ),
             )
             if cursor.rowcount != 1:
@@ -7150,8 +7222,12 @@ class SQLiteRepository:
         fingerprint = data.pop("content_fingerprint")
         data["allowed_classifications"] = json.loads(data.pop("allowed_classifications_json"))
         for name in (
-            "ai_enabled", "external_allowed", "local_only", "raw_allowed",
-            "redaction_required", "projection_required",
+            "ai_enabled",
+            "external_allowed",
+            "local_only",
+            "raw_allowed",
+            "redaction_required",
+            "projection_required",
         ):
             data[name] = bool(data[name])
         policy = CaseAiPolicy.from_schema_dict(data)
@@ -7179,24 +7255,39 @@ class SQLiteRepository:
                     ORDER BY revision DESC LIMIT 1) IS ?
                 """,
                 (
-                    record.audit_id, source.case_id, source.source_id, source.source_type.value,
-                    source.source_fingerprint, data.classification.value,
+                    record.audit_id,
+                    source.case_id,
+                    source.source_id,
+                    source.source_type.value,
+                    source.source_fingerprint,
+                    data.classification.value,
                     int(data.contains_secrets),
-                    data.data_form.value, data.content_fingerprint, result.destination.value,
-                    result.decision.value, result.reason,
+                    data.data_form.value,
+                    data.content_fingerprint,
+                    result.destination.value,
+                    result.decision.value,
+                    result.reason,
                     self._json([item.value for item in result.reason_codes]),
                     self._json([item.value for item in result.required_transformations]),
-                    result.policy_id, result.policy_revision, result.policy_fingerprint,
-                    int(data.redaction_applied), int(data.projection_applied),
-                    to_json_timestamp(record.created_at), SCHEMA_VERSION,
-                    source.case_id, result.policy_id,
+                    result.policy_id,
+                    result.policy_revision,
+                    result.policy_fingerprint,
+                    int(data.redaction_applied),
+                    int(data.projection_applied),
+                    to_json_timestamp(record.created_at),
+                    SCHEMA_VERSION,
+                    source.case_id,
+                    result.policy_id,
                 ),
             )
             if cursor.rowcount != 1:
                 raise StateConflictError("Case AI policy changed; evaluate egress again.")
 
     def list_ai_egress_audits(
-        self, *, case_id: str, source_id: str | None = None,
+        self,
+        *,
+        case_id: str,
+        source_id: str | None = None,
     ) -> list[AiEgressAuditRecord]:
         rows = self.connection.execute(
             """SELECT * FROM ai_egress_audit_records WHERE case_id = ?
@@ -7207,31 +7298,38 @@ class SQLiteRepository:
 
     @staticmethod
     def _row_to_ai_egress_audit(row: sqlite3.Row) -> AiEgressAuditRecord:
-        return AiEgressAuditRecord.from_schema_dict({
-            "schema_version": row["schema_version"], "audit_id": row["audit_id"],
-            "created_at": row["created_at"],
-            "redaction_applied": bool(row["redaction_applied"]),
-            "projection_applied": bool(row["projection_applied"]),
-            "result": {
+        return AiEgressAuditRecord.from_schema_dict(
+            {
                 "schema_version": row["schema_version"],
-                "data": {
-                    "source": {
-                        "case_id": row["case_id"], "source_id": row["source_id"],
-                        "source_type": row["source_type"],
-                        "source_fingerprint": row["source_fingerprint"],
+                "audit_id": row["audit_id"],
+                "created_at": row["created_at"],
+                "redaction_applied": bool(row["redaction_applied"]),
+                "projection_applied": bool(row["projection_applied"]),
+                "result": {
+                    "schema_version": row["schema_version"],
+                    "data": {
+                        "source": {
+                            "case_id": row["case_id"],
+                            "source_id": row["source_id"],
+                            "source_type": row["source_type"],
+                            "source_fingerprint": row["source_fingerprint"],
+                        },
+                        "classification": row["classification"],
+                        "contains_secrets": bool(row["contains_secrets"]),
+                        "data_form": row["data_form"],
+                        "content_fingerprint": row["content_fingerprint"],
                     },
-                    "classification": row["classification"],
-                    "contains_secrets": bool(row["contains_secrets"]),
-                    "data_form": row["data_form"],
-                    "content_fingerprint": row["content_fingerprint"],
+                    "destination": row["destination"],
+                    "decision": row["decision"],
+                    "reason": row["reason"],
+                    "reason_codes": json.loads(row["reason_codes_json"]),
+                    "required_transformations": json.loads(row["required_transformations_json"]),
+                    "policy_id": row["policy_id"],
+                    "policy_revision": row["policy_revision"],
+                    "policy_fingerprint": row["policy_fingerprint"],
                 },
-                "destination": row["destination"], "decision": row["decision"],
-                "reason": row["reason"], "reason_codes": json.loads(row["reason_codes_json"]),
-                "required_transformations": json.loads(row["required_transformations_json"]),
-                "policy_id": row["policy_id"], "policy_revision": row["policy_revision"],
-                "policy_fingerprint": row["policy_fingerprint"],
-            },
-        })
+            }
+        )
 
     def save_ai_assistance_request(self, request: AiAssistanceRequest) -> None:
         """Persist one immutable AI assistance request contract."""
@@ -7251,9 +7349,7 @@ class SQLiteRepository:
                 self._ai_assistance_request_values(request),
             )
 
-    def get_ai_assistance_request(
-        self, assistance_request_id: str
-    ) -> AiAssistanceRequest | None:
+    def get_ai_assistance_request(self, assistance_request_id: str) -> AiAssistanceRequest | None:
         """Return one AI assistance request."""
 
         row = self.connection.execute(
@@ -7273,9 +7369,7 @@ class SQLiteRepository:
         ).fetchone()
         return None if row is None else self._row_to_ai_assistance_request(row)
 
-    def list_ai_assistance_requests(
-        self, *, case_id: str, limit: int
-    ) -> list[AiAssistanceRequest]:
+    def list_ai_assistance_requests(self, *, case_id: str, limit: int) -> list[AiAssistanceRequest]:
         """List AI assistance requests for a case."""
 
         rows = self.connection.execute(
@@ -7840,9 +7934,7 @@ class SQLiteRepository:
             ReportVersion.from_schema_dict(json.loads(str(row["version_json"]))) for row in rows
         ]
 
-    def append_report_review_event(
-        self, event: ReportReviewEvent, report: ReportRecord
-    ) -> None:
+    def append_report_review_event(self, event: ReportReviewEvent, report: ReportRecord) -> None:
         """Append one report review event and update aggregate state."""
 
         with self.connection:
@@ -7870,9 +7962,7 @@ class SQLiteRepository:
             )
             self._update_report_row(report)
 
-    def list_report_review_events(
-        self, *, report_version_id: str
-    ) -> list[ReportReviewEvent]:
+    def list_report_review_events(self, *, report_version_id: str) -> list[ReportReviewEvent]:
         """Return review events for one report version."""
 
         rows = self.connection.execute(
@@ -7884,8 +7974,7 @@ class SQLiteRepository:
             (report_version_id,),
         ).fetchall()
         return [
-            ReportReviewEvent.from_schema_dict(json.loads(str(row["event_json"])))
-            for row in rows
+            ReportReviewEvent.from_schema_dict(json.loads(str(row["event_json"]))) for row in rows
         ]
 
     def append_report_approval_record(
@@ -7980,9 +8069,7 @@ class SQLiteRepository:
                     (snapshot.custody_snapshot_id, event_id, index),
                 )
 
-    def get_custody_snapshot(
-        self, custody_snapshot_id: str
-    ) -> CustodySnapshotRecord | None:
+    def get_custody_snapshot(self, custody_snapshot_id: str) -> CustodySnapshotRecord | None:
         """Return one report custody snapshot."""
 
         row = self.connection.execute(
@@ -8087,9 +8174,7 @@ class SQLiteRepository:
             )
             self._update_report_row(report)
 
-    def get_report_export_manifest(
-        self, export_manifest_id: str
-    ) -> ReportExportManifest | None:
+    def get_report_export_manifest(self, export_manifest_id: str) -> ReportExportManifest | None:
         """Return one report export manifest."""
 
         row = self.connection.execute(
@@ -8602,9 +8687,7 @@ class SQLiteRepository:
             request.resource_count,
         )
 
-    def _ai_keyword_batch_values(
-        self, batch: AiKeywordRecommendationBatch
-    ) -> tuple[Any, ...]:
+    def _ai_keyword_batch_values(self, batch: AiKeywordRecommendationBatch) -> tuple[Any, ...]:
         return (
             batch.recommendation_batch_id,
             batch.assistance_request_id,
@@ -8875,9 +8958,7 @@ class SQLiteRepository:
             batch_version=str(row["batch_version"]),
         )
 
-    def _row_to_ai_keyword_recommendation(
-        self, row: sqlite3.Row
-    ) -> AiKeywordRecommendation:
+    def _row_to_ai_keyword_recommendation(self, row: sqlite3.Row) -> AiKeywordRecommendation:
         return AiKeywordRecommendation(
             recommendation_id=str(row["recommendation_id"]),
             recommendation_batch_id=str(row["recommendation_batch_id"]),
@@ -8984,10 +9065,18 @@ class SQLiteRepository:
             active_evidence_id=row["active_evidence_id"],
             selected_file_node_ids=list(json.loads(str(row["selected_file_node_ids_json"]))),
             selected_artifact_ids=list(json.loads(str(row["selected_artifact_ids_json"]))),
-            selected_timeline_event_ids=list(json.loads(str(row["selected_timeline_event_ids_json"]))),
-            selected_search_result_ids=list(json.loads(str(row["selected_search_result_ids_json"]))),
-            selected_media_artifact_ids=list(json.loads(str(row["selected_media_artifact_ids_json"]))),
-            selected_browser_artifact_ids=list(json.loads(str(row["selected_browser_artifact_ids_json"]))),
+            selected_timeline_event_ids=list(
+                json.loads(str(row["selected_timeline_event_ids_json"]))
+            ),
+            selected_search_result_ids=list(
+                json.loads(str(row["selected_search_result_ids_json"]))
+            ),
+            selected_media_artifact_ids=list(
+                json.loads(str(row["selected_media_artifact_ids_json"]))
+            ),
+            selected_browser_artifact_ids=list(
+                json.loads(str(row["selected_browser_artifact_ids_json"]))
+            ),
             selected_candidate_ids=list(json.loads(str(row["selected_candidate_ids_json"]))),
             active_filters=dict(json.loads(str(row["active_filters_json"]))),
             active_sort=dict(json.loads(str(row["active_sort_json"]))),

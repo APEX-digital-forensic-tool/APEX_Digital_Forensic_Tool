@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -37,9 +38,7 @@ from apex_forensic.ports.evidence_repository import EvidenceRepository
 class EvidenceImageRepository(EvidenceRepository, Protocol):
     """Repository methods needed by image reader orchestration."""
 
-    def replace_evidence_volumes(
-        self, evidence_id: str, volumes: list[EvidenceVolume]
-    ) -> None: ...
+    def replace_evidence_volumes(self, evidence_id: str, volumes: list[EvidenceVolume]) -> None: ...
 
     def list_evidence_volumes(self, evidence_id: str) -> list[EvidenceVolume]: ...
 
@@ -169,14 +168,19 @@ class EvidenceImageService:
                 details={"offset": offset, "length": length},
             )
         sha256 = hashlib.sha256(data).hexdigest()
-        self._write_output(output_path, data, overwrite=overwrite)
-        self._audit_export(
-            evidence_id=evidence_id,
-            output_path=output_path,
-            sha256=sha256,
-            action="Raw range exported",
-            notes=f"offset={offset}; requested_length={length}; exported_bytes={len(data)}",
+        self._write_output(
+            output_path,
+            data,
+            overwrite=overwrite,
+            audit=lambda: self._audit_export(
+                evidence_id=evidence_id,
+                output_path=output_path,
+                sha256=sha256,
+                action="Raw range exported",
+                notes=f"offset={offset}; requested_length={length}; exported_bytes={len(data)}",
+            ),
         )
+
         return {
             "evidence_id": evidence_id,
             "output_path": str(output_path),
@@ -222,8 +226,14 @@ class EvidenceImageService:
         if use_filesystem and node.provider_id == "apex.pytsk_filesystem_provider":
             from apex_forensic.application.services.deleted_content import recover_logical
 
-            return recover_logical(self, node, output_root=output_root, filename=filename,
-                                   overwrite=overwrite, cancellation_token=cancellation_token)
+            return recover_logical(
+                self,
+                node,
+                output_root=output_root,
+                filename=filename,
+                overwrite=overwrite,
+                cancellation_token=cancellation_token,
+            )
         extents = node.provider_metadata.get("extents")
         if not isinstance(extents, list) or not extents:
             raise ValidationError(
@@ -286,7 +296,21 @@ class EvidenceImageService:
                     target="node_id",
                 )
             check_cancel()
-            self._publish_output(temp_path, output_path, overwrite=overwrite)
+            self._publish_audited_output(
+                temp_path,
+                output_path,
+                overwrite=overwrite,
+                audit=lambda: self._audit_export(
+                    evidence_id=node.evidence_id,
+                    output_path=output_path,
+                    sha256=hasher.hexdigest(),
+                    action="Deleted file recovered",
+                    notes=(
+                        f"node_id={node.node_id}; recovered_bytes={recovered_bytes}; "
+                        f"missing_ranges={len(missing_ranges)}; missing_range_policy=ZERO_FILL"
+                    ),
+                ),
+            )
             temp_path = None
         except FileExistsError as error:
             raise StateConflictError(
@@ -297,16 +321,7 @@ class EvidenceImageService:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
         sha256 = hasher.hexdigest()
-        self._audit_export(
-            evidence_id=node.evidence_id,
-            output_path=output_path,
-            sha256=sha256,
-            action="Deleted file recovered",
-            notes=(
-                f"node_id={node.node_id}; recovered_bytes={recovered_bytes}; "
-                f"missing_ranges={len(missing_ranges)}; missing_range_policy=ZERO_FILL"
-            ),
-        )
+
         return {
             "node_id": node.node_id,
             "evidence_id": node.evidence_id,
@@ -388,17 +403,22 @@ class EvidenceImageService:
                 target="node_id",
             )
         sha256 = hashlib.sha256(data).hexdigest()
-        self._write_output(output_path, data, overwrite=overwrite)
-        self._audit_export(
-            evidence_id=node.evidence_id,
-            output_path=output_path,
-            sha256=sha256,
-            action="File slack exported",
-            notes=(
-                f"node_id={node.node_id}; slack_offset={byte_offset}; "
-                f"requested_length={byte_length}; exported_bytes={len(data)}"
+        self._write_output(
+            output_path,
+            data,
+            overwrite=overwrite,
+            audit=lambda: self._audit_export(
+                evidence_id=node.evidence_id,
+                output_path=output_path,
+                sha256=sha256,
+                action="File slack exported",
+                notes=(
+                    f"node_id={node.node_id}; slack_offset={byte_offset}; "
+                    f"requested_length={byte_length}; exported_bytes={len(data)}"
+                ),
             ),
         )
+
         return {
             "node_id": node.node_id,
             "evidence_id": node.evidence_id,
@@ -497,13 +517,20 @@ class EvidenceImageService:
                         target="output_root",
                     )
 
-    def _write_output(self, output_path: Path, data: bytes, *, overwrite: bool) -> None:
+    def _write_output(
+        self,
+        output_path: Path,
+        data: bytes,
+        *,
+        overwrite: bool,
+        audit: Callable[[], None] | None = None,
+    ) -> None:
         temp_path: Path | None = None
         try:
             temp_path = EvidenceImageService._temporary_output_path(output_path)
             with temp_path.open("wb") as stream:
                 stream.write(data)
-            self._publish_output(temp_path, output_path, overwrite=overwrite)
+            self._publish_audited_output(temp_path, output_path, overwrite=overwrite, audit=audit)
             temp_path = None
         except FileExistsError as error:
             raise StateConflictError(
@@ -523,6 +550,38 @@ class EvidenceImageService:
             delete=False,
         ) as stream:
             return Path(stream.name)
+
+    def _publish_audited_output(
+        self,
+        temp_path: Path,
+        output_path: Path,
+        *,
+        overwrite: bool,
+        audit: Callable[[], None] | None,
+    ) -> None:
+        """Roll back our publication if its custody receipt cannot be committed."""
+        backup: Path | None = None
+        published = False
+        try:
+            self._assert_derived_path(output_path)
+            if overwrite and output_path.exists():
+                backup = self._temporary_output_path(output_path)
+                backup.unlink()
+                os.link(output_path, backup)
+            self._publish_output(temp_path, output_path, overwrite=overwrite)
+            published = True
+            if audit is not None:
+                audit()
+        except BaseException:
+            if published:
+                if backup is not None:
+                    backup.replace(output_path)
+                else:
+                    output_path.unlink(missing_ok=True)
+            raise
+        finally:
+            if backup is not None:
+                backup.unlink(missing_ok=True)
 
     def _publish_output(self, temp_path: Path, output_path: Path, *, overwrite: bool) -> None:
         self._assert_derived_path(output_path)

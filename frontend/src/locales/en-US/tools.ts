@@ -16,6 +16,7 @@ export const tools: Messages["tools"] = {
       action: "Recover the selected deleted file",
     },
     streams: {
+      none: "No alternate data streams. This tool lists NTFS data streams.",
       title: "NTFS data streams (ADS)",
       list: "List data streams",
       stream: "Stream",
@@ -39,6 +40,8 @@ export const tools: Messages["tools"] = {
       runStt: "Recognize speech in the selected file",
     },
     carve: {
+      directoryUnavailable:
+        "Directory evidence cannot be carved. Select disk-image evidence.",
       title: "File signature carving",
       body: "Finds contiguous bytes of PNG, JPEG, PDF, ZIP and GIF files. Results are review candidates whose original names are unknown.",
       scope: "Scan scope",

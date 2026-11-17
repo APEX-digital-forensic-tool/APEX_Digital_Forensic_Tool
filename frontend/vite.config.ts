@@ -25,8 +25,8 @@ export default defineConfig(({ command }) => {
                     `script-src 'self' 'nonce-${nonce}';`,
                   )
                   .replace(
-                    "ws://localhost:5173",
-                    "ws://localhost:5173 ws://127.0.0.1:5173",
+                    "connect-src 'self';",
+                    "connect-src 'self' ws://localhost:5173 ws://127.0.0.1:5173;",
                   );
               },
             },

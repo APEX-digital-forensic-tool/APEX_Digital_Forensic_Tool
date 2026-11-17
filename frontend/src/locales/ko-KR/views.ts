@@ -1,4 +1,7 @@
 export const views = {
+  indexCoverageIncomplete:
+    "인덱스가 없거나 미완료·갱신이 필요한 증거가 있습니다. 결과 0건을 증거가 없다는 뜻으로 판단하지 마세요.",
+  indexCoverageBuild: "선택한 증거 인덱스 생성",
   overview: {
     statusLabel: "사건 상태",
     selectCaseTitle: "조사할 사건을 선택하세요",

@@ -237,6 +237,8 @@ export function App() {
   const [query, setQuery] = useState(""),
     [searchText, setSearchText] = useState(""),
     [searchMode, setSearchMode] = useState("TERM"),
+    [submittedSearchMode, setSubmittedSearchMode] = useState("TERM"),
+    [searchScope, setSearchScope] = useState(""),
     [revision, setRevision] = useState(0),
     [treeRevision, setTreeRevision] = useState(0),
     // Full analysis is the default: artifacts, search and timeline only see
@@ -366,6 +368,10 @@ export function App() {
             );
           statuses = new Map(ts.map((t) => [t.task_id, t.status]));
           firstPoll = false;
+          for (const [key, taskId] of indexedFolders.current) {
+            if (ts.some((t) => t.task_id === taskId && !activeTask(t)))
+              indexedFolders.current.delete(key);
+          }
           for (const t of ts) {
             const algorithm = pendingHashes.current.get(t.task_id);
             if (!algorithm || activeTask(t)) continue;
@@ -456,6 +462,11 @@ export function App() {
   useEffect(() => {
     if (context?.context_revision === 1)
       sync({ current_route: route, active_evidence_id: evidenceId || null });
+    else if (
+      contextRef.current &&
+      contextRef.current.active_evidence_id !== (evidenceId || null)
+    )
+      sync({ active_evidence_id: evidenceId || null });
   }, [context?.session_context_id, evidenceId, sync]);
   const currentTab: Tab = communication ? "COMMUNICATION" : route;
   const currentGroup = routeGroups.find((g) => g.tabs.includes(currentTab));
@@ -502,7 +513,9 @@ export function App() {
     evidence.find((e) => e.id === (t.job?.evidence_id ?? t.result?.id))
       ?.display_name as string | undefined;
   const attention = tasks.filter(
-    (t) => ["FAILED", "PARTIAL"].includes(t.status) || t.receipt_error,
+    (t) =>
+      ["FAILED", "PARTIAL", "INTERRUPTED"].includes(t.status) ||
+      t.receipt_error,
   ).length;
   function openTab(tab: Tab) {
     if (tab === "COMMUNICATION") navigate("ARTIFACTS", true);
@@ -571,20 +584,21 @@ export function App() {
   }
   // Quick triage stops at a depth limit and marks those folders partial. Opening
   // one indexes just that folder's subtree instead of showing it as empty.
-  const indexedFolders = useRef(new Set<string>());
+  const indexedFolders = useRef(new Map<string, string>());
   async function indexFolder(id: string, node: Row | null | undefined) {
     if (!node?.is_partial || !["ROOT", "DIRECTORY"].includes(node.node_type))
       return;
     const key = `${id}:${node.id}`;
     if (indexedFolders.current.has(key)) return;
-    indexedFolders.current.add(key);
+    indexedFolders.current.set(key, "STARTING");
     try {
-      await gateway.call("analysis.start", {
+      const task = await gateway.call("analysis.start", {
         case_id: caseId,
         evidence_id: id,
         kind: "FILES",
         node_id: node.id,
       });
+      indexedFolders.current.set(key, task.task_id);
       refresh();
     } catch (err) {
       indexedFolders.current.delete(key);
@@ -597,7 +611,42 @@ export function App() {
   }, [route, evidenceId, folder?.id]);
   const folderIndexing =
     !!folder?.is_partial &&
-    tasks.some((t) => t.kind === "FILES" && activeTask(t));
+    tasks.some(
+      (t) =>
+        t.task_id ===
+          indexedFolders.current.get(`${evidenceId}:${folder.id}`) &&
+        activeTask(t),
+    );
+  useEffect(() => {
+    if (!caseId || !evidenceId || !folder?.id) return;
+    let live = true;
+    const id = folder.id;
+    void gateway
+      .call("view", {
+        case_id: caseId,
+        resource_type: "FILE_SYSTEM_NODE",
+        resource_id: id,
+        view_mode: "DETAILED",
+      })
+      .then((view) => {
+        const node = view.secondary_fields;
+        if (
+          !live ||
+          node?.id !== id ||
+          node.case_id !== caseId ||
+          node.evidence_id !== evidenceId
+        )
+          return;
+        setFolder((current) => (current?.id === id ? node : current));
+        setFolderTrail((current) =>
+          current.map((item) => (item.id === id ? node : item)),
+        );
+      })
+      .catch((err) => live && setActionError(err));
+    return () => {
+      live = false;
+    };
+  }, [caseId, evidenceId, folder?.id, treeRevision]);
   function openTreeNode(id: string, node: Row, trail: Row[]) {
     if (id !== evidenceId) chooseEvidence(id);
     if (route !== "FILE_SYSTEM") navigate("FILE_SYSTEM");
@@ -636,18 +685,33 @@ export function App() {
     };
   }, [route, evidenceId, caseId, treeRevision]);
   const pageCursor = useRef<string | null>(null);
+  const pendingSearch = useRef(false);
   const loadPage = useCallback(
-    async (cursor: string | null = null, background = false) => {
+    async (
+      cursor: string | null = null,
+      background = false,
+      explicitSearch = false,
+    ) => {
       if (
         !caseId ||
         ["CASE_OVERVIEW", "EVIDENCE", "REPORT", "SETTINGS"].includes(route)
       )
         return;
+      if (route === "SEARCH" && !pendingSearch.current && !explicitSearch) {
+        setLoading(false);
+        if (searchScope !== `${caseId}:${evidenceId}`) {
+          setPage(null);
+          setRows([]);
+        }
+        return;
+      }
+      if (route === "SEARCH") pendingSearch.current = false;
       const rid = ++requestRevision.current;
       pageCursor.current = cursor;
       if (!background) {
         setLoading(true);
         setError(null);
+        setPage(null);
       }
       const input: Row = {
         case_id: caseId,
@@ -668,13 +732,14 @@ export function App() {
         op = "artifacts.list";
         input.artifact_type = artifactType || null;
       } else if (route === "SEARCH") {
-        if (!searchText) {
+        if (!searchText || searchScope !== `${caseId}:${evidenceId}`) {
           setLoading(false);
+          setRows([]);
           return;
         }
         op = "search.query";
         input.query_text = searchText;
-        input.query_mode = searchMode;
+        input.query_mode = submittedSearchMode;
       } else if (route === "TIMELINE") op = "timeline.list";
       else if (route === "CANDIDATES") op = "candidates.list";
       else if (route === "CHAIN_OF_CUSTODY") {
@@ -712,7 +777,10 @@ export function App() {
         if (op === "search.query")
           sync({
             active_search_execution_id: result.execution.execution_id,
-            active_filters: { query_mode: searchMode, query_text: searchText },
+            active_filters: {
+              query_mode: submittedSearchMode,
+              query_text: searchText,
+            },
           });
       } catch (err) {
         if (rid !== requestRevision.current) return;
@@ -732,7 +800,8 @@ export function App() {
       folder?.id,
       artifactType,
       searchText,
-      searchMode,
+      submittedSearchMode,
+      searchScope,
       sync,
     ],
   );
@@ -1420,7 +1489,29 @@ export function App() {
             </div>
           )}
           {startupError != null && (
-            <ErrorState error={startupError} retry={bootstrap} />
+            <ErrorState
+              error={startupError}
+              retry={() => {
+                if (
+                  window.apex?.restartEngine &&
+                  startupError instanceof GatewayError &&
+                  [
+                    "BACKEND_START_TIMEOUT",
+                    "BACKEND_START_FAILED",
+                    "BACKEND_STOPPED",
+                    "PYTHON_RUNTIME_MISSING",
+                    "DATA_DIRECTORY_IN_USE",
+                  ].includes(startupError.code)
+                ) {
+                  setStartupError(null);
+                  void window.apex
+                    .restartEngine()
+                    .then(unwrap)
+                    .then(bootstrap)
+                    .catch(setStartupError);
+                } else void bootstrap();
+              }}
+            />
           )}{" "}
           {actionError != null && (
             <ErrorState
@@ -1699,7 +1790,10 @@ export function App() {
                     className="search-form"
                     onSubmit={(e) => {
                       e.preventDefault();
+                      pendingSearch.current = true;
                       setSearchText(query);
+                      setSubmittedSearchMode(searchMode);
+                      setSearchScope(`${caseId}:${evidenceId}`);
                       refresh();
                     }}
                   >
@@ -1872,10 +1966,14 @@ export function App() {
                 <SearchHistory
                   caseId={caseId}
                   zone={zone}
+                  executionId={page?.execution?.execution_id}
                   onSearch={(text, mode) => {
+                    pendingSearch.current = true;
                     setQuery(text);
                     setSearchMode(mode);
                     setSearchText(text);
+                    setSubmittedSearchMode(mode);
+                    setSearchScope(`${caseId}:${evidenceId}`);
                     refresh();
                   }}
                 />
@@ -1900,9 +1998,33 @@ export function App() {
                 </div>
               )}
               {error != null && (
-                <ErrorState error={error} retry={() => loadPage()} />
+                <ErrorState
+                  error={error}
+                  retry={() => loadPage(null, false, true)}
+                />
               )}
               <ResultState data={page?.execution ?? page} />
+              {page?.index_coverage?.some(
+                (item: Row) => item.status !== "COMPLETE",
+              ) && (
+                <div className="notice warn" role="status">
+                  <span>
+                    {m.views.indexCoverageIncomplete}{" "}
+                    {page.index_coverage
+                      .filter((item: Row) => item.status !== "COMPLETE")
+                      .map((item: Row) => item.display_name)
+                      .join(", ")}
+                  </span>
+                  <button
+                    disabled={!evidenceId}
+                    onClick={() =>
+                      void run(route === "TIMELINE" ? "TIMELINE" : "SEARCH")
+                    }
+                  >
+                    {m.views.indexCoverageBuild}
+                  </button>
+                </div>
+              )}
               {communication && (
                 <div className="notice">
                   <span>{m.views.notices.kakao}</span>
@@ -2035,7 +2157,12 @@ export function App() {
                 <div>
                   <span className="muted">{m.views.pagination.sortScope}</span>
                   {page?.page?.has_more && (
-                    <button onClick={() => loadPage(page.page.next_cursor)}>
+                    <button
+                      disabled={loading}
+                      onClick={() =>
+                        loadPage(page.page.next_cursor, false, true)
+                      }
+                    >
                       {m.views.pagination.next} <ChevronRight size={13} />
                     </button>
                   )}
@@ -2060,6 +2187,7 @@ export function App() {
                   <ForensicTools
                     caseId={caseId}
                     evidenceId={evidenceId}
+                    evidenceFormat={currentEvidence?.format}
                     selected={selected}
                     onTask={() => {
                       setJobsOpen(true);
@@ -2454,6 +2582,7 @@ export function App() {
                                         {
                                           key: "reason",
                                           label: copy.reason,
+                                          max: 4096,
                                           required: true,
                                           type: "textarea",
                                         },
@@ -2504,11 +2633,13 @@ export function App() {
                                     {
                                       key: "action",
                                       label: m.views.custodyCorrection.action,
+                                      max: 4096,
                                       required: true,
                                     },
                                     {
                                       key: "reason",
                                       label: m.views.custodyCorrection.reason,
+                                      max: 4096,
                                       required: true,
                                     },
                                   ],

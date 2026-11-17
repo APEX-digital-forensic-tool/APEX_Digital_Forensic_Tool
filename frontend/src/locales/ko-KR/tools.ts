@@ -13,6 +13,7 @@ export const tools = {
       action: "선택한 삭제 파일 복구",
     },
     streams: {
+      none: "대체 데이터 스트림이 없습니다. 이 기능은 NTFS 데이터 스트림을 조회합니다.",
       title: "NTFS 데이터 스트림 (ADS)",
       list: "데이터 스트림 조회",
       stream: "스트림",
@@ -36,6 +37,8 @@ export const tools = {
       runStt: "선택 파일 음성 인식",
     },
     carve: {
+      directoryUnavailable:
+        "폴더 증거는 카빙할 수 없습니다. 디스크 이미지 증거를 선택하세요.",
       title: "파일 시그니처 카빙",
       body: "PNG·JPEG·PDF·ZIP·GIF의 연속 바이트를 찾습니다. 결과는 원본 이름을 알 수 없는 검토 후보입니다.",
       scope: "탐색 범위",

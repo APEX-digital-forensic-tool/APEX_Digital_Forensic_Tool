@@ -493,9 +493,9 @@ class ReportService:
     ) -> ReportVersion:
         _validate_contract_payload(payload, target="ai_report_draft")
         case_id = _required_non_empty(payload.get("case_id"), "case_id")
-        request = self._ai.get_request(_required_non_empty(
-            payload.get("assistance_request_id"), "assistance_request_id"
-        ))
+        request = self._ai.get_request(
+            _required_non_empty(payload.get("assistance_request_id"), "assistance_request_id")
+        )
         if request.case_id != case_id:
             raise ReportError(
                 "REPORT_REFERENCE_CASE_MISMATCH",
@@ -1229,9 +1229,7 @@ class ReportService:
             "include_technical_appendix": include_technical_appendix,
         }
         manifest_fingerprint = canonical_sha256(fingerprint_payload)
-        existing = self._repository.get_report_export_manifest_by_fingerprint(
-            manifest_fingerprint
-        )
+        existing = self._repository.get_report_export_manifest_by_fingerprint(manifest_fingerprint)
         if existing is not None:
             return cast(ReportExportManifest, existing)
         package = self.create_render_package(
@@ -1254,11 +1252,7 @@ class ReportService:
             if renderer_available
             else ReportExportStatus.CAPABILITY_UNAVAILABLE.value
         )
-        warnings = (
-            []
-            if renderer_available
-            else _bounded_warnings(capability.warnings, "warnings")
-        )
+        warnings = [] if renderer_available else _bounded_warnings(capability.warnings, "warnings")
         manifest = ReportExportManifest(
             export_manifest_id=self._id_generator.new_id(),
             report_id=version.report_id,
@@ -1710,9 +1704,16 @@ class ReportService:
             report_version_id=report_version_id
         )
         latest = approvals[-1] if approvals else None
+        version = self._repository.get_report_version(report_version_id)
+        report_approvals = (
+            self._repository.list_report_approval_records(report_id=version.report_id)
+            if version is not None
+            else []
+        )
         return {
             "decision": None if latest is None else latest.decision,
-            "approval_revision": 0 if latest is None else latest.approval_revision,
+            # Decisions belong to a version; the append cursor belongs to the report ledger.
+            "approval_revision": report_approvals[-1].approval_revision if report_approvals else 0,
             "approval_id": None if latest is None else latest.approval_id,
             "approval_hash": None if latest is None else latest.approval_hash,
         }
@@ -1848,14 +1849,12 @@ class ReportService:
                 *raw_warnings,
                 *(
                     [{"code": "REPORT_SECTION_PARTIAL"}]
-                    if is_partial
-                    and not _has_warning(raw_warnings, "REPORT_SECTION_PARTIAL")
+                    if is_partial and not _has_warning(raw_warnings, "REPORT_SECTION_PARTIAL")
                     else []
                 ),
                 *(
                     [{"code": "REPORT_SECTION_STALE"}]
-                    if stale_reasons
-                    and not _has_warning(raw_warnings, "REPORT_SECTION_STALE")
+                    if stale_reasons and not _has_warning(raw_warnings, "REPORT_SECTION_STALE")
                     else []
                 ),
             ],
@@ -2024,9 +2023,7 @@ class ReportService:
             validated.append(evidence_id)
         return validated
 
-    def _validate_search_execution_ids(
-        self, case_id: str, execution_ids: list[str]
-    ) -> list[str]:
+    def _validate_search_execution_ids(self, case_id: str, execution_ids: list[str]) -> list[str]:
         validated: list[str] = []
         for execution_id in _dedupe(execution_ids):
             execution = self._repository.get_search_execution(execution_id)
@@ -2537,11 +2534,7 @@ def _partial_state(snapshots: list[Any], sections: list[ReportSection]) -> dict[
             for snapshot in snapshots
             if _snapshot_is_partial(snapshot)
         ],
-        *[
-            f"section:{section.section_id}"
-            for section in sections
-            if section.is_partial
-        ],
+        *[f"section:{section.section_id}" for section in sections if section.is_partial],
     ]
     return {"is_partial": bool(reasons), "partial_reasons": _dedupe(reasons)}
 

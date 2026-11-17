@@ -7,11 +7,13 @@ import { useI18n } from "./i18n/I18nProvider";
 export function ForensicTools({
   caseId,
   evidenceId,
+  evidenceFormat,
   selected,
   onTask,
 }: {
   caseId: string;
   evidenceId: string;
+  evidenceFormat?: string;
   selected: Row | null;
   onTask: () => void;
 }) {
@@ -21,6 +23,7 @@ export function ForensicTools({
   const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<Row | null>(null);
   const [streams, setStreams] = useState<Row[]>([]);
+  const [streamsLoaded, setStreamsLoaded] = useState(false);
   const [streamId, setStreamId] = useState("");
   const [offset, setOffset] = useState("0");
   const [language, setLanguage] = useState("eng");
@@ -40,6 +43,7 @@ export function ForensicTools({
     setResult(null);
     setError(null);
     setStreams([]);
+    setStreamsLoaded(false);
     setStreamId("");
     setOffset("0");
     setBusy(false);
@@ -65,6 +69,7 @@ export function ForensicTools({
       if (current !== revision.current) return;
       if (operation === "files.streams") {
         setStreams(data.streams);
+        setStreamsLoaded(true);
         setStreamId(String(data.streams[0]?.id ?? ""));
       } else setResult(data);
       if (task) onTask();
@@ -122,6 +127,9 @@ export function ForensicTools({
           >
             {m.tools.forensic.streams.list}
           </button>
+          {streamsLoaded && streams.length === 0 && (
+            <p>{m.tools.forensic.streams.none}</p>
+          )}
           {streams.length > 0 && (
             <>
               <label>
@@ -235,6 +243,9 @@ export function ForensicTools({
           ))}
         </Section>
         <Section title={m.tools.forensic.carve.title}>
+          {evidenceFormat === "DIRECTORY" && (
+            <p>{m.tools.forensic.carve.directoryUnavailable}</p>
+          )}
           <p>{m.tools.forensic.carve.body}</p>
           <label>
             {m.tools.forensic.carve.scope}
@@ -271,6 +282,7 @@ export function ForensicTools({
           <button
             disabled={
               busy ||
+              evidenceFormat === "DIRECTORY" ||
               !budget.trim() ||
               !Number.isSafeInteger(Number(budget)) ||
               Number(budget) < 1 ||

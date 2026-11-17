@@ -21,6 +21,7 @@ from typing import Any
 
 from apex_forensic.constants import ENGINE_VERSION
 from apex_forensic.runtime.assets import media_executable
+from apex_forensic.runtime.subprocess_env import subprocess_environment
 
 AVAILABLE = "AVAILABLE"
 AVAILABLE_WITH_LIMITATIONS = "AVAILABLE_WITH_LIMITATIONS"
@@ -334,6 +335,7 @@ def _executable_capability(
             check=False,
             capture_output=True,
             timeout=5.0,
+            env=subprocess_environment(),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return _capability(

@@ -1,4 +1,10 @@
 export const errors = {
+  DATA_DIRECTORY_IN_USE:
+    "다른 분석 엔진이 같은 앱 데이터를 사용 중이거나 폴더를 잠글 수 없습니다. 이전 엔진이 종료된 뒤 다시 시도해주세요.",
+  BACKEND_START_TIMEOUT:
+    "분석 엔진 시작 시간이 초과됐습니다. 다시 시도하면 엔진을 재시작합니다.",
+  AI_CONNECTION_APPLIED_ENGINE_FAILED:
+    "설정 변경은 반영됐지만 분석 엔진을 다시 시작하지 못했습니다. 엔진 연결을 다시 시도해주세요.",
   TASK_RECEIPT_NOT_SAVED:
     "작업 결과는 유지되어 있지만 작업 이력을 디스크에 저장하지 못했습니다. 앱을 종료하면 이전 상태로 표시될 수 있습니다. 저장 공간과 권한을 확인한 뒤 기록 저장을 다시 시도해주세요. 분석은 재실행하지 않습니다.",
   AI_CONNECTION_INVALID:

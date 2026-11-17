@@ -50,7 +50,13 @@ export function MachineSettings({ compact = false }: { compact?: boolean }) {
   async function pick(key: string, kind: "file" | "directory") {
     if (!window.apex) return;
     try {
-      const picked = unwrap(await window.apex.pick(kind, locale));
+      const picked = unwrap(
+        await window.apex.pick(
+          kind,
+          locale,
+          key === "model" ? "model" : "tessdata",
+        ),
+      );
       if (picked)
         setSettings((s) => ({
           ...s,

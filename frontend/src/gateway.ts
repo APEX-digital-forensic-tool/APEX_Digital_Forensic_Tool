@@ -16,6 +16,7 @@ export interface DesktopBridge {
   pick(
     kind: "file" | "directory",
     locale?: Locale,
+    purpose?: "evidence" | "model" | "tessdata",
   ): Promise<Reply<{ reference: string; name: string } | null>>;
   openExports(): Promise<Reply<null>>;
   account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;
@@ -32,6 +33,7 @@ export interface DesktopBridge {
   }): Promise<Reply<AiConnectionStatus>>;
   clearAiConnection(): Promise<Reply<AiConnectionStatus>>;
   completeSetup(): Promise<Reply<null>>;
+  restartEngine?(): Promise<Reply<null>>;
 }
 declare global {
   interface Window {

@@ -1,6 +1,9 @@
 import type { Messages } from "../ko-KR";
 
 export const views: Messages["views"] = {
+  indexCoverageIncomplete:
+    "Some evidence has a missing, incomplete or outdated index. Zero matches do not establish absence of evidence.",
+  indexCoverageBuild: "Build index for selected evidence",
   overview: {
     statusLabel: "Case status",
     selectCaseTitle: "Select a case to investigate",

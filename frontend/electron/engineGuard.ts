@@ -52,6 +52,7 @@ function waitForExit(
   child: StoppableChild,
   ms: number,
   signal?: NodeJS.Signals,
+  requestStop?: () => void,
 ) {
   return new Promise<boolean>((done) => {
     let settled = false;
@@ -63,17 +64,22 @@ function waitForExit(
     };
     const timer = setTimeout(() => finish(exited(child)), ms);
     child.once("exit", () => finish(true));
-    child.kill(signal);
+    if (requestStop) requestStop();
+    else child.kill(signal);
   });
 }
 
 /** Asks the child to stop, then forces it. Resolves false when it is still alive after SIGKILL. */
 export async function stopChild(
   child: StoppableChild,
-  { graceMs, killMs }: { graceMs: number; killMs: number },
+  {
+    graceMs,
+    killMs,
+    requestStop,
+  }: { graceMs: number; killMs: number; requestStop?: () => void },
 ): Promise<boolean> {
   if (exited(child)) return true;
-  if (await waitForExit(child, graceMs)) return true;
+  if (await waitForExit(child, graceMs, undefined, requestStop)) return true;
   if (exited(child)) return true;
   return waitForExit(child, killMs, "SIGKILL");
 }

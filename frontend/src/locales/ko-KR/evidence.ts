@@ -10,6 +10,8 @@ export const evidence = {
   },
   hashRecommended: (name: string) => `${name} (권장)`,
   hashNone: "지금은 계산하지 않음",
+  folderHashUnavailable:
+    "폴더 전체의 무결성 해시는 아직 지원하지 않습니다. 파일 탐색과 분석은 사용할 수 있습니다.",
   hashing: "해시 계산 중",
   hashPending: "해시 계산 전",
   subject: {

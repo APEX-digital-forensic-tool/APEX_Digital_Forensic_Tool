@@ -26,6 +26,7 @@ from apex_forensic.ports.evidence_reader import (
     EvidenceProbeResult,
     EvidenceReaderCapabilityStatement,
 )
+from apex_forensic.runtime.subprocess_env import subprocess_environment
 
 
 class VirtualDiskEvidenceReader:
@@ -337,6 +338,7 @@ class VirtualDiskEvidenceReader:
                 check=False,
                 text=True,
                 timeout=10,
+                env=subprocess_environment(),
             )
         except Exception:
             return None
@@ -367,6 +369,7 @@ class VirtualDiskEvidenceReader:
                 check=False,
                 text=True,
                 timeout=30,
+                env=subprocess_environment(),
             )
         except subprocess.TimeoutExpired as error:
             raise ValidationError(
@@ -475,6 +478,7 @@ class VirtualDiskEvidenceReader:
                 check=False,
                 text=True,
                 timeout=120,
+                env=subprocess_environment(),
             )
             if result.returncode != 0:
                 raise ValidationError(

@@ -56,17 +56,25 @@ def recover_logical(
         if copied == 0 and node.file_size > 0:
             raise ValidationError("Deleted file recovery produced no readable bytes.")
         check_cancel()
-        images._publish_output(temp, output, overwrite=overwrite)
+        images._publish_audited_output(
+            temp,
+            output,
+            overwrite=overwrite,
+            audit=lambda: images._audit_export(
+                evidence_id=node.evidence_id,
+                output_path=output,
+                sha256=digest.hexdigest(),
+                action="Deleted logical file recovered",
+                notes=(
+                    f"node_id={node.node_id}; recovered_bytes={copied}; "
+                    f"missing_ranges={len(missing)}"
+                ),
+            ),
+        )
     finally:
         temp.unlink(missing_ok=True)
     sha256 = digest.hexdigest()
-    images._audit_export(
-        evidence_id=node.evidence_id,
-        output_path=output,
-        sha256=sha256,
-        action="Deleted logical file recovered",
-        notes=f"node_id={node.node_id}; recovered_bytes={copied}; missing_ranges={len(missing)}",
-    )
+
     return {
         "node_id": node.node_id,
         "evidence_id": node.evidence_id,

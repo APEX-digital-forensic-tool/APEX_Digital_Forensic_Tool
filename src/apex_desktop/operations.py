@@ -149,7 +149,7 @@ def invoke(
     if operation == "evidence.list":
         return s.evidence.list_evidence(case_id)
     if operation == "evidence.register":
-        source = Path(p["source_path"]).resolve()
+        source = s.evidence.normalize_source_path(Path(p["source_path"]))
         writable = tasks.database.parent.resolve()
         if source.is_relative_to(writable) or writable.is_relative_to(source):
             raise ValidationError("Evidence must not overlap the application's writable data.")
@@ -158,7 +158,7 @@ def invoke(
             case_id,
             "REGISTER",
             lambda b, _t, _cb: b.evidence.register_evidence(
-                case_id=case_id, source_path=Path(p["source_path"]), display_name=p["display_name"]
+                case_id=case_id, source_path=source, display_name=p["display_name"]
             ),
             cancellable=False,
         )
@@ -175,11 +175,31 @@ def invoke(
         if mode == SearchQueryMode.REGEX_METADATA and len(p["query_text"]) > 512:
             raise ValidationError("Regex maximum is 512 characters.")
         evidence = p.pop("evidence_id")
-        return s.search.query(**p, query_mode=mode, evidence_ids=[evidence] if evidence else None)
+        search_result = s.search.query(
+            **p, query_mode=mode, evidence_ids=[evidence] if evidence else None
+        )
+        coverage = s.repository.analysis_index_coverage(case_id, evidence, "SEARCH")
+        incomplete = [item for item in coverage if item["status"] != "COMPLETE"]
+        if incomplete:
+            search_result.execution.is_partial = True
+            search_result.execution.warnings.append(
+                {"code": "INDEX_COVERAGE_INCOMPLETE", "evidence": incomplete}
+            )
+            s.repository.update_search_execution(search_result.execution)
+        data = encode(search_result)
+        data["index_coverage"] = coverage
+        return data
     if operation == "search.history":
         return s.search.history(case_id=case_id)
     if operation == "timeline.list":
-        return s.timeline.list_events(**p)
+        timeline_result = s.timeline.list_events(**p)
+        coverage = s.repository.analysis_index_coverage(case_id, p.get("evidence_id"), "TIMELINE")
+        data = encode(timeline_result)
+        data["index_coverage"] = coverage
+        incomplete = [item for item in coverage if item["status"] != "COMPLETE"]
+        if incomplete:
+            data["warnings"].append({"code": "INDEX_COVERAGE_INCOMPLETE", "evidence": incomplete})
+        return data
     if operation == "candidates.list":
         return s.candidates.list_candidates(**p)
     if operation == "candidates.review":
@@ -228,6 +248,10 @@ def invoke(
             ),
         )
     if operation == "evidence.carve":
+        if s.evidence.get_evidence(p["evidence_id"]).evidence_type.value == "DIRECTORY":
+            raise ValidationError(
+                "Directory evidence does not support signature carving.", target="evidence_id"
+            )
         arguments = {k: v for k, v in p.items() if k != "case_id"}
         arguments["formats"] = tuple(arguments["formats"])
         return tasks.start(
@@ -238,6 +262,15 @@ def invoke(
             ),
         )
     if operation == "machine.run":
+        _, settings_error = machine.load_settings(exports.parent)
+        if p["kind"] == "OCR" and settings_error is None:
+            # Validate actual bytes, including extensionless images, before admitting
+            # a job. The existing bounded inspector reports specific media errors.
+            ImageInspectionService(s.repository).inspect(
+                case_id=case_id,
+                resource_type="FILE_SYSTEM_NODE",
+                resource_id=p["node_id"],
+            )
         return tasks.start(
             case_id,
             p["kind"],

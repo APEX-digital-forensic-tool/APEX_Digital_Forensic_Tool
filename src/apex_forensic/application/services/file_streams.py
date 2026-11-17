@@ -128,17 +128,22 @@ class FileStreamService:
                     count += len(chunk)
             if cancellation_token and cancellation_token.is_cancelled:
                 raise OperationCancelledError("Stream export cancelled.")
-            self.images._publish_output(temp, output, overwrite=False)
+            self.images._publish_audited_output(
+                temp,
+                output,
+                overwrite=False,
+                audit=lambda: self.images._audit_export(
+                    evidence_id=evidence.evidence_id,
+                    output_path=output,
+                    sha256=digest.hexdigest(),
+                    action="NTFS data stream exported",
+                    notes=f"node_id={node_id}; attribute_id={stream_id}",
+                ),
+            )
         finally:
             temp.unlink(missing_ok=True)
         sha256 = digest.hexdigest()
-        self.images._audit_export(
-            evidence_id=evidence.evidence_id,
-            output_path=output,
-            sha256=sha256,
-            action="NTFS data stream exported",
-            notes=f"node_id={node_id}; attribute_id={stream_id}",
-        )
+
         return {
             "node_id": node_id,
             "stream": stream,

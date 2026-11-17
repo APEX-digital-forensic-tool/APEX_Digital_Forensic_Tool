@@ -27,7 +27,7 @@ from apex_forensic.ports.filesystem_provider import (
     ProviderScanIssue,
 )
 
-_DISK_IMAGE_SUFFIXES = {".e01", ".raw", ".dd", ".img", ".vhd", ".vhdx"}
+_DISK_IMAGE_SUFFIXES = {".e01", ".raw", ".dd", ".img", ".001", ".vhd", ".vhdx"}
 _DISK_IMAGE_FORMATS = {
     EvidenceFormat.E01,
     EvidenceFormat.DD,
