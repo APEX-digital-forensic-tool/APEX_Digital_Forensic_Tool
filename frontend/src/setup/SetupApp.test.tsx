@@ -195,6 +195,7 @@ it("stays on the AI step when the connection is saved but the engine did not res
       data: {
         ...noConnection,
         configured: true,
+        mode: "custom" as const,
         has_key: true,
         base_url: "https://api.example.com/v1",
         model_id: "model-x",
@@ -204,10 +205,7 @@ it("stays on the AI step when the connection is saved but the engine did not res
   };
   renderInEnglish(<SetupApp />);
   await userEvent.click(screen.getByRole("button", { name: "AI connection" }));
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "https://api.example.com/v1",
-  );
+  await userEvent.type(await chooseDirect(), "https://api.example.com/v1");
   await userEvent.type(screen.getByLabelText("Model name"), "model-x");
   await userEvent.click(
     screen.getByRole("button", { name: "Save and continue" }),

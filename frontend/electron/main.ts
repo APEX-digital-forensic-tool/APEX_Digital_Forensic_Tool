@@ -589,7 +589,9 @@ else {
       handle("apex:account", () => ({ ok: true, data: session.status() }));
       handle("apex:login", async (_event, input: unknown) => {
         const result = await session.login(input);
-        return result.ok ? { ok: true, data: result.status } : fail(result.code);
+        return result.ok
+          ? { ok: true, data: result.status }
+          : fail(result.code);
       });
       handle("apex:logout", async () => {
         const result = await session.logout();
