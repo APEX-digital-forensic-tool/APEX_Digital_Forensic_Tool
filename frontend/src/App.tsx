@@ -1211,7 +1211,7 @@ export function App() {
               ]
             : route === "CHAIN_OF_CUSTODY"
               ? [
-                  { key: "sequence", label: m.shell.columns.sequence },
+                  { key: "immutable_revision", label: m.shell.columns.sequence },
                   {
                     key: "event_type",
                     label: m.shell.columns.type,
