@@ -52,21 +52,21 @@ Before the fix for #73 (commit `6e2116f`), the append had no lock across its tai
 4. `export_range #1` inserts revision 2 and fails with `sqlite3.IntegrityError`.
 5. The exported file stays on disk with no `EXPORTED` event, and the caller gets an error.
 
-The fix holds `BEGIN IMMEDIATE` across the tail read and insert, and `_audit_export` deletes the output if its append still fails (for example `DATABASE_LOCKED` after `busy_timeout`). `--mutant no-lock` reproduces the old race; with it `audited-export` still passes because of that cleanup.
+The fix holds `BEGIN IMMEDIATE` across the tail read and insert, and `_audit_export` deletes a new output, or restores the output an overwrite replaced, if its append still fails (for example `DATABASE_LOCKED` after `busy_timeout`). `--mutant no-lock` reproduces the old race; with it `audited-export` still passes because of that cleanup.
 
 ## Coverage and sync
 
-Sync commit: `f722665db0beb18ac11b6e643b30bac8c79184c1` (branch `fix/73-unaudited-export`). The check was last confirmed to describe this code at that commit. Before you trust a result on a later commit, list changes to the covered code:
+Sync commit: `5a31c53457107e36b288f66e3521719a1d794595` (branch `fix/73-unaudited-export`). The check was last confirmed to describe this code at that commit. Before you trust a result on a later commit, list changes to the covered code:
 
 ```bash
-git diff f722665db0beb18ac11b6e643b30bac8c79184c1 -- src/apex_forensic/application/services/custody_ledger.py src/apex_forensic/adapters/persistence/sqlite/repository.py src/apex_forensic/application/services/evidence_image.py src/apex_forensic/application/services/evidence_manager.py src/apex_desktop/operations.py src/apex_desktop/app.py
+git diff 5a31c53457107e36b288f66e3521719a1d794595 -- src/apex_forensic/application/services/custody_ledger.py src/apex_forensic/adapters/persistence/sqlite/repository.py src/apex_forensic/application/services/evidence_image.py src/apex_forensic/application/services/evidence_manager.py src/apex_desktop/operations.py src/apex_desktop/app.py
 ```
 
 Covered and driven:
 
 - `src/apex_forensic/application/services/custody_ledger.py`: `CustodyLedger.add_event` (builds the event from the tail inside `append_custody_event`) and `verify_chain`.
 - `src/apex_forensic/adapters/persistence/sqlite/repository.py`: `custody_events` schema with `UNIQUE(evidence_id, immutable_revision)`, `append_custody_event` (`_begin_write`, `list_custody_events`, `_insert_custody_event`, commit or rollback).
-- `src/apex_forensic/application/services/evidence_image.py`: `export_range`, `_write_output`, `_audit_export` (deletes the output when its append fails).
+- `src/apex_forensic/application/services/evidence_image.py`: `export_range`, `_write_output`, `_audit_export` (when its append fails, deletes a new output or moves back the output it replaced).
 
 Covered by reading only, same pattern, not driven:
 

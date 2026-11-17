@@ -43,7 +43,9 @@ PROPERTIES = {
         "an append that raises stores nothing."
     ),
     "audited-export": "An exported file never exists without its EXPORTED custody event.",
-    "appends-succeed": "Every concurrent append returns; none fails because another got there first.",
+    "appends-succeed": (
+        "Every concurrent append returns; none fails because another got there first."
+    ),
 }
 STEP_TIMEOUT = 15
 BLOCK_WAIT = 0.2
@@ -118,7 +120,7 @@ class Scheduler:
                 self.released.add(index)
                 self.cv.notify_all()
                 if not self.cv.wait_for(
-                    lambda: index not in self.released and index not in self.running,
+                    lambda index=index: index not in self.released and index not in self.running,
                     BLOCK_WAIT,
                 ):
                     self.log.append(f"{self.labels[index]} {step} waits for the write lock")
