@@ -1,6 +1,8 @@
 """Behaviors from the #62/#65 work that main still lacked after #74."""
 
+import os
 import subprocess
+import sys
 import wave
 from io import BytesIO
 from pathlib import Path
@@ -170,22 +172,41 @@ def test_without_ffprobe_an_unclear_file_is_queued_for_the_decoder(
     assert stt(client, cid, nodes["voice.dat"])["ok"] is True
 
 
-def test_unreadable_file_keeps_the_audio_format_refusal(client, tmp_path):
+# A read failure is an integrity signal; it must not be reported as "not audio".
+def test_extensionless_file_changed_after_indexing_reports_the_change(client, tmp_path):
+    root = tmp_path / "changed"
+    root.mkdir()
+    (root / "tape").write_bytes(wav())
+    cid, nodes = nodes_of(client, root, "Changed")
+    (root / "tape").write_bytes(wav() + b"\x00" * 4096)
+    body = stt(client, cid, nodes["tape"])
+    assert body["ok"] is False
+    assert body["error"]["code"] == "RAW_SOURCE_CHANGED"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod(0) does not block reading for root or on Windows",
+)
+def test_unreadable_node_reports_its_own_read_error(client, tmp_path):
+    root = tmp_path / "locked"
+    root.mkdir()
+    (root / "voice.dat").write_bytes(wav())
+    os.chmod(root / "voice.dat", 0)
+    try:
+        cid, nodes = nodes_of(client, root, "Unreadable")
+        body = stt(client, cid, nodes["voice.dat"])
+    finally:
+        os.chmod(root / "voice.dat", 0o600)
+    assert body["ok"] is False
+    assert body["error"]["code"] == "RAW_LOCATOR_UNSUPPORTED"
+
+
+# The bytes are gone, so the pre-check cannot judge them; the job reports the real failure.
+def test_deleted_file_is_queued_for_the_job_to_report(client, tmp_path):
     root = tmp_path / "gone"
     root.mkdir()
     (root / "x.dat").write_text("not audio", encoding="utf-8")
-    cid = call(client, "cases.create", name="Unreadable")["id"]
-    eid = register(client, cid, root)
-    nodes = {
-        n["original_name"]: n
-        for n in call(client, "files.list", case_id=cid, evidence_id=eid, all_nodes=True)["items"]
-    }
-    # The indexed file is gone, so its bytes cannot be read to judge it.
+    cid, nodes = nodes_of(client, root, "Deleted")
     (root / "x.dat").unlink()
-    response = client.post(
-        "/v1/operations/machine.run",
-        json={"case_id": cid, "node_id": nodes["x.dat"]["id"], "kind": "STT"},
-    )
-    body = response.json()
-    assert body["ok"] is False
-    assert body["error"]["code"] == "MEDIA_AUDIO_FORMAT_UNSUPPORTED"
+    assert stt(client, cid, nodes["x.dat"])["ok"] is True
