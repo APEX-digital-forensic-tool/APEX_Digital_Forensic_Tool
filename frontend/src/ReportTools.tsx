@@ -101,9 +101,12 @@ export function SearchHistory({
   caseId,
   zone,
   onSearch,
+  version = 0,
 }: {
   caseId: string;
   zone: string;
+  /** Changes whenever a search ran, so the list reloads. */
+  version?: number;
   onSearch: (text: string, mode: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -120,6 +123,7 @@ export function SearchHistory({
           caseId={caseId}
           zone={zone}
           onSearch={onSearch}
+          version={version}
         />
       )}
     </details>
@@ -130,9 +134,11 @@ function SearchHistoryEntries({
   caseId,
   zone,
   onSearch,
+  version,
 }: {
   caseId: string;
   zone: string;
+  version: number;
   onSearch: (text: string, mode: string) => void;
 }) {
   const { m } = useI18n();
@@ -154,7 +160,7 @@ function SearchHistoryEntries({
     return () => {
       live = false;
     };
-  }, [caseId, attempt]);
+  }, [caseId, attempt, version]);
   return (
     <>
       {error != null && (
