@@ -20,9 +20,10 @@ function harness() {
   let issued = 0;
   const calls: { path: string; body: any; auth: string | null }[] = [];
   const timers = new Map<number, { at: number; run: () => void }>();
+  const delays: number[] = [];
   let nextTimer = 1;
   const server = {
-    ttl: 3600,
+    ttl: 3600 as number | string,
     refreshStatus: 200 as number | "down",
     loginStatus: 200 as number | "down",
     logoutStatus: 200 as number | "down",
@@ -34,6 +35,7 @@ function harness() {
   const session = createServerSession({
     now: () => now,
     setTimer: (run, ms) => {
+      delays.push(ms);
       const id = nextTimer++;
       timers.set(id, { at: now + ms, run });
       return id;
@@ -62,11 +64,11 @@ function harness() {
       if (status !== 200 || path === "/auth/logout")
         return new Response("{}", { status });
       issued++;
-      return Response.json({
-        access_token: `access-${issued}`,
-        refresh_token: `refresh-${issued}`,
-        expires_in: server.ttl,
-      });
+      // Raw text, so a test can send numbers JSON.stringify cannot write (1e400).
+      return new Response(
+        `{"access_token": "access-${issued}", "refresh_token": "refresh-${issued}", "expires_in": ${server.ttl}}`,
+        { headers: { "Content-Type": "application/json" } },
+      );
     }) as typeof fetch,
   });
   return {
@@ -83,6 +85,7 @@ function harness() {
         }
     },
     pendingTimers: () => timers.size,
+    delays,
     /** Holds the next call to `path` until the returned function is called. */
     hold(path: string) {
       let release!: () => void;
@@ -347,6 +350,23 @@ describe("server session", () => {
       body: null,
       auth: "Bearer access-2",
     });
+  });
+
+  it("refuses a token lifetime that is not a finite number", async () => {
+    const h = harness();
+    h.server.ttl = "1e400";
+    expect(await h.session.login(LOGIN)).toEqual({
+      ok: false,
+      code: "AUTH_CONTRACT_INVALID",
+    });
+    expect(h.session.status().state).toBe("signed_out");
+  });
+
+  it("never asks for a timer longer than Node can hold", async () => {
+    const h = harness();
+    h.server.ttl = 60 * 60 * 24 * 60;
+    await h.session.login(LOGIN);
+    expect(Math.max(...h.delays)).toBeLessThanOrEqual(2 ** 31 - 1);
   });
 
   it("keeps one refresh at a time when an earlier session's refresh lands late", async () => {
