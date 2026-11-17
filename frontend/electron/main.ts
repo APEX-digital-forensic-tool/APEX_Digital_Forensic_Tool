@@ -27,7 +27,7 @@ import { messagesFor } from "../src/i18n/catalog";
 import {
   aiConnectionStatus,
   aiEnvironment,
-  attachServerConnection,
+  callWithServerConnection,
   clearAiConnection,
   saveAiConnection,
   type AiDeps,
@@ -437,13 +437,9 @@ else {
             picked.delete(String(payload[key]));
         return result;
       }
-      await attachServerConnection(
-        operation,
-        payload,
-        aiDeps,
-        session.credentials,
+      return callWithServerConnection(operation, payload, aiDeps, session, (p) =>
+        local(operation, p),
       );
-      return local(operation, payload);
     });
     handle("apex:pick", async (event, kind: unknown, locale: unknown) => {
       if (kind !== "file" && kind !== "directory")

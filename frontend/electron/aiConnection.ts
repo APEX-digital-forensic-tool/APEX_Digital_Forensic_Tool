@@ -287,6 +287,41 @@ export function clearAiConnection(deps: AiDeps): AiSaveResult {
   return { ok: true };
 }
 
+export interface ServerAuth {
+  credentials(): Promise<{ origin: string; access: string } | null>;
+  /** A forced renewal; null when the server refused it. */
+  refresh(): Promise<string | null>;
+}
+
+/**
+ * Runs an engine call with the server connection attached. When the server
+ * rejects the token (revoked or rotated since it was issued), the token is
+ * renewed once and the call retried once; any other outcome is returned as is.
+ */
+export async function callWithServerConnection<R>(
+  operation: string,
+  payload: Record<string, unknown>,
+  deps: AiDeps,
+  auth: ServerAuth,
+  call: (payload: Record<string, unknown>) => Promise<R>,
+): Promise<R> {
+  await attachServerConnection(operation, payload, deps, auth.credentials);
+  const first = await call(payload);
+  const connection = payload.server_connection as
+    { base_url: string; access_token: string } | undefined;
+  const failure = first as { ok?: boolean; error?: { code?: string } } | null;
+  if (
+    !connection ||
+    failure?.ok !== false ||
+    failure.error?.code !== "AUTHENTICATION_FAILED"
+  )
+    return first;
+  const access = await auth.refresh();
+  if (!access || access === connection.access_token) return first;
+  payload.server_connection = { ...connection, access_token: access };
+  return call(payload);
+}
+
 /** Variables to add to the engine's environment; {} when managed by the user's own env, unset, or undecryptable. */
 export function aiEnvironment(deps: AiDeps): Record<string, string> {
   if (isManaged(deps)) return {};

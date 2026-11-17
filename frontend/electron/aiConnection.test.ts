@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attachServerConnection,
+  callWithServerConnection,
   aiConnectionStatus,
   aiEnvironment,
   clearAiConnection,
@@ -299,4 +300,88 @@ describe("APEX server mode", () => {
       expect(payload).toEqual({});
     },
   );
+
+  describe("a token the server rejects", () => {
+    const rejected = { ok: false, error: { code: "AUTHENTICATION_FAILED" } };
+    const answered = { ok: true, data: { status: "COMPLETED" } };
+    function engine(...replies: unknown[]) {
+      const sent: string[] = [];
+      const call = async (payload: Record<string, unknown>) => {
+        const c = payload.server_connection as
+          { access_token: string } | undefined;
+        sent.push(c?.access_token ?? "none");
+        return replies.shift();
+      };
+      return { sent, call };
+    }
+
+    it("is renewed once and the request retried", async () => {
+      const d = deps();
+      saveAiConnection(server, d);
+      const e = engine(rejected, answered);
+      const auth = {
+        credentials: signedIn,
+        refresh: async () => "access-token-2",
+      };
+      const result = await callWithServerConnection(
+        "ai.analyze",
+        {},
+        d,
+        auth,
+        e.call,
+      );
+      expect(result).toEqual(answered);
+      expect(e.sent).toEqual(["access-token-1", "access-token-2"]);
+    });
+    it.each<[string, () => Promise<string | null>]>([
+      ["the renewal fails", async () => null],
+      ["the renewal returns the same token", async () => "access-token-1"],
+    ])("is reported as is when %s", async (_name, refresh) => {
+      const d = deps();
+      saveAiConnection(server, d);
+      const e = engine(rejected, answered);
+      const result = await callWithServerConnection(
+        "ai.analyze",
+        {},
+        d,
+        { credentials: signedIn, refresh },
+        e.call,
+      );
+      expect(result).toEqual(rejected);
+      expect(e.sent).toEqual(["access-token-1"]);
+    });
+    it("is not retried a second time", async () => {
+      const d = deps();
+      saveAiConnection(server, d);
+      let renewals = 0;
+      const e = engine(rejected, rejected, answered);
+      const result = await callWithServerConnection(
+        "ai.analyze",
+        {},
+        d,
+        {
+          credentials: signedIn,
+          refresh: async () => `access-token-${++renewals + 1}`,
+        },
+        e.call,
+      );
+      expect(result).toEqual(rejected);
+      expect(e.sent).toHaveLength(2);
+    });
+    it("leaves a direct connection's errors alone", async () => {
+      const d = deps();
+      saveAiConnection(valid, d);
+      const e = engine(rejected, answered);
+      let renewed = false;
+      const result = await callWithServerConnection(
+        "ai.analyze",
+        {},
+        d,
+        { credentials: signedIn, refresh: async () => ((renewed = true), "x") },
+        e.call,
+      );
+      expect(result).toEqual(rejected);
+      expect(renewed).toBe(false);
+    });
+  });
 });
