@@ -4,7 +4,7 @@ import json
 from time import monotonic, sleep
 
 import pytest
-from test_forensic_operations import registered
+from test_forensic_operations import registered, tiny_png
 from test_local_api import call
 from test_local_api import client as api_client
 
@@ -69,7 +69,7 @@ def test_invalid_settings_are_diagnosed_and_reset_preserves_them(
 
 def test_invalid_settings_block_extraction_instead_of_running_defaults(client, tmp_path):
     source = tmp_path / "image.png"
-    source.write_bytes(b"synthetic")
+    source.write_bytes(tiny_png())
     cid, eid = registered(client, source)
     node = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]
     (tmp_path / "data/machine-settings.json").write_text("{broken")

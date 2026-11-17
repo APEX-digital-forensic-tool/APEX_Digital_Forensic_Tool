@@ -30,6 +30,7 @@ from . import machine
 from . import models as m
 from .index_state import index_state
 from .tasks import ProgressCallback, Tasks, encode
+from .tool_targets import require_carvable, require_machine_source
 
 MODELS: dict[str, type[m.Input]] = {
     "runtime": m.Empty,
@@ -211,6 +212,8 @@ def invoke(
         node = s.fs.get_node(p["node_id"])
         if node.case_id != case_id:
             mismatch()
+        if operation == "machine.run":
+            require_machine_source(node, p["kind"], s.evidence.get_evidence(node.evidence_id))
     if operation == "files.streams":
         return FileStreamService(s.repository, s.images).list(**p)
     if operation == "streams.read":
@@ -234,6 +237,7 @@ def invoke(
             ),
         )
     if operation == "evidence.carve":
+        require_carvable(s.evidence.get_evidence(p["evidence_id"]))
         arguments = {k: v for k, v in p.items() if k != "case_id"}
         arguments["formats"] = tuple(arguments["formats"])
         return tasks.start(

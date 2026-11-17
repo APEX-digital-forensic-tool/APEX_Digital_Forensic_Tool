@@ -2072,6 +2072,9 @@ export function App() {
                   <ForensicTools
                     caseId={caseId}
                     evidenceId={evidenceId}
+                    evidenceFormat={
+                      evidence.find((e: Row) => e.id === evidenceId)?.format
+                    }
                     selected={selected}
                     onTask={() => {
                       setJobsOpen(true);

@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from test_forensic_operations import registered
+from test_forensic_operations import registered, tiny_png
 from test_local_api import TOKEN, call, wait
 from test_local_api import client as api_client
 
@@ -72,7 +72,7 @@ def test_safe_hash_field_is_not_treated_as_plaintext_secret():
 
 def test_automatic_ocr_uses_available_korean_model(client, tmp_path, monkeypatch):
     source = tmp_path / "image.png"
-    source.write_bytes(b"synthetic image")
+    source.write_bytes(tiny_png())
     cid, eid = registered(client, source)
     node = call(client, "files.roots", case_id=cid, evidence_id=eid)[0]
     calls = []
