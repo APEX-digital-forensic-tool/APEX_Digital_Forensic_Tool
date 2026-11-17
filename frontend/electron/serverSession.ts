@@ -55,6 +55,8 @@ export interface SessionDeps {
 const REFRESH_MARGIN_MS = 60_000;
 const RETRY_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+/** Node runs a longer timer after 1 ms instead, which would refresh in a loop. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** Only https servers, or plain http on this machine for development. */
 export function serverOrigin(value: unknown): string | null {
@@ -89,6 +91,7 @@ function parseTokens(body: unknown): Tokens | null {
     typeof b.access_token !== "string" ||
     typeof b.refresh_token !== "string" ||
     typeof b.expires_in !== "number" ||
+    !Number.isFinite(b.expires_in) ||
     !(b.expires_in > 0)
   )
     return null;
@@ -138,7 +141,7 @@ export function createServerSession(deps: SessionDeps) {
         timer = null;
         void refresh();
       },
-      Math.max(0, ms),
+      Math.min(Math.max(0, ms), MAX_TIMER_MS),
     );
   }
 
