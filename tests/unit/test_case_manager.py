@@ -68,3 +68,19 @@ def test_case_name_update_rejects_schema_max_plus_one_without_mutation(services)
         services.cases.update_metadata(case.case_id, name="가" * 256)
 
     assert services.cases.get_case(case.case_id).name == "가" * 255
+
+
+def test_timezone_key_that_the_os_refuses_to_open_is_a_validation_error(
+    services, monkeypatch
+) -> None:
+    import apex_forensic.application.services.case_manager as case_manager
+
+    def refuse(key):
+        raise PermissionError(13, "Permission denied", key)
+
+    monkeypatch.setattr(case_manager, "ZoneInfo", refuse)
+    with pytest.raises(ValidationError) as error:
+        services.cases.create_case(name="Directory TZ", timezone="America")
+    assert error.value.target == "timezone"
+    with pytest.raises(PermissionError):
+        services.cases.create_case(name="Real zone unreadable", timezone="Asia/Seoul")

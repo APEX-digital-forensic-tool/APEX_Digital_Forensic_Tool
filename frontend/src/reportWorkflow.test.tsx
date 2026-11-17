@@ -263,4 +263,14 @@ describe("Reports review workflow", () => {
         .map((b) => b.textContent),
     ).toEqual(["승인 철회", "내보내기"]);
   });
+
+  it("does not preset an HTML extension that PDF export would double", async () => {
+    mockReport(version("REVIEW_COMPLETE"), "APPROVED");
+    const flow = await openReport();
+    fireEvent.click(within(flow).getByRole("button", { name: "내보내기" }));
+    const dialog = await screen.findByRole("dialog");
+    const filename = within(dialog).getByRole("textbox") as HTMLInputElement;
+    expect(filename.value).toBe("report");
+    expect(filename.maxLength).toBe(200);
+  });
 });
