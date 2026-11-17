@@ -281,7 +281,7 @@ it("keeps carving available for disk images", () => {
   );
 });
 
-it("lets OCR run on a non-image name but warns, and limits STT to media", () => {
+it("lets OCR and STT run on a misleading name but warns", () => {
   open({ selected: textFile });
   expect(
     (screen.getByText("선택 파일 문자 추출") as HTMLButtonElement).disabled,
@@ -289,13 +289,14 @@ it("lets OCR run on a non-image name but warns, and limits STT to media", () => 
   expect(screen.getByText(/파일 이름이 이미지가 아닙니다/)).toBeTruthy();
   expect(
     (screen.getByText("선택 파일 음성 인식") as HTMLButtonElement).disabled,
-  ).toBe(true);
+  ).toBe(false);
+  expect(screen.getByText(/파일 이름이 음성·영상이 아닙니다/)).toBeTruthy();
   cleanup();
   open({
     selected: { ...textFile, extension: "PNG", mime_candidate: "image/png" },
   });
   expect(screen.queryByText(/파일 이름이 이미지가 아닙니다/)).toBeNull();
-  expect(screen.queryByText(/음성 또는 영상 파일/)).toBeTruthy();
+  expect(screen.queryByText(/파일 이름이 음성·영상이 아닙니다/)).toBeTruthy();
 });
 
 it("shows plain 'no streams' when the filesystem is unknown", async () => {

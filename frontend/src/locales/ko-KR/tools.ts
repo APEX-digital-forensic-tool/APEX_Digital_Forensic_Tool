@@ -39,7 +39,8 @@ export const tools = {
       runStt: "선택 파일 음성 인식",
       imageNameWarning:
         "파일 이름이 이미지가 아닙니다. 파일 내용이 이미지로 열릴 때만 실행되며, 아니면 거부됩니다.",
-      needsMedia: "음성 또는 영상 파일을 선택해야 합니다.",
+      mediaNameWarning:
+        "파일 이름이 음성·영상이 아닙니다. 내용이 음성·영상으로 인식될 때만 실행되며, 아니면 거부됩니다.",
     },
     carve: {
       title: "파일 시그니처 카빙",

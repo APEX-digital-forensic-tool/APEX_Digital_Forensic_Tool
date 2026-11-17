@@ -42,7 +42,8 @@ export const tools: Messages["tools"] = {
       runStt: "Recognize speech in the selected file",
       imageNameWarning:
         "The file name is not an image. It runs only if the content opens as an image, otherwise it is rejected.",
-      needsMedia: "Select an audio or video file.",
+      mediaNameWarning:
+        "The file name is not audio or video. It runs only if the content is recognized as audio or video, otherwise it is rejected.",
     },
     carve: {
       title: "File signature carving",

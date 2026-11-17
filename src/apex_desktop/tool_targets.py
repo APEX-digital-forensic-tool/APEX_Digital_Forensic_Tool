@@ -37,12 +37,28 @@ def require_machine_source(node: Any, kind: str, evidence: Any = None) -> None:
         return
     mime = (node.mime_candidate or "").lower()
     named = _extension(node)
-    if named and named not in AUDIO_VIDEO_EXTENSIONS and not mime.startswith(("audio/", "video/")):
-        raise ApexError(
-            "MEDIA_AUDIO_FORMAT_UNSUPPORTED",
-            "error.media_audio_format_unsupported",
-            target="node_id",
-        )
+    if named in AUDIO_VIDEO_EXTENSIONS or mime.startswith(("audio/", "video/")):
+        return
+    # The name says nothing useful (or something else): the bytes decide.
+    if evidence is not None and _looks_like_media(evidence, node):
+        return
+    raise ApexError(
+        "MEDIA_AUDIO_FORMAT_UNSUPPORTED", "error.media_audio_format_unsupported", target="node_id"
+    )
+
+
+def _looks_like_media(evidence: Any, node: Any) -> bool:
+    size = node.file_size or 0
+    with EvidenceFileContent.open(evidence, node) as handle:
+        head = EvidenceFileContent._read(handle, 0, min(size, 64))
+    return (
+        head[4:8] == b"ftyp"  # MP4, M4A, 3GP/3GA, MOV
+        or head[:4] in {b"OggS", b"fLaC", b"FORM", b"\x1aE\xdf\xa3", b"0&\xb2u"}
+        or head[:3] == b"ID3"
+        or head[:5] == b"#!AMR"
+        or (head[:4] == b"RIFF" and head[8:12] in {b"WAVE", b"AVI "})
+        or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0)  # MPEG/ADTS sync
+    )
 
 
 def _require_decodable_image(evidence: Any, node: Any) -> None:

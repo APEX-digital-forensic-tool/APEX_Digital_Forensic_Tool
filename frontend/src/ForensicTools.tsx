@@ -228,7 +228,7 @@ export function ForensicTools({
           {(["OCR", "STT"] as const).map((kind) => (
             <button
               key={kind}
-              disabled={busy || !readable || (kind === "STT" && !sttFits)}
+              disabled={busy || !readable}
               onClick={() =>
                 void call(
                   "machine.run",
@@ -254,7 +254,7 @@ export function ForensicTools({
             <p className="muted">{m.tools.forensic.machine.imageNameWarning}</p>
           )}
           {readable && !sttFits && (
-            <p className="muted">{m.tools.forensic.machine.needsMedia}</p>
+            <p className="muted">{m.tools.forensic.machine.mediaNameWarning}</p>
           )}
         </Section>
         <Section title={m.tools.forensic.carve.title}>
