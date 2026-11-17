@@ -15,10 +15,14 @@ export interface ApiError {
 export type Reply<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 export interface DesktopBridge {
   invoke(operation: string, payload: Row): Promise<Reply<any>>;
-  /** `locale` selects the language of the native file dialog. */
+  /**
+   * `locale` selects the language of the native file dialog. The reference is accepted only
+   * for `purpose` and only from the window that picked it.
+   */
   pick(
     kind: "file" | "directory",
-    locale?: Locale,
+    locale: Locale,
+    purpose: "evidence" | "model" | "tessdata",
   ): Promise<Reply<{ reference: string; name: string } | null>>;
   openExports(): Promise<Reply<null>>;
   account(): Promise<Reply<{ connected: boolean; origin: string | null }>>;

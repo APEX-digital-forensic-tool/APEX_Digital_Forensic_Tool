@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { MAX_AI_TIMEOUT_SECONDS } from "./aiConnection";
 import { stopChild } from "./engineGuard";
 
 /** How to run the engine. Read again on every start, so a restart picks up new AI settings. */
@@ -9,6 +10,17 @@ export interface EngineLaunch {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+}
+
+/**
+ * How long the shell waits for one engine operation. An AI request may try the provider twice
+ * (a retry after a server error), each try up to the longest AI timeout.
+ */
+export function operationTimeoutMs(operation: string) {
+  if (operation === "runtime") return 60000;
+  if (operation === "ai.analyze")
+    return (2 * MAX_AI_TIMEOUT_SECONDS + 60) * 1000;
+  return 120000;
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
