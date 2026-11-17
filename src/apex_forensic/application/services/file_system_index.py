@@ -98,6 +98,8 @@ class _RunState:
     failed_listings: set[str] = field(default_factory=set)
     # Folders the analyst opened, by node id or path; they clear only when the job drains.
     selected: frozenset[str] = frozenset()
+    # A root this job enqueued and has not finished listing; partial if the job stops first.
+    unlisted_root: str | None = None
 
 
 class FileSystemIndexService:
@@ -237,6 +239,7 @@ class FileSystemIndexService:
             root = self._repository.upsert_fs_node(root)
             coverage.discovered_items = 1
             if lists_root:
+                state.unlisted_root = root.node_id
                 self._enqueue(
                     job.job_id, root.node_id, priority=10, depth=0, reason="ROOT", state_sequence=0
                 )
@@ -262,6 +265,7 @@ class FileSystemIndexService:
                 details={"exception_type": type(error).__name__},
             )
         )
+        self._mark_unlisted_root_partial(state)
         now = self._clock.now()
         state.job.status = JobStatus.FAILED
         state.job.finished_at = now
@@ -655,6 +659,8 @@ class FileSystemIndexService:
             self._repository.save_fs_nodes(batch)
         self._repository.mark_fs_queue_done(str(item["queue_id"]))
         state.coverage.processed_items += 1
+        if parent.node_id == state.unlisted_root:
+            state.unlisted_root = None
         if (
             parent.is_partial
             and parent.node_id not in state.selected
@@ -670,6 +676,12 @@ class FileSystemIndexService:
             node.is_partial = True
             self._repository.upsert_fs_node(node)
 
+    def _mark_unlisted_root_partial(self, state: _RunState) -> None:
+        if state.unlisted_root is not None:
+            root = self._repository.get_fs_node(state.unlisted_root)
+            if root is not None:
+                self._mark_partial(root)
+
     def _clear_selected_partial(self, state: _RunState) -> None:
         for node_id in state.selected:
             node = self._repository.get_fs_node(node_id)
@@ -683,6 +695,7 @@ class FileSystemIndexService:
         job_status: JobStatus,
         coverage_status: IndexCoverageStatus,
     ) -> tuple[Job, IndexCoverage]:
+        self._mark_unlisted_root_partial(state)
         state.coverage.status = coverage_status
         state.coverage.updated_at = self._clock.now()
         state.job.status = job_status
