@@ -51,10 +51,17 @@ export function IndexWarning({
           ["PARTIAL", "FAILED", "CANCELLED", "NOT_STARTED"].includes(
             e[key].source_status,
           );
+        const failed = e[key].status === "FAILED";
         const message =
           route === "SEARCH"
-            ? (none ? t.searchNone : t.searchPartial)(e.display_name)
-            : (none ? t.timelineNone : t.timelinePartial)(e.display_name);
+            ? (none ? t.searchNone : failed ? t.searchFailed : t.searchPartial)(
+                e.display_name,
+              )
+            : (none
+                ? t.timelineNone
+                : failed
+                  ? t.timelineFailed
+                  : t.timelinePartial)(e.display_name);
         const kind = needsFiles ? "FILES" : route;
         return (
           <div className="notice" role="status" key={e.evidence_id}>

@@ -71,6 +71,10 @@ export const views: Messages["views"] = {
       `The timeline for “${name}” has not been built. An empty list does not mean “no events”.`,
     timelinePartial: (name: string) =>
       `The timeline for “${name}” is only partly built. There may be more events.`,
+    searchFailed: (name: string) =>
+      `Building the search index for “${name}” failed. Build it again.`,
+    timelineFailed: (name: string) =>
+      `Building the timeline for “${name}” failed. Build it again.`,
     needsFiles: "A file index is needed first.",
     buildSearch: "Build search index",
     buildTimeline: "Build timeline",

@@ -67,6 +67,10 @@ export const views = {
       `‘${name}’의 타임라인이 아직 생성되지 않았습니다. 빈 목록은 “이벤트 없음”이 아닙니다.`,
     timelinePartial: (name: string) =>
       `‘${name}’의 타임라인이 일부만 생성되었습니다. 이벤트가 더 있을 수 있습니다.`,
+    searchFailed: (name: string) =>
+      `‘${name}’의 검색 인덱스 생성이 실패했습니다. 다시 만들어 주세요.`,
+    timelineFailed: (name: string) =>
+      `‘${name}’의 타임라인 생성이 실패했습니다. 다시 만들어 주세요.`,
     needsFiles: "먼저 파일 인덱스가 필요합니다.",
     buildSearch: "검색 인덱스 만들기",
     buildTimeline: "타임라인 만들기",
