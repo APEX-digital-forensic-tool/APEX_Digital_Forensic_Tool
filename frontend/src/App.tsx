@@ -149,6 +149,11 @@ const communicationTypes = [
   "COMMUNICATION_ATTACHMENT",
   "COMMUNICATION_UNSUPPORTED_STORE",
 ];
+/** Job ends that leave the work undone, so a retry must be allowed. */
+const ENDED_UNDONE = ["CANCELLED", "FAILED", "INTERRUPTED"];
+/** Jobs the analyst should look at. The top badge and the overview notice share this. */
+const needsAttention = (t: Row) =>
+  ["FAILED", "PARTIAL", "INTERRUPTED"].includes(t.status) || !!t.receipt_error;
 const activeTask = (t: Row) =>
   ["QUEUED", "RUNNING", "CANCELLING"].includes(t.status);
 // HASH_VERIFIED and CORRECTION are recorded by the engine, not typed by analysts.
@@ -271,8 +276,23 @@ export function App() {
   const zone = currentCase?.timezone ?? "Asia/Seoul";
   /** Last sub-tab opened in each navigation group, restored on return. */
   const lastTab = useRef<Record<string, Tab>>({});
+  /** The open evidence, folder and path as of the last render, for async callbacks. */
+  const folderView = useRef<{
+    evidenceId: string;
+    folder: Row | null;
+    trail: Row[];
+  }>({ evidenceId: "", folder: null, trail: [] });
+  folderView.current = { evidenceId, folder, trail: folderTrail };
+  /** Index jobs whose folder has been fetched again after they ended. */
+  const reloadedFolderJobs = useRef(new Set<string>());
+  /** The selected evidence as of the last render, for the status poll. */
+  const evidenceIdRef = useRef(evidenceId);
+  evidenceIdRef.current = evidenceId;
   /** Registration task id → hash algorithm to start once the task succeeds. */
   const pendingHashes = useRef(new Map<string, string>());
+  // Folder key → the job indexing it. A job that ends cancelled or failed
+  // frees the key so opening the folder again retries.
+  const indexedFolders = useRef(new Map<string, string>());
   /** Appended to time column headers so every cell's zone is explicit. */
   const inZone = (label: string) => `${label} (${zoneLabel(zone)})`;
   /** Screen name; routes without their own screen have none. */
@@ -374,6 +394,18 @@ export function App() {
             );
           statuses = new Map(ts.map((t) => [t.task_id, t.status]));
           firstPoll = false;
+          for (const [key, taskId] of indexedFolders.current) {
+            const job = ts.find((t) => t.task_id === taskId);
+            if (!job || activeTask(job)) continue;
+            if (ENDED_UNDONE.includes(job.status))
+              indexedFolders.current.delete(key);
+            if (!reloadedFolderJobs.current.has(taskId)) {
+              reloadedFolderJobs.current.add(taskId);
+              void reloadFolder(key).then((done) => {
+                if (!done) reloadedFolderJobs.current.delete(taskId);
+              });
+            }
+          }
           for (const t of ts) {
             const algorithm = pendingHashes.current.get(t.task_id);
             if (!algorithm || activeTask(t)) continue;
@@ -391,7 +423,11 @@ export function App() {
           setPollError(null);
           setTasks(ts);
           setEvidence(ev);
-          if (ev.length) setEvidenceId((current) => current || ev[0].id);
+          if (ev.length && !evidenceIdRef.current) {
+            evidenceIdRef.current = ev[0].id;
+            setEvidenceId(ev[0].id);
+            sync({ active_evidence_id: ev[0].id });
+          }
         }
       } catch (err) {
         if (live) setPollError(err);
@@ -509,9 +545,7 @@ export function App() {
   const jobEvidenceName = (t: Row) =>
     evidence.find((e) => e.id === (t.job?.evidence_id ?? t.result?.id))
       ?.display_name as string | undefined;
-  const attention = tasks.filter(
-    (t) => ["FAILED", "PARTIAL"].includes(t.status) || t.receipt_error,
-  ).length;
+  const attention = tasks.filter(needsAttention).length;
   function openTab(tab: Tab) {
     if (tab === "COMMUNICATION") navigate("ARTIFACTS", true);
     else navigate(tab);
@@ -578,22 +612,70 @@ export function App() {
       selected_candidate_ids: [],
     });
   }
+  // The folder objects the screen holds are not part of any list reload. Fetch
+  // one again when its own index job ends so its partial flag matches the
+  // engine. Resolves false when the folder is not on the open path yet.
+  async function reloadFolder(key: string): Promise<boolean> {
+    const view = folderView.current;
+    if (!key.startsWith(`${view.evidenceId}:`)) return false;
+    const id = key.slice(view.evidenceId.length + 1);
+    const index = view.trail.findIndex((item) => item.id === id);
+    if (index < 0) return false;
+    const node = view.trail[index];
+    const owner = caseRef.current;
+    try {
+      let fresh: Row | undefined;
+      if (node.node_type === "ROOT") {
+        const roots = await gateway.call<Row[]>("files.roots", {
+          case_id: owner,
+          evidence_id: view.evidenceId,
+        });
+        fresh = roots.find((r) => r.id === id);
+      } else {
+        const parent = view.trail[index - 1];
+        let cursor: string | null = null;
+        for (let pages = 0; parent && !fresh && pages < 50; pages++) {
+          const result: Row = await gateway.call("files.list", {
+            case_id: owner,
+            evidence_id: view.evidenceId,
+            parent_node_id: parent.id,
+            cursor,
+            limit: 100,
+          });
+          fresh = (result.items ?? []).find((n: Row) => n.id === id);
+          cursor = result.page?.has_more ? result.page.next_cursor : null;
+          if (!cursor) break;
+        }
+      }
+      if (fresh && caseRef.current === owner) {
+        const next = fresh;
+        setFolder((prev) => (prev?.id === id ? next : prev));
+        setFolderTrail((trail) =>
+          trail.map((item) => (item.id === id ? next : item)),
+        );
+      }
+    } catch {
+      // Background refresh only: the next list load shows the engine's state.
+    }
+    return true;
+  }
   // Quick triage stops at a depth limit and marks those folders partial. Opening
   // one indexes just that folder's subtree instead of showing it as empty.
-  const indexedFolders = useRef(new Set<string>());
   async function indexFolder(id: string, node: Row | null | undefined) {
     if (!node?.is_partial || !["ROOT", "DIRECTORY"].includes(node.node_type))
       return;
     const key = `${id}:${node.id}`;
     if (indexedFolders.current.has(key)) return;
-    indexedFolders.current.add(key);
+    indexedFolders.current.set(key, "");
     try {
-      await gateway.call("analysis.start", {
+      const task = await gateway.call("analysis.start", {
         case_id: caseId,
         evidence_id: id,
         kind: "FILES",
         node_id: node.id,
       });
+      if (indexedFolders.current.has(key))
+        indexedFolders.current.set(key, task?.task_id ?? "");
       refresh();
     } catch (err) {
       indexedFolders.current.delete(key);
@@ -604,9 +686,13 @@ export function App() {
     if (route === "FILE_SYSTEM" && evidenceId)
       void indexFolder(evidenceId, folder);
   }, [route, evidenceId, folder?.id]);
+  const folderJob = indexedFolders.current.get(`${evidenceId}:${folder?.id}`);
+  // "" means the job was just requested and has no id yet.
   const folderIndexing =
     !!folder?.is_partial &&
-    tasks.some((t) => t.kind === "FILES" && activeTask(t));
+    folderJob !== undefined &&
+    (folderJob === "" ||
+      tasks.some((t) => t.task_id === folderJob && activeTask(t)));
   function openTreeNode(id: string, node: Row, trail: Row[]) {
     if (id !== evidenceId) chooseEvidence(id);
     if (route !== "FILE_SYSTEM") navigate("FILE_SYSTEM");
@@ -1565,9 +1651,7 @@ export function App() {
                         <dd>{m.views.overview.readOnly}</dd>
                       </div>
                     </dl>
-                    {tasks.some((t) =>
-                      ["PARTIAL", "FAILED", "INTERRUPTED"].includes(t.status),
-                    ) && (
+                    {attention > 0 && (
                       <div className="notice">
                         <span>{m.views.overview.attention}</span>
                         <button onClick={() => setJobsOpen(true)}>

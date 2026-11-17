@@ -416,3 +416,92 @@ def test_background_flag_is_only_for_selected_scope(services, tmp_path: Path) ->
             profile_type=AnalysisProfileType.FULL_ANALYSIS,
             include_background=False,
         )
+
+
+def test_cancelled_folder_job_keeps_the_folder_partial_until_it_succeeds(
+    services, tmp_path: Path
+) -> None:
+    evidence_dir = tmp_path / "retry"
+    (evidence_dir / "dir" / "nested").mkdir(parents=True)
+    for index in range(10):
+        (evidence_dir / "dir" / f"file-{index}.txt").write_text("x", encoding="utf-8")
+    for index in range(10):
+        (evidence_dir / "dir" / "nested" / f"deep-{index}.txt").write_text("d", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.QUICK_TRIAGE,
+    )
+
+    def nodes():
+        return {
+            node.display_path: node
+            for node in services.fs.list_nodes(
+                evidence_id=evidence.evidence_id, all_nodes=True
+            ).items
+        }
+
+    folder = nodes()["/dir"]
+    token = CancellationToken.new()
+
+    def cancel_early(job) -> None:
+        if job.progress.discovered_items >= 14:
+            token.cancel()
+
+    job, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[folder.node_id],
+        include_background=False,
+        batch_size=1,
+        cancellation_token=token,
+        progress_callback=cancel_early,
+    )
+
+    assert job.status == "CANCELLED"
+    # Cancelled: neither the opened folder nor a discovered folder looks complete.
+    assert nodes()["/dir"].is_partial is True
+    assert nodes()["/dir/nested"].is_partial is True
+
+    retry, _ = services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.SELECTED_SCOPE,
+        selected_node_ids=[folder.node_id],
+        include_background=False,
+    )
+
+    assert retry.status == "SUCCEEDED"
+    assert nodes()["/dir"].is_partial is False
+    assert nodes()["/dir/nested"].is_partial is False
+
+
+def test_discovered_folder_stays_partial_until_it_is_listed(services, tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "discovered"
+    (evidence_dir / "a" / "b").mkdir(parents=True)
+    for index in range(5):
+        (evidence_dir / "a" / "b" / f"f{index}.txt").write_text("x", encoding="utf-8")
+    case, evidence = _case_and_directory(services, evidence_dir)
+    token = CancellationToken.new()
+
+    def cancel_once_b_is_known(job) -> None:
+        if job.progress.discovered_items >= 3:
+            token.cancel()
+
+    services.fs.index_evidence(
+        case_id=case.case_id,
+        evidence_id=evidence.evidence_id,
+        profile_type=AnalysisProfileType.FULL_ANALYSIS,
+        batch_size=1,
+        cancellation_token=token,
+        progress_callback=cancel_once_b_is_known,
+    )
+    nodes = {
+        node.display_path: node
+        for node in services.fs.list_nodes(evidence_id=evidence.evidence_id, all_nodes=True).items
+    }
+
+    unlisted = [n for p, n in nodes.items() if p.endswith("/b") and n.is_directory_like]
+    assert not unlisted or unlisted[0].is_partial is True

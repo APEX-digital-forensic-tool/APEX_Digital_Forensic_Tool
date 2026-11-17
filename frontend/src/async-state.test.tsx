@@ -15,6 +15,7 @@ import { AccountPanel, Reports } from "./panels";
 import { AiAssistant } from "./AiAssistant";
 import { createDemoBridge } from "./demoBridge";
 import type { Reply, Row } from "./gateway";
+import { koKR } from "./locales/ko-KR";
 import core from "./__fixtures__/core.json";
 // Synthetic report/version DTOs generated through the real Core services.
 import reportFixture from "./__fixtures__/report.json";
@@ -439,6 +440,260 @@ it("re-searches a history entry through search.query", async () => {
   );
 });
 
+it("counts an interrupted job in the attention badge (#67)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) =>
+    op === "tasks.list"
+      ? {
+          ok: true,
+          data: [
+            {
+              task_id: "interrupted",
+              case_id: payload.case_id,
+              kind: "FILES",
+              status: "INTERRUPTED",
+              actions: [],
+            },
+          ],
+        }
+      : original(op, payload);
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  await screen.findByText("확인 1");
+});
+
+async function openPartialFolder(
+  bridge: ReturnType<typeof createDemoBridge>,
+  isPartial: () => boolean = () => true,
+) {
+  const original = bridge.invoke.bind(bridge);
+  const listed: Row[] = [];
+  bridge.invoke = async (op, payload) => {
+    const reply = await original(op, payload);
+    if (op === "files.list") {
+      listed.push(payload);
+      if (reply.ok && payload.parent_node_id)
+        for (const node of reply.data.items)
+          if (node.node_type === "DIRECTORY") node.is_partial = isPartial();
+    }
+    return reply;
+  };
+  window.apex = bridge;
+  await openFiles();
+  const cells = await within(await screen.findByRole("table")).findAllByText(
+    (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+  );
+  fireEvent.doubleClick(
+    cells
+      .find((el) => el.closest("tr")?.textContent?.includes("폴더"))!
+      .closest("tr")!,
+  );
+  return listed;
+}
+
+it("does not call a folder 'indexing' because another job is running (#67)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) => {
+    if (op === "analysis.start")
+      return { ok: false, error: { code: "WORK_QUEUE_FULL" } };
+    if (op === "tasks.list")
+      return {
+        ok: true,
+        data: [
+          {
+            task_id: "other",
+            case_id: payload.case_id,
+            kind: "FILES",
+            status: "RUNNING",
+            actions: [],
+          },
+        ],
+      };
+    return original(op, payload);
+  };
+  await openPartialFolder(bridge);
+  await screen.findByRole("alert");
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  expect(document.body.textContent).not.toContain(
+    koKR.views.empty.indexingFolder,
+  );
+});
+
+const folderJobBridge = () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const state = { started: false, done: false };
+  bridge.invoke = async (op, payload) => {
+    if (op === "analysis.start") {
+      state.started = true;
+      return { ok: true, data: { task_id: "mine", status: "QUEUED" } };
+    }
+    if (op === "tasks.list")
+      return {
+        ok: true,
+        data: state.started
+          ? [
+              {
+                task_id: "mine",
+                case_id: payload.case_id,
+                kind: "FILES",
+                status: state.done ? "SUCCEEDED" : "RUNNING",
+                actions: [],
+              },
+            ]
+          : [],
+      };
+    return original(op, payload);
+  };
+  return { bridge, state };
+};
+const properties = () =>
+  within(screen.getByRole("complementary", { name: koKR.shell.pane.label }));
+
+/** Lists nothing under the opened folder so the empty state shows. */
+const emptyUnderFolder = (bridge: ReturnType<typeof createDemoBridge>) => {
+  const original = bridge.invoke.bind(bridge);
+  let root = "";
+  bridge.invoke = async (op, payload) => {
+    const reply = await original(op, payload);
+    if (op === "files.list" && reply.ok) {
+      root ||= payload.parent_node_id;
+      if (payload.parent_node_id !== root) reply.data.items = [];
+    }
+    return reply;
+  };
+};
+
+it("shows a folder as indexing only while its own job runs (#67)", async () => {
+  const { bridge, state } = folderJobBridge();
+  emptyUnderFolder(bridge);
+  await openPartialFolder(bridge, () => !state.done);
+  await screen.findByText(
+    koKR.views.empty.indexingFolder,
+    {},
+    { timeout: 3000 },
+  );
+  state.done = true;
+  await waitFor(
+    () =>
+      expect(screen.queryByText(koKR.views.empty.indexingFolder)).toBeNull(),
+    { timeout: 4000 },
+  );
+});
+
+it("reloads the open folder when its index job ends (#67)", async () => {
+  const { bridge, state } = folderJobBridge();
+  await openPartialFolder(bridge, () => !state.done);
+  await waitFor(() => expect(state.started).toBe(true));
+  await waitFor(() =>
+    expect(
+      properties().queryAllByText(koKR.labels.PARTIAL).length,
+    ).toBeGreaterThan(0),
+  );
+  state.done = true;
+  await waitFor(
+    () => expect(properties().queryAllByText(koKR.labels.PARTIAL)).toEqual([]),
+    { timeout: 4000 },
+  );
+});
+
+it("updates a folder that finished indexing while the analyst was in a subfolder (#67)", async () => {
+  const { bridge, state } = folderJobBridge();
+  const original = bridge.invoke.bind(bridge);
+  let root = "";
+  let folderId = "";
+  let template: Row = {};
+  bridge.invoke = async (op, payload) => {
+    const reply = await original(op, payload);
+    if (op === "files.list" && reply.ok) {
+      root ||= payload.parent_node_id;
+      if (payload.parent_node_id === root) template = reply.data.items[0];
+      else {
+        folderId ||= payload.parent_node_id;
+        reply.data.items =
+          payload.parent_node_id === folderId
+            ? [
+                {
+                  ...template,
+                  id: "5a1c0000-0000-4000-8000-000000000001",
+                  original_name: "하위",
+                  node_type: "DIRECTORY",
+                  is_partial: false,
+                },
+              ]
+            : [];
+      }
+    }
+    return reply;
+  };
+  await openPartialFolder(bridge, () => !state.done);
+  await waitFor(() => expect(state.started).toBe(true));
+  fireEvent.doubleClick(
+    (
+      await within(await screen.findByRole("table")).findByText(
+        "하위",
+        {},
+        { timeout: 3000 },
+      )
+    ).closest("tr") as HTMLElement,
+  );
+  await waitFor(() =>
+    expect(
+      within(
+        screen.getByRole("navigation", { name: koKR.views.folder.pathLabel }),
+      ).getAllByRole("button").length,
+    ).toBe(3),
+  );
+  state.done = true;
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  fireEvent.click(
+    within(
+      screen.getByRole("navigation", { name: koKR.views.folder.pathLabel }),
+    ).getAllByRole("button")[1],
+  );
+  await waitFor(() =>
+    expect(properties().queryAllByText(koKR.labels.PARTIAL)).toEqual([]),
+  );
+});
+
+it("syncs an evidence item the status poll selects (#67)", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  const updates: Row[] = [];
+  let listed = false;
+  bridge.invoke = async (op, payload) => {
+    if (op === "evidence.list")
+      return listed ? original(op, payload) : { ok: true, data: [] };
+    if (op === "context.update") updates.push(payload.patch);
+    return original(op, payload);
+  };
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  await waitFor(() => expect(updates.length).toBeGreaterThan(0)).catch(
+    () => undefined,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "분석" }));
+  await waitFor(() => expect(updates.length).toBeGreaterThan(0));
+  listed = true;
+  await waitFor(
+    () =>
+      expect(updates).toContainEqual(
+        expect.objectContaining({ active_evidence_id: core.evidence[0].id }),
+      ),
+    { timeout: 4000 },
+  );
+});
+
 it("runs a search only when the analyst submits it (#66)", async () => {
   const calls = recording();
   await openRoute("통합 검색");
@@ -670,6 +925,71 @@ it("indexes a quick-triage folder when it is opened instead of showing it empty"
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(starts.filter((s) => s.node_id).length).toBe(count);
 });
+
+it.each(["CANCELLED", "FAILED", "INTERRUPTED"])(
+  "indexes a quick-triage folder again after its job is %s (#49)",
+  async (endStatus) => {
+    const bridge = createDemoBridge();
+    const original = bridge.invoke.bind(bridge);
+    const starts: Row[] = [];
+    let polls = 0;
+    let ended = false;
+    bridge.invoke = async (op, payload) => {
+      if (op === "analysis.start") {
+        starts.push(payload);
+        return {
+          ok: true,
+          data: { task_id: `folder-${starts.length}`, status: "QUEUED" },
+        };
+      }
+      if (op === "tasks.list") {
+        if (ended) polls++;
+        return {
+          ok: true,
+          data: starts.map((_, i) => ({
+            task_id: `folder-${i + 1}`,
+            case_id: payload.case_id,
+            kind: "FILES",
+            status: i + 1 < starts.length || ended ? endStatus : "RUNNING",
+            actions: [],
+          })),
+        };
+      }
+      const reply = await original(op, payload);
+      if (
+        op === "files.list" &&
+        reply.ok &&
+        !payload.parent_node_id?.startsWith("x")
+      )
+        for (const node of reply.data.items)
+          if (node.node_type === "DIRECTORY") node.is_partial = true;
+      return reply;
+    };
+    window.apex = bridge;
+    await openFiles();
+    const row = async () =>
+      (
+        await within(await screen.findByRole("table")).findAllByText(
+          (_, el) => el?.tagName === "SPAN" && !!el.closest("tr"),
+        )
+      )
+        .find((el) => el.closest("tr")?.textContent?.includes("폴더"))!
+        .closest("tr")!;
+    fireEvent.doubleClick(await row());
+    await waitFor(() => expect(starts.length).toBe(1));
+    // While the job runs, opening the folder again must not start a second one.
+    fireEvent.click(screen.getByRole("button", { name: "상위 폴더로 이동" }));
+    fireEvent.doubleClick(await row());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(starts.length).toBe(1);
+    ended = true;
+    // Wait until a poll has seen the ended job, then open the folder again.
+    await waitFor(() => expect(polls).toBeGreaterThan(0), { timeout: 4000 });
+    fireEvent.click(screen.getByRole("button", { name: "상위 폴더로 이동" }));
+    fireEvent.doubleClick(await row());
+    await waitFor(() => expect(starts.length).toBe(2), { timeout: 3000 });
+  },
+);
 
 it("lists a report right after it is created", async () => {
   const created = { ...reportFixture.report, title: "새로 만든 보고서" };
