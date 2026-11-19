@@ -1200,6 +1200,12 @@ export function App() {
                   render: (r: Row) => confidence(r.confidence, m),
                 },
                 {
+                  key: "is_partial",
+                  label: m.shell.columns.partial,
+                  render: (r: Row) =>
+                    r.is_partial ? <Badge value="PARTIAL" /> : "—",
+                },
+                {
                   key: "source",
                   label: m.shell.columns.rawSource,
                   width: 220,

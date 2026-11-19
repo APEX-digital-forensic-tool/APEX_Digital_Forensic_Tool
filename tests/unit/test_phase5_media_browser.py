@@ -1639,6 +1639,7 @@ def test_phase5_ffprobe_bounded_output_timeout_and_argv_safety(
         )
 
     monkeypatch.setattr(media_adapter, "media_executable", lambda _name: str(tmp_path / "ffprobe"))
+    monkeypatch.setattr(media_adapter, "cli_input_options", lambda _executable: ())
     monkeypatch.setattr(media_adapter.subprocess, "Popen", popen_ffprobe)
 
     normal = media_adapter._ffprobe_metadata(file_path=injected_path, media_kind="VIDEO")

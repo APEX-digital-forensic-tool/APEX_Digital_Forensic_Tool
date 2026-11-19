@@ -40,6 +40,7 @@ from apex_forensic.domain.models import (
 )
 from apex_forensic.domain.services.canonical import canonical_sha256
 from apex_forensic.runtime.assets import media_executable
+from apex_forensic.runtime.media_inputs import cli_input_options
 from apex_forensic.runtime.subprocess_env import subprocess_environment
 
 _IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "tif", "tiff", "bmp", "webp"}
@@ -53,10 +54,6 @@ _FFPROBE_TIMEOUT_SECONDS = 10
 _FFMPEG_FRAME_TIMEOUT_SECONDS = 15
 _MAX_FFPROBE_JSON_BYTES = 1_048_576
 _MAX_FFMPEG_OUTPUT_BYTES = 8 * 1024 * 1024
-# Do not let an evidence file act as a playlist referencing network/local secrets.
-_LOCAL_MEDIA_FORMATS = (
-    "mov,matroska,webm,avi,asf,mpeg,mpegts,flv,ogg,wav,mp3,flac,aac,image2,png_pipe,jpeg_pipe,gif"
-)
 _MAC_EPOCH = datetime(1904, 1, 1, tzinfo=UTC)
 
 
@@ -563,7 +560,8 @@ def _ffmpeg_sample_frame(
     max_dimension: int = 1536,
 ) -> dict[str, Any]:
     executable = media_executable("ffmpeg")
-    if executable is None:
+    isolation = None if executable is None else cli_input_options(executable)
+    if executable is None or isolation is None:
         return {"status": "CAPABILITY_UNAVAILABLE", "reason": "FFMPEG_UNAVAILABLE"}
     timestamp = max(0.0, timestamp_seconds)
     result = _run_bounded_process(
@@ -571,10 +569,7 @@ def _ffmpeg_sample_frame(
             executable,
             "-hide_banner",
             "-nostdin",
-            "-protocol_whitelist",
-            "file,pipe",
-            "-format_whitelist",
-            _LOCAL_MEDIA_FORMATS,
+            *isolation,
             "-ss",
             f"{timestamp:.3f}",
             "-i",
@@ -766,7 +761,8 @@ def _run_bounded_process(
 
 def _ffprobe_metadata(*, file_path: Path, media_kind: str) -> dict[str, Any]:
     executable = media_executable("ffprobe")
-    if executable is None:
+    isolation = None if executable is None else cli_input_options(executable)
+    if executable is None or isolation is None:
         return {
             "metadata": {},
             "warnings": [
@@ -783,10 +779,7 @@ def _ffprobe_metadata(*, file_path: Path, media_kind: str) -> dict[str, Any]:
         }
     args = [
         executable,
-        "-protocol_whitelist",
-        "file,pipe",
-        "-format_whitelist",
-        _LOCAL_MEDIA_FORMATS,
+        *isolation,
         "-v",
         "error",
         "-show_format",

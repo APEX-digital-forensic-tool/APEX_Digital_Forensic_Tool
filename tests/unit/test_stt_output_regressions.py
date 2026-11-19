@@ -87,9 +87,11 @@ def test_faster_whisper_hashes_audio_once_and_rejects_wrong_model_language(
     assert rows[0]["source_sha256"] == rows[1]["source_sha256"]
 
 
-def test_whisper_cpp_auto_language_is_sent_and_source_provenance_attached(tmp_path, monkeypatch):
+def test_whisper_cpp_auto_language_is_sent_and_source_provenance_attached(
+    tmp_path, monkeypatch, valid_wav
+):
     source, model = tmp_path / "recording.wav", tmp_path / "model.bin"
-    source.write_bytes(b"synthetic audio")
+    source.write_bytes(valid_wav)
     model.write_bytes(b"synthetic model")
     monkeypatch.setattr(stt.shutil, "which", lambda _: "whisper-cli")
 
