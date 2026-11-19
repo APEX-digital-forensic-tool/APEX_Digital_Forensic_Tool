@@ -21,9 +21,10 @@ from apex_forensic.adapters.machine_extraction.stt import WhisperCppCliSttProvid
 
 client = api_client
 
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="uses a FIFO and a POSIX script as whisper-cli"
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="uses a FIFO or a POSIX script as whisper-cli"
 )
+ENGINES = ["faster-whisper", pytest.param("whisper.cpp", marks=posix_only)]
 
 
 def tone(path: Path, container: str, codec: str) -> bytes:
@@ -97,7 +98,8 @@ def provider_for(engine: str, tmp_path: Path, monkeypatch, heard: list[object]):
     return _faster_whisper(heard)
 
 
-@pytest.mark.parametrize("engine", ["faster-whisper", "whisper.cpp"])
+@posix_only
+@pytest.mark.parametrize("engine", ENGINES)
 def test_speech_job_never_reads_a_playlist_segment_outside_the_evidence(
     client, tmp_path, monkeypatch, engine
 ):
@@ -145,7 +147,7 @@ def test_speech_job_never_reads_a_playlist_segment_outside_the_evidence(
     ("name", "container", "codec"),
     [("call.wav", "wav", "pcm_s16le"), ("memo.m4a", "ipod", "aac"), ("tape", "ipod", "aac")],
 )
-@pytest.mark.parametrize("engine", ["faster-whisper", "whisper.cpp"])
+@pytest.mark.parametrize("engine", ENGINES)
 def test_real_audio_still_decodes_under_the_input_limits(
     tmp_path, monkeypatch, engine, name, container, codec
 ):
