@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { act, cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderInEnglish } from "../i18n/testing";
 import { createDemoBridge } from "../demoBridge";
@@ -13,8 +13,14 @@ afterEach(() => {
   delete window.apex;
 });
 
+async function chooseDirect() {
+  await userEvent.click(await screen.findByRole("radio", { name: /^Direct/ }));
+  return screen.getByLabelText("Base URL");
+}
+
 const none = {
   configured: false,
+  mode: null as "server" | "custom" | null,
   managed: false,
   has_key: false,
   storage_available: true,
@@ -22,7 +28,8 @@ const none = {
   model_id: null,
   temperature: 0,
   max_output: 4096,
-  timeout: 30,
+  // What main reports when nothing is stored: the APEX server default.
+  timeout: 120,
 };
 const ok = <T,>(data: T) => ({ ok: true as const, data });
 
@@ -46,15 +53,13 @@ it("saves the connection, then clears the key field and never shows the key", as
     }),
   );
   mount({ aiConnection: async () => ok(none), saveAiConnection: save });
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "https://api.example.com/v1",
-  );
+  await userEvent.type(await chooseDirect(), "https://api.example.com/v1");
   await userEvent.type(screen.getByLabelText("Model name"), "model-x");
   await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Configured");
   expect(save).toHaveBeenCalledWith({
+    mode: "custom",
     base_url: "https://api.example.com/v1",
     model_id: "model-x",
     api_key: "test-key-123",
@@ -76,16 +81,14 @@ it("shows the saved connection and says the engine did not restart", async () =>
       ok({
         ...none,
         configured: true,
+        mode: "custom" as const,
         has_key: true,
         base_url: "https://api.example.com/v1",
         model_id: "model-x",
         engine_error: "BACKEND_START_FAILED",
       }),
   });
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "https://api.example.com/v1",
-  );
+  await userEvent.type(await chooseDirect(), "https://api.example.com/v1");
   await userEvent.type(screen.getByLabelText("Model name"), "model-x");
   await userEvent.type(screen.getByLabelText("API key"), "test-key-123");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -147,10 +150,7 @@ it("keeps the form filled and explains a rejected save", async () => {
       error: { code: "AI_CONNECTION_INVALID" },
     }),
   });
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "http://api.example.com",
-  );
+  await userEvent.type(await chooseDirect(), "http://api.example.com");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect((screen.getByLabelText("Base URL") as HTMLInputElement).value).toBe(
@@ -162,10 +162,92 @@ it("says when the key cannot be encrypted on this computer", async () => {
   mount({
     aiConnection: async () => ok({ ...none, storage_available: false }),
   });
+  await userEvent.click(await screen.findByRole("radio", { name: /^Direct/ }));
   await screen.findByText(
     "This computer cannot encrypt the key, so it is not stored in the app.",
   );
-  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+  ).toBe(true);
+});
+
+it("starts a new connection on the APEX server and saves no key", async () => {
+  const save = vi.fn(async () =>
+    ok({ ...none, configured: true, mode: "server" as const }),
+  );
+  mount({
+    aiConnection: async () => ok({ ...none, storage_available: false }),
+    saveAiConnection: save,
+  });
+  expect(
+    (
+      (await screen.findByRole("radio", {
+        name: /^APEX server/,
+      })) as HTMLInputElement
+    ).checked,
+  ).toBe(true);
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  expect(
+    screen.getByText("Sign in to your APEX account to use AI."),
+  ).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Configured");
+  expect(save).toHaveBeenCalledWith({
+    mode: "server",
+    temperature: 0,
+    max_output: 4096,
+    timeout: 120,
+  });
+});
+
+it("shows which server the AI requests go through when signed in", async () => {
+  mount({
+    aiConnection: async () =>
+      ok({ ...none, configured: true, mode: "server" as const }),
+    account: async () =>
+      ok({
+        state: "signed_in" as const,
+        connected: true,
+        origin: "https://apex.example",
+        expires_at: Date.now() + 60000,
+        reason: null,
+      }),
+  });
+  expect(await screen.findByText("https://apex.example")).toBeTruthy();
+  expect(screen.getByText("Signed in")).toBeTruthy();
+});
+
+it("keeps a pushed sign-out when the first account load answers later", async () => {
+  let answer!: (reply: unknown) => void;
+  let push!: (status: unknown) => void;
+  const signedIn = {
+    state: "signed_in" as const,
+    connected: true,
+    origin: "https://apex.example",
+    expires_at: Date.now() + 60000,
+    reason: null,
+  };
+  mount({
+    aiConnection: async () =>
+      ok({ ...none, configured: true, mode: "server" as const }),
+    account: () => new Promise((r) => (answer = r)) as never,
+    onAccountChange: (listener) => {
+      push = listener as never;
+      return () => {};
+    },
+  });
+  await screen.findByRole("radio", { name: /^APEX server/ });
+  act(() =>
+    push({
+      ...signedIn,
+      state: "signed_out",
+      origin: null,
+      reason: "LOGGED_OUT",
+    }),
+  );
+  await act(async () => answer(ok(signedIn)));
+  expect(screen.queryByText("https://apex.example")).toBeNull();
 });
 
 it("offers Try again when the status fails to load", async () => {
@@ -179,7 +261,7 @@ it("offers Try again when the status fails to load", async () => {
   await userEvent.click(
     await screen.findByRole("button", { name: "Try again" }),
   );
-  await screen.findByLabelText("Base URL");
+  await chooseDirect();
   expect(calls).toBe(2);
 });
 
@@ -188,10 +270,7 @@ it("shows the saving label and the restart status while a save is running", asyn
     aiConnection: async () => ok(none),
     saveAiConnection: () => new Promise(() => {}),
   });
-  await userEvent.type(
-    await screen.findByLabelText("Base URL"),
-    "http://127.0.0.1:9/v1",
-  );
+  await userEvent.type(await chooseDirect(), "http://127.0.0.1:9/v1");
   // The live region is there before it has anything to say, so the text is
   // announced when it arrives.
   expect(screen.getByRole("status").textContent).toBe("");
@@ -226,5 +305,32 @@ it("keeps the Save label while a removal is running", async () => {
   expect(screen.queryByRole("button", { name: "Saving…" })).toBeNull();
   expect(screen.getByRole("status").textContent).toMatch(
     /Restarting the analysis engine/,
+  );
+});
+
+it("resets the wait to the server default when a saved direct connection switches", async () => {
+  const save = vi.fn(async () =>
+    ok({ ...none, configured: true, mode: "server" as const }),
+  );
+  mount({
+    aiConnection: async () =>
+      ok({
+        ...none,
+        configured: true,
+        mode: "custom" as const,
+        has_key: true,
+        base_url: "https://api.example.com/v1",
+        model_id: "model-x",
+        timeout: 30,
+      }),
+    saveAiConnection: save,
+  });
+  await userEvent.click(
+    await screen.findByRole("radio", { name: /^APEX server/ }),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Configured");
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ mode: "server", timeout: 120 }),
   );
 });

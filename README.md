@@ -108,10 +108,10 @@ AI API 키는 설치 파일과 저장소에 포함하지 않습니다.
 - 연결 테스트 버튼과 제공자 목록은 없습니다. 저장이 성공해도 제공자에 실제로 연결된다는 뜻은 아닙니다.
 - 대상 플랫폼은 Windows와 macOS입니다. v0.2.0에서 직접 사용해 확인한 것은 macOS이고, Windows는 자동 테스트와 빌드만 거쳤습니다.
 
-**환경변수로 설정 (고급·자동화용, 있으면 우선):** `APEX_DESKTOP_AI_CONFIG`가 설정되어 있으면 앱 안 설정보다 이 값이 우선합니다. 이때 앱 화면은 "환경변수로 관리됨"만 보여 주고 저장·삭제를 받지 않습니다. v0.1.4 이하에서는 이 방법만 사용할 수 있습니다. 앱을 완전히 종료하고 환경변수를 설정한 터미널에서 설치된 앱을 실행하세요. 아래 설정은 릴리스에서 실제 호출을 확인한 제공자의 예시입니다.
+**환경변수로 설정 (고급·자동화용, 있으면 우선):** `APEX_DESKTOP_AI_CONFIG`가 설정되어 있으면 앱 안 설정보다 이 값이 우선합니다. 이때 앱 화면은 "환경변수로 관리됨"만 보여 주고 저장·삭제를 받지 않습니다. v0.1.4 이하에서는 이 방법만 사용할 수 있습니다. 앱을 완전히 종료하고 환경변수를 설정한 터미널에서 설치된 앱을 실행하세요. 아래는 Kimi(Moonshot) 설정 예시입니다. v0.1.2 릴리스에서는 `kimi-k3` 모델로 실제 호출을 확인했습니다. 예시의 `kimi-k3.1-pro`는 Moonshot 문서가 현재 안내하는 모델로, 아직 실제 키로 호출해 보지 않았습니다.
 
 ```powershell
-$env:APEX_DESKTOP_AI_CONFIG = '{"provider_id":"moonshot-kimi","base_url":"https://api.moonshot.ai/v1","model_id":"kimi-k3","api_key_env":"APEX_AI_API_KEY","temperature":1.0,"max_output":16384,"timeout":240}'
+$env:APEX_DESKTOP_AI_CONFIG = '{"provider_id":"moonshot-kimi","base_url":"https://api.moonshot.ai/v1","model_id":"kimi-k3.1-pro","api_key_env":"APEX_AI_API_KEY","temperature":1.0,"max_output":16384,"timeout":240}'
 $env:APEX_AI_API_KEY = '<본인의 API 키>'
 ```
 

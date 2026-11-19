@@ -3,7 +3,7 @@
 param(
     [string]$ProviderId = "moonshot-kimi",
     [string]$BaseUrl = "https://api.moonshot.ai/v1",
-    [string]$Model = "kimi-k3",
+    [string]$Model = "kimi-k3.1-pro",
     [string]$KeyEnv = "APEX_AI_API_KEY",
     [double]$Temperature = 1.0,
     [int]$MaxOutput = 16384,

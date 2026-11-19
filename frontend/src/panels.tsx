@@ -8,8 +8,11 @@ import {
   FolderOpen,
   Plus,
   Check,
+  AlertCircle,
+  Clock3,
 } from "./icons";
 import { gateway, unwrap, errorText, type Row } from "./gateway";
+import type { AccountStatus } from "../electron/serverSession";
 import { ReportCompare, ReportVersionDialog } from "./ReportTools";
 import {
   isRequiredSection,
@@ -197,25 +200,47 @@ export function FormDialog({
     </div>
   );
 }
+const SIGNED_OUT: AccountStatus = {
+  state: "signed_out",
+  connected: false,
+  origin: null,
+  expires_at: null,
+  reason: null,
+};
 /** `compact` drops the card frame, title and intro for hosts that supply their own. */
 export function AccountPanel({ compact = false }: { compact?: boolean }) {
-  const { m } = useI18n();
-  const [state, setState] = useState<Row>({ connected: false }),
+  const { m, locale } = useI18n();
+  const t = m.panels.account;
+  const [state, setState] = useState<AccountStatus>(SIGNED_OUT),
     [error, setError] = useState<unknown>(null),
     // Set when the status itself failed to load; sign-in errors leave it false.
     [loadFailed, setLoadFailed] = useState(false),
     [attempt, setAttempt] = useState(0),
     [busy, setBusy] = useState(false);
+  // Counts pushed changes, so a reply that answers after one does not undo it.
+  const pushes = useRef(0);
   useEffect(() => {
+    const before = pushes.current;
     window.apex
       ?.account()
       .then(unwrap)
-      .then(setState)
+      .then((loaded) => {
+        if (pushes.current === before) setState(loaded);
+      })
       .catch((err) => {
         setError(err);
         setLoadFailed(true);
       });
   }, [attempt]);
+  // Refresh, expiry and logout happen in the main process; it pushes each change.
+  useEffect(
+    () =>
+      window.apex?.onAccountChange?.((pushed) => {
+        pushes.current++;
+        setState(pushed);
+      }),
+    [],
+  );
   return (
     <div className={compact ? "account-panel" : "card"}>
       {!compact && (
@@ -226,79 +251,132 @@ export function AccountPanel({ compact = false }: { compact?: boolean }) {
           <p className="muted">{m.panels.account.body}</p>
         </>
       )}
-      {state.connected ? (
+      {state.state !== "signed_out" ? (
         <>
-          <p>
-            <Badge value="AVAILABLE" /> {state.origin}
-          </p>
-          <button
-            onClick={async () => {
-              if (window.apex) {
-                unwrap(await window.apex.logout());
-                setState({ connected: false });
+          <div className="account-session" role="status">
+            <div className="account-session-head">
+              <span
+                className={`badge ${state.state === "signed_in" ? "green" : "amber"}`}
+              >
+                {state.state === "signed_in" ? t.signedIn : t.reconnecting}
+              </span>
+              <span className="account-origin">{state.origin}</span>
+            </div>
+            <p
+              className={`account-session-meta${state.state === "reconnecting" ? " warn" : ""}`}
+            >
+              {state.state === "reconnecting" ? (
+                <AlertCircle size={14} />
+              ) : (
+                <Clock3 size={14} />
+              )}
+              <span>
+                {state.state === "reconnecting"
+                  ? t.reconnectingBody
+                  : state.expires_at != null &&
+                    t.renewsAt(
+                      new Date(state.expires_at).toLocaleTimeString(locale, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }),
+                    )}
+              </span>
+            </p>
+          </div>
+          <div className="account-actions">
+            <button
+              disabled={busy}
+              onClick={async () => {
+                if (!window.apex) return;
+                setBusy(true);
+                setError(null);
+                const before = pushes.current;
+                try {
+                  unwrap(await window.apex.logout());
+                  if (pushes.current === before)
+                    setState({ ...SIGNED_OUT, reason: "LOGGED_OUT" });
+                } catch (err) {
+                  setError(err);
+                  // A failed server logout still ends the session here; show what main holds now.
+                  const now = await window.apex.account().catch(() => null);
+                  if (now?.ok) setState(now.data);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <LogOut size={14} /> {t.logout}
+            </button>
+            <p className="muted small">{t.logoutHint}</p>
+          </div>
+        </>
+      ) : (
+        <>
+          {state.reason === "SESSION_EXPIRED" && (
+            <div className="account-notice" role="status">
+              <AlertCircle size={15} />
+              <span>{t.sessionExpired}</span>
+            </div>
+          )}
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setError(null);
+              setLoadFailed(false);
+              const form = e.currentTarget;
+              const data = Object.fromEntries(new FormData(form));
+              const before = pushes.current;
+              try {
+                if (window.apex) {
+                  const signedIn = unwrap(await window.apex.login(data));
+                  if (pushes.current === before) setState(signedIn);
+                  form.reset();
+                }
+              } catch (err) {
+                setError(err);
+              } finally {
+                (
+                  form.elements.namedItem("password") as HTMLInputElement
+                ).value = "";
+                setBusy(false);
               }
             }}
           >
-            <LogOut size={14} /> {m.panels.account.logout}
-          </button>
-          <p className="muted small">{m.panels.account.logoutHint}</p>
+            <div className="form-grid">
+              <label>
+                {m.panels.account.origin}
+                <input
+                  name="origin"
+                  type="url"
+                  placeholder={m.panels.account.originPlaceholder}
+                  required
+                />
+              </label>
+              <label>
+                {m.panels.account.tenant}
+                <input name="tenant_id" required />
+              </label>
+              <label>
+                {m.panels.account.email}
+                <input name="email" type="email" required />
+              </label>
+              <label>
+                {m.panels.account.password}
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+            </div>
+            <button disabled={!window.apex || busy}>
+              <LogIn size={14} />
+              {busy ? m.panels.account.signingIn : m.panels.account.connect}
+            </button>
+          </form>
         </>
-      ) : (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError(null);
-            setLoadFailed(false);
-            const form = e.currentTarget;
-            const data = Object.fromEntries(new FormData(form));
-            try {
-              if (window.apex) {
-                setState(unwrap(await window.apex.login(data)));
-                form.reset();
-              }
-            } catch (err) {
-              setError(err);
-            } finally {
-              (form.elements.namedItem("password") as HTMLInputElement).value =
-                "";
-              setBusy(false);
-            }
-          }}
-        >
-          <div className="form-grid">
-            <label>
-              {m.panels.account.origin}
-              <input
-                name="origin"
-                type="url"
-                placeholder={m.panels.account.originPlaceholder}
-                required
-              />
-            </label>
-            <label>
-              {m.panels.account.tenant}
-              <input name="tenant_id" required />
-            </label>
-            <label>
-              {m.panels.account.email}
-              <input name="email" type="email" required />
-            </label>
-            <label>
-              {m.panels.account.password}
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-          </div>
-          <button disabled={!window.apex || busy}>
-            <LogIn size={14} />
-            {busy ? m.panels.account.signingIn : m.panels.account.connect}
-          </button>
-        </form>
       )}
       {error != null && (
         <ErrorState

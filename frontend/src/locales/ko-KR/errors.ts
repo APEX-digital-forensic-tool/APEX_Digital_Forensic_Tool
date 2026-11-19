@@ -13,6 +13,9 @@ export const errors = {
     "이 컴퓨터에서는 키를 암호화할 수 없어 앱에 저장하지 않습니다.",
   AI_CONNECTION_MANAGED:
     "환경변수(APEX_DESKTOP_AI_CONFIG)로 관리되는 설정입니다. 실행 환경에서 변경해주세요.",
+  AUTHENTICATION_FAILED:
+    "AI 제공자가 인증을 거부했습니다. APEX 서버 연결이면 다시 로그인하고, 직접 연결이면 API 키를 확인하세요.",
+  RATE_LIMITED: "AI 제공자의 요청 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.",
   AI_ENGINE_BUSY:
     "분석 작업이 실행 중이라 지금은 변경할 수 없습니다. 작업이 끝난 뒤 다시 시도해주세요.",
   AI_CONFIGURATION_INVALID:
@@ -112,6 +115,14 @@ export const errors = {
   RAW_SOURCE_UNAVAILABLE:
     "원본 파일을 읽을 수 없습니다. 증거 경로와 접근 권한을 확인해주세요.",
   RAW_RANGE_NOT_SATISFIABLE: "원본 데이터 범위를 벗어났습니다.",
+  AUTH_LOGOUT_INCOMPLETE:
+    "이 앱에서는 로그아웃했지만 서버에 세션 종료를 알리지 못했습니다. 서버 세션은 만료될 때까지 남아 있을 수 있습니다.",
+  AUTH_ALREADY_SIGNED_IN:
+    "이미 로그인되어 있습니다. 다른 계정은 로그아웃한 뒤 연결하세요.",
+  AUTH_LOGIN_CANCELLED:
+    "로그인하는 동안 로그아웃되어 로그인을 취소했습니다. 다시 시도하세요.",
+  AUTH_CONTRACT_INVALID:
+    "인증 서버가 예상과 다른 형식으로 답했습니다. 서버 주소와 버전을 확인하세요.",
   AUTH_LOGIN_FAILED: "이메일, 비밀번호 또는 테넌트 ID를 확인해주세요.",
   AUTH_ORIGIN_INVALID:
     "인증 서버 주소는 HTTPS 주소 또는 로컬 HTTP 주소여야 합니다.",

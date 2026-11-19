@@ -27,6 +27,7 @@ import { messagesFor } from "../src/i18n/catalog";
 import {
   aiConnectionStatus,
   aiEnvironment,
+  callWithServerConnection,
   clearAiConnection,
   saveAiConnection,
   type AiDeps,
@@ -40,6 +41,7 @@ import { engineTimeoutMs, postEngine } from "./engineRequest";
 import { quitOnClose } from "./quitOnClose";
 import { PickerReferences, type PickPurpose } from "./pickerReferences";
 import { IMAGE_EXTENSIONS } from "../src/imageExtensions";
+import { createServerSession } from "./serverSession";
 
 // Used by native packaging CI to exercise the shipped Electron/preload/API path.
 // An explicit CLI flag and isolated data directory keep normal user data untouched.
@@ -111,14 +113,16 @@ let backendError = "SERVICE_NOT_READY";
 let quitting = false;
 const token = randomBytes(32).toString("hex");
 const picked = new PickerReferences();
-let account:
-  | {
-      access_token: string;
-      refresh_token: string;
-      expiresAt: number;
-      origin: string;
-    }
-  | undefined;
+const session = createServerSession({
+  fetch: (url, init) => fetch(url, init),
+  now: Date.now,
+  setTimer: (run, ms) => setTimeout(run, ms),
+  clearTimer: (handle) => clearTimeout(handle as NodeJS.Timeout),
+  onChange: (status) => {
+    for (const open of BrowserWindow.getAllWindows())
+      open.webContents.send("apex:account-changed", status);
+  },
+});
 let pageURL = "";
 const fail = (code: string) => ({ ok: false, error: { code } });
 
@@ -520,7 +524,13 @@ else {
                 picked.delete(String(payload[key]));
             return result;
           }
-          return local(operation, payload);
+          return callWithServerConnection(
+            operation,
+            payload,
+            aiDeps,
+            session,
+            (p) => local(operation, p),
+          );
         },
       );
       handle(
@@ -571,87 +581,16 @@ else {
         const error = await shell.openPath(folder);
         return error ? fail("EXPORT_FOLDER_FAILED") : { ok: true, data: null };
       });
-      handle("apex:account", () => ({
-        ok: true,
-        data: {
-          connected: !!account && account.expiresAt > Date.now(),
-          origin: account?.origin ?? null,
-        },
-      }));
-      handle(
-        "apex:login",
-        async (
-          _event,
-          input: {
-            origin: string;
-            email: string;
-            password: string;
-            tenant_id: string;
-          },
-        ) => {
-          if (
-            !input ||
-            typeof input.origin !== "string" ||
-            typeof input.email !== "string" ||
-            typeof input.password !== "string" ||
-            typeof input.tenant_id !== "string"
-          )
-            return fail("VALIDATION_ERROR");
-          let url: URL;
-          try {
-            url = new URL(input.origin);
-          } catch {
-            return fail("AUTH_ORIGIN_INVALID");
-          }
-          if (
-            url.username ||
-            url.password ||
-            url.search ||
-            url.hash ||
-            url.pathname !== "/" ||
-            (url.protocol !== "https:" &&
-              !(
-                url.protocol === "http:" &&
-                ["127.0.0.1", "localhost"].includes(url.hostname)
-              ))
-          )
-            return fail("AUTH_ORIGIN_INVALID");
-          const response = await fetch(`${url.origin}/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: input.email,
-              password: input.password,
-              tenant_id: input.tenant_id,
-            }),
-            redirect: "error",
-            signal: AbortSignal.timeout(15000),
-          });
-          if (!response.ok)
-            return fail(
-              response.status === 401
-                ? "AUTH_LOGIN_FAILED"
-                : "AUTH_SERVER_UNAVAILABLE",
-            );
-          const result = await response.json();
-          if (
-            typeof result.access_token !== "string" ||
-            typeof result.refresh_token !== "string" ||
-            typeof result.expires_in !== "number"
-          )
-            return fail("AUTH_CONTRACT_INVALID");
-          account = {
-            access_token: result.access_token,
-            refresh_token: result.refresh_token,
-            expiresAt: Date.now() + result.expires_in * 1000,
-            origin: url.origin,
-          };
-          return { ok: true, data: { connected: true, origin: url.origin } };
-        },
-      );
-      handle("apex:logout", () => {
-        account = undefined;
-        return { ok: true, data: null };
+      handle("apex:account", () => ({ ok: true, data: session.status() }));
+      handle("apex:login", async (_event, input: unknown) => {
+        const result = await session.login(input);
+        return result.ok
+          ? { ok: true, data: result.status }
+          : fail(result.code);
+      });
+      handle("apex:logout", async () => {
+        const result = await session.logout();
+        return result.ok ? { ok: true, data: null } : fail(result.code);
       });
       // Responses carry only the status; the key never leaves the main process.
       handle("apex:ai-connection", () => ({
@@ -810,7 +749,7 @@ app.on("before-quit", (event) => {
       return;
     }
     backend = undefined;
-    account = undefined;
+    session.dispose();
     quitApproved = true;
     app.quit();
   })().catch(() => {

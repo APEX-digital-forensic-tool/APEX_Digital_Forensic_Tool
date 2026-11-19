@@ -866,6 +866,69 @@ tr.selected td:first-child {
   font-size: var(--fs-ui);
   margin-bottom: 18px;
 }
+/* Server sign-in: status and server on one line, what happens next under it. */
+.account-session {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.account-session-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.account-origin {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: var(--fs-body);
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+.account-session-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-ui);
+  line-height: 1.6;
+  word-break: keep-all;
+}
+.account-session-meta svg {
+  flex: none;
+  margin-top: 2px;
+}
+.account-session-meta.warn {
+  color: var(--warn-fg);
+}
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.account-actions p {
+  margin: 0;
+}
+.account-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: var(--fs-ui);
+  line-height: 1.6;
+  word-break: keep-all;
+}
+.account-notice svg {
+  flex: none;
+  margin-top: 2px;
+}
 .card .table-scroll {
   max-height: 450px;
 }

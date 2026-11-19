@@ -324,7 +324,13 @@ export function createDemoBridge(): DesktopBridge {
       return ok(null);
     },
     async account() {
-      return ok({ connected: false, origin: null });
+      return ok({
+        state: "signed_out" as const,
+        connected: false,
+        origin: null,
+        expires_at: null,
+        reason: null,
+      });
     },
     async login() {
       return fail("DEMO_READ_ONLY");
@@ -336,6 +342,7 @@ export function createDemoBridge(): DesktopBridge {
       // Storage reads as available so the preview renders the connection form.
       return ok({
         configured: false,
+        mode: null,
         managed: false,
         has_key: false,
         storage_available: true,
@@ -343,7 +350,7 @@ export function createDemoBridge(): DesktopBridge {
         model_id: null,
         temperature: 0,
         max_output: 4096,
-        timeout: 30,
+        timeout: 120,
       });
     },
     async saveAiConnection() {

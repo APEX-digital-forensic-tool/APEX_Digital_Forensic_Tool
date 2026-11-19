@@ -11,7 +11,14 @@ export const panels = {
     title: "APEX 계정",
     body: "로그인 없이 모든 로컬 분석 작업을 사용할 수 있습니다. 서버 계정은 원격 서비스 연결에 사용합니다.",
     logout: "앱에서 로그아웃",
-    logoutHint: "이 앱의 메모리에서 계정 세션을 제거합니다.",
+    logoutHint: "이 앱에서 세션을 지우고 서버에도 세션 종료를 요청합니다.",
+    signedIn: "로그인됨",
+    reconnecting: "다시 연결 중",
+    reconnectingBody:
+      "서버에 연결할 수 없어 세션을 갱신하지 못했습니다. 연결되면 자동으로 이어집니다.",
+    renewsAt: (time: string) => `세션은 ${time} 전에 자동으로 갱신됩니다.`,
+    sessionExpired:
+      "서버 세션이 만료되어 로그아웃되었습니다. 다시 로그인하세요.",
     origin: "기존 인증 서버 주소",
     originPlaceholder: "https://인증-서버-주소",
     tenant: "테넌트 ID",

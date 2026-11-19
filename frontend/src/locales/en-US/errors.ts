@@ -15,6 +15,9 @@ export const errors: Messages["errors"] = {
     "This computer cannot encrypt the key, so it is not stored in the app.",
   AI_CONNECTION_MANAGED:
     "Managed by the APEX_DESKTOP_AI_CONFIG environment variable. Change it in the runtime environment.",
+  AUTHENTICATION_FAILED:
+    "The AI provider rejected the credentials. For the APEX server, sign in again; for a direct connection, check the API key.",
+  RATE_LIMITED: "The AI provider is rate limiting requests. Try again shortly.",
   AI_ENGINE_BUSY:
     "An analysis task is running, so this cannot be changed now. Try again after it finishes.",
   AI_CONFIGURATION_INVALID:
@@ -114,6 +117,14 @@ export const errors: Messages["errors"] = {
   RAW_SOURCE_UNAVAILABLE:
     "The source file cannot be read. Check the evidence path and permissions.",
   RAW_RANGE_NOT_SATISFIABLE: "The range is outside the source data.",
+  AUTH_LOGOUT_INCOMPLETE:
+    "You are signed out of this app, but the server could not be told. The server session may stay until it expires.",
+  AUTH_ALREADY_SIGNED_IN:
+    "You are already signed in. Sign out before connecting another account.",
+  AUTH_LOGIN_CANCELLED:
+    "You were signed out while signing in, so sign-in was cancelled. Try again.",
+  AUTH_CONTRACT_INVALID:
+    "The authentication server answered in an unexpected format. Check the server address and version.",
   AUTH_LOGIN_FAILED: "Check the email, password, or tenant ID.",
   AUTH_ORIGIN_INVALID:
     "The authentication server address must be an HTTPS address or a local HTTP address.",

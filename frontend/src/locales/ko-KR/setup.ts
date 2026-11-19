@@ -52,6 +52,14 @@ export const setup = {
     saving: "분석 엔진을 다시 시작하고 있습니다. 1분 남짓 걸릴 수 있습니다.",
     busy: "분석 작업이 끝난 뒤 변경할 수 있습니다.",
     policyNote: "무엇을 AI로 보낼지는 사건별 AI 데이터 정책이 결정합니다.",
+    modeLabel: "연결 방식",
+    modeServer: "APEX 서버",
+    modeServerHint:
+      "로그인한 APEX 서버가 AI 요청을 처리합니다. API 키가 필요 없습니다.",
+    modeCustom: "직접 연결",
+    modeCustomHint: "OpenAI 호환 주소와 내 API 키로 직접 호출합니다.",
+    loginNeeded: "로그인 필요",
+    serverSignedOut: "APEX 계정에 로그인해야 AI를 쓸 수 있습니다.",
   },
   examiner: {
     title: "새 사건 기본값",
