@@ -9,6 +9,18 @@
       body.source_path = body.source_reference;
       delete body.source_reference;
     }
+    if (operation === "machine.configure") {
+      const old = await call("machine.capabilities", {});
+      if (!old.ok) return old;
+      Object.assign(body, { ...old.data.settings, ...body });
+      for (const [referenceKey, pathKey] of [
+        ["model_reference", "stt_model_path"],
+        ["tessdata_reference", "tessdata_path"],
+      ]) {
+        if (body[referenceKey] !== undefined) body[pathKey] = body[referenceKey];
+        delete body[referenceKey];
+      }
+    }
     const response = await fetch("/__engine/v1/operations/" + operation, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -30,7 +42,7 @@
       };
     },
     openExports: async () => ({ ok: true, data: null }),
-    account: async () => ({ ok: true, data: null }),
+    account: async () => ({ ok: true, data: { state: "signed_out" } }),
     login: async () => ({ ok: false, error: { code: "DESKTOP_REQUIRED" } }),
     logout: async () => ({ ok: true, data: null }),
     aiConnection: async () => ({
