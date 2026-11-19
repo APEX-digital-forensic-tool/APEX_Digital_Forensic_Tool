@@ -3,8 +3,10 @@
 import os
 import sys
 import threading
+import time
 from contextlib import contextmanager, suppress
 from pathlib import Path
+from types import SimpleNamespace
 
 import av
 import numpy
@@ -27,10 +29,10 @@ posix_only = pytest.mark.skipif(
 ENGINES = ["faster-whisper", pytest.param("whisper.cpp", marks=posix_only)]
 
 
-def tone(path: Path, container: str, codec: str) -> bytes:
-    """One second of 440 Hz, encoded by PyAV."""
+def tone(path: Path, container: str, codec: str, seconds: int = 1) -> bytes:
+    """A 440 Hz tone, encoded by PyAV."""
     rate = 16_000
-    wave = numpy.sin(2 * numpy.pi * 440 * numpy.arange(rate) / rate) * 8000
+    wave = numpy.sin(2 * numpy.pi * 440 * numpy.arange(rate * seconds) / rate) * 8000
     frame = av.AudioFrame.from_ndarray(
         wave.astype(numpy.int16).reshape(1, -1), format="s16", layout="mono"
     )
@@ -164,3 +166,79 @@ def test_real_audio_still_decodes_under_the_input_limits(
         samples = len(audio)
     # One second at 16 kHz; AAC adds encoder padding.
     assert 16_000 <= samples <= 18_000
+
+
+def damaged_in_the_middle(path: Path) -> bytes:
+    """Two seconds of ADTS AAC whose middle packet no longer decodes."""
+    data = bytearray(tone(path, "adts", "aac", seconds=2))
+    with av.open(str(path)) as container:
+        packets = [(p.pos, p.size) for p in container.demux(audio=0) if p.size]
+    start, size = packets[len(packets) // 2]
+    for index in range(start + 8, start + size):
+        data[index] ^= 0xFF
+    return bytes(data)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_a_damaged_packet_keeps_later_audio_and_marks_the_result_partial(
+    tmp_path, monkeypatch, engine
+):
+    source = tmp_path / "source"
+    source.write_bytes(damaged_in_the_middle(tmp_path / "tone.aac"))
+    heard: list[object] = []
+    provider = provider_for(engine, tmp_path, monkeypatch, heard)
+    if engine == "whisper.cpp":
+        [row] = provider.analyze_audio(source)
+        samples = int(row["text"].split()[0])
+    else:
+        segment = SimpleNamespace(text="heard", avg_logprob=0.0, start=0.0, end=2.0)
+        provider._engine.transcribe = lambda audio, **_: (
+            heard.append(audio) or iter([segment]),
+            SimpleNamespace(language="en"),
+        )
+        [row] = provider._transcribe(source, None)
+        [audio] = heard
+        samples = len(audio)
+    # Two seconds less one damaged AAC frame (1024 samples), not just the first half.
+    assert samples >= 2 * 16_000 - 2048
+    assert row["is_partial"] is True
+
+
+@posix_only
+@pytest.mark.parametrize("engine", ENGINES)
+def test_decoding_counts_against_the_provider_timeout(tmp_path, monkeypatch, engine):
+    source = tmp_path / "source"
+    source.write_bytes(tone(tmp_path / "tone.aac", "adts", "aac", seconds=3))
+    real = av.AudioResampler
+    resampled: list[float] = []
+
+    class SlowResampler:
+        def __init__(self, *args, **kwargs):
+            self._real = real(*args, **kwargs)
+
+        def resample(self, frame):
+            resampled.append(time.monotonic())
+            time.sleep(0.05)
+            return self._real.resample(frame)
+
+    monkeypatch.setattr(av, "AudioResampler", SlowResampler)
+    provider = provider_for(engine, tmp_path, monkeypatch, [])
+    provider._timeout = 0.3
+    started = time.monotonic()
+    with pytest.raises(stt_adapter.UnsupportedCapabilityError) as error:
+        provider.analyze_audio(source)
+    assert "timed out" in error.value.developer_message
+    assert time.monotonic() - started < 1.5
+    # Decoding stops at the deadline instead of running on in the background.
+    time.sleep(1.2)
+    assert resampled[-1] - started < 1.0
+
+
+def test_decoded_audio_longer_than_the_limit_is_refused(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.write_bytes(tone(tmp_path / "tone.wav", "wav", "pcm_s16le", seconds=2))
+    monkeypatch.setattr(stt_adapter, "_MAX_AUDIO_SECONDS", 1)
+    provider = provider_for("faster-whisper", tmp_path, monkeypatch, [])
+    with pytest.raises(stt_adapter.UnsupportedCapabilityError) as error:
+        provider._transcribe(source, None)
+    assert "size limit" in error.value.developer_message
