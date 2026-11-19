@@ -43,10 +43,11 @@ uv sync --extra backend --extra mcp-server
 ### 2. DB 마이그레이션
 
 ```bash
+DATABASE_URL="postgresql+asyncpg://apex:secret@localhost:5432/apex" \
 uv run alembic upgrade head
 ```
 
-> `APEX_DATABASE_URL`이 설정돼 있어야 한다.
+> alembic은 `APEX_DATABASE_URL`이 아니라 `DATABASE_URL`을 읽는다(`src/apex_backend/alembic/env.py`). 없으면 `alembic.ini`의 기본 URL로 접속한다.
 
 ### 3. apex_backend 실행
 
@@ -56,8 +57,10 @@ APEX_RS256_PRIVATE_KEY_PEM="$(cat private.pem)" \
 APEX_ISSUER="https://apex.example.com" \
 APEX_MCP_RESOURCE="https://apex.example.com/mcp" \
 APEX_ACCESS_TOKEN_TTL="300" \
-uv run uvicorn apex_backend.app:create_app --factory --host 0.0.0.0 --port 8000
+uv run python -c 'import os, uvicorn; from apex_backend.app import create_app; uvicorn.run(create_app(os.environ["APEX_DATABASE_URL"]), host="0.0.0.0", port=8000)'
 ```
+
+> `create_app`은 DB URL을 인자로 받으므로 `uvicorn apex_backend.app:create_app --factory`로는 시작하지 않는다(`create_app() missing 1 required positional argument`). 위처럼 `APEX_DATABASE_URL`을 읽어 넘긴다.
 
 ### 4. apex_mcp (HTTP 모드) 실행
 
