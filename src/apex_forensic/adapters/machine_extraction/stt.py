@@ -10,10 +10,10 @@ import math
 import shutil
 import subprocess
 import tempfile
+import time
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,8 @@ from apex_forensic.runtime.subprocess_env import subprocess_environment
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
 MAX_STT_OUTPUT_BYTES = 10 * 1024 * 1024
 _SAMPLE_RATE = 16_000
+# A longer recording cannot finish within the provider timeout; this also bounds memory.
+_MAX_AUDIO_SECONDS = 2 * 60 * 60
 
 
 def local_model_available(path: Path | None) -> bool:
@@ -75,14 +77,14 @@ class WhisperCppCliSttProvider:
     def capabilities(self) -> ProviderCapability:
         executable = shutil.which(self._executable)
         model_available = self._model_path is not None and self._model_path.is_file()
-        decoder_available = _module_available("av")
+        decoder_available = _module_available("av") and _module_available("numpy")
         available = executable is not None and model_available and decoder_available
         warnings: list[dict[str, Any]] = []
         if not decoder_available:
             warnings.append(
                 {
                     "code": "CAPABILITY_UNAVAILABLE",
-                    "developer_message": "PyAV, which decodes audio for whisper.cpp, is missing.",
+                    "developer_message": "PyAV or NumPy is missing; whisper.cpp needs both.",
                     "python_module": "av",
                 }
             )
@@ -135,6 +137,7 @@ class WhisperCppCliSttProvider:
             or self._model_path is None
             or not self._model_path.is_file()
             or not _module_available("av")
+            or not _module_available("numpy")
         ):
             raise UnsupportedCapabilityError(
                 "STT binary, model or audio decoder is unavailable.",
@@ -149,7 +152,8 @@ class WhisperCppCliSttProvider:
                 "STT source audio exceeds the size limit.",
                 target="path",
             )
-        pcm = _decoded_pcm(resolved)
+        deadline = time.monotonic() + self._timeout
+        pcm, partial = _decoded_pcm(resolved, deadline)
         with tempfile.TemporaryDirectory(prefix="apex-stt-") as temp_dir:
             # whisper-cli may be built with FFmpeg and cannot take input limits, so it
             # only ever reads this WAV, never the evidence copy.
@@ -176,15 +180,11 @@ class WhisperCppCliSttProvider:
                     command,
                     check=False,
                     capture_output=True,
-                    timeout=self._timeout,
+                    timeout=max(0.0, deadline - time.monotonic()),
                     env=subprocess_environment(),
                 )
             except subprocess.TimeoutExpired as exc:
-                raise UnsupportedCapabilityError(
-                    "STT provider timed out while analyzing the audio.",
-                    target="stt_provider",
-                    required_capability="STT_RUNTIME",
-                ) from exc
+                raise _timed_out() from exc
             # whisper.cpp reports input it cannot read this way, sometimes with exit code 0.
             if b"failed to read audio" in completed.stderr:
                 raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed")
@@ -209,6 +209,7 @@ class WhisperCppCliSttProvider:
         for row in rows:
             row["source_sha256"] = source_sha256
             row["model_id"] = f"whisper.cpp:{self._model_path.name}"
+            row["is_partial"] = partial
         return rows
 
     def _model_metadata(self) -> dict[str, Any]:
@@ -325,26 +326,26 @@ class FasterWhisperSttProvider:
                 "STT source audio exceeds the size limit.",
                 target="path",
             )
+        deadline = time.monotonic() + self._timeout
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="apex-stt")
-        future = executor.submit(self._transcribe, resolved, language)
+        future = executor.submit(self._transcribe, resolved, language, deadline)
         try:
             return future.result(timeout=self._timeout)
         except FutureTimeoutError as exc:
             future.cancel()
-            raise UnsupportedCapabilityError(
-                "STT provider timed out while analyzing the audio.",
-                target="stt_provider",
-                required_capability="STT_RUNTIME",
-            ) from exc
+            raise _timed_out() from exc
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    def _transcribe(self, path: Path, language: str | None) -> list[dict[str, Any]]:
+    def _transcribe(
+        self, path: Path, language: str | None, deadline: float = math.inf
+    ) -> list[dict[str, Any]]:
         engine = self._faster_whisper_engine()
         if language not in {None, "en"} and not engine.model.is_multilingual:
             raise ApexError("STT_LANGUAGE_UNSUPPORTED", "error.stt_language_unsupported")
+        pcm, partial = _decoded_pcm(path, deadline)
         segments, info = engine.transcribe(
-            _decoded_pcm(path).astype("float32") / 32768.0,
+            pcm.astype("float32") / 32768.0,
             language=language,
             vad_filter=False,
             word_timestamps=False,
@@ -367,6 +368,7 @@ class FasterWhisperSttProvider:
                     "audio_end_ms": _milliseconds(getattr(segment, "end", None)),
                     "model_id": f"faster-whisper:{model_id}" if model_id else "faster-whisper",
                     "source_sha256": source_sha256,
+                    "is_partial": partial,
                 }
             )
         return rows
@@ -408,12 +410,29 @@ class FasterWhisperSttProvider:
         }
 
 
-def _decoded_pcm(path: Path) -> Any:
-    """16 kHz mono 16-bit samples, decoded by PyAV from this copy and nothing else."""
+def _decoded_pcm(path: Path, deadline: float) -> tuple[Any, bool]:
+    """16 kHz mono 16-bit samples from this copy and nothing else, and whether any were lost.
+
+    A packet that does not decode is skipped and the rest still decodes; the caller marks
+    the result partial so the analyst knows the transcript does not cover all the audio.
+    """
     av = importlib.import_module("av")
     numpy = importlib.import_module("numpy")
     resampler = av.AudioResampler(format="s16", layout="mono", rate=_SAMPLE_RATE)
     chunks: list[Any] = []
+    samples = 0
+    skipped = 0
+
+    def keep(frames: list[Any]) -> None:
+        nonlocal samples
+        for out in frames:
+            chunks.append(out.to_ndarray().reshape(-1))
+            samples += out.samples
+        if samples > _MAX_AUDIO_SECONDS * _SAMPLE_RATE:
+            raise UnsupportedCapabilityError(
+                "STT source audio exceeds the size limit.", target="path"
+            )
+
     try:
         with av.open(
             str(path), container_options=pyav_container_options(), metadata_errors="ignore"
@@ -422,14 +441,31 @@ def _decoded_pcm(path: Path) -> Any:
                 raise ApexError(
                     "MEDIA_AUDIO_FORMAT_UNSUPPORTED", "error.media_audio_format_unsupported"
                 )
-            # Keep what precedes damaged data, as faster-whisper's own decoder does.
-            with suppress(av.error.InvalidDataError):
-                for frame in container.decode(audio=0):
-                    chunks.extend(out.to_ndarray().reshape(-1) for out in resampler.resample(frame))
-            chunks.extend(out.to_ndarray().reshape(-1) for out in resampler.resample(None))
+            for packet in container.demux(container.streams.audio[0]):
+                if time.monotonic() > deadline:
+                    raise _timed_out()
+                try:
+                    frames = packet.decode()
+                except av.error.InvalidDataError:
+                    skipped += 1
+                    continue
+                for frame in frames:
+                    keep(resampler.resample(frame))
+            keep(resampler.resample(None))
     except av.error.FFmpegError as error:
         raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed") from error
-    return numpy.concatenate(chunks) if chunks else numpy.zeros(0, dtype=numpy.int16)
+    if skipped and not chunks:
+        raise ApexError("MEDIA_DECODE_FAILED", "error.media_decode_failed")
+    pcm = numpy.concatenate(chunks) if chunks else numpy.zeros(0, dtype=numpy.int16)
+    return pcm, skipped > 0
+
+
+def _timed_out() -> UnsupportedCapabilityError:
+    return UnsupportedCapabilityError(
+        "STT provider timed out while analyzing the audio.",
+        target="stt_provider",
+        required_capability="STT_RUNTIME",
+    )
 
 
 def _segments(payload: Any, language: str | None) -> list[dict[str, Any]]:
