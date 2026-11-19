@@ -2,21 +2,21 @@
 
 APEX는 **Electron + React + TypeScript 데스크톱 앱**, **Python·Native 하이브리드 분석 엔진**, **한국어·영어 UI**, **MCP 및 선택적 AI 분석 보조 기능**을 제공하는 디지털 포렌식 분석 플랫폼입니다. 로그인 없이 로컬 사건을 생성하고 증거를 분석할 수 있습니다.
 
-## 다운로드 — v0.2.1 Preview
+## 다운로드 — v0.2.2 Preview
 
-**[APEX v0.2.1 다운로드 및 릴리스 노트](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/tag/v0.2.1)**
+**[APEX v0.2.2 다운로드 및 릴리스 노트](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/tag/v0.2.2)**
 
 | 운영체제 | 설치 파일 | 앱 압축 파일 |
 |---|---|---|
-| Windows x64 | [APEX-0.2.1-Windows-x64.exe](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/APEX-0.2.1-Windows-x64.exe) | — |
-| macOS Apple Silicon | [APEX-0.2.1-macOS-arm64.dmg](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/APEX-0.2.1-macOS-arm64.dmg) | [arm64.zip](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/APEX-0.2.1-macOS-arm64.zip) |
-| macOS Intel | [APEX-0.2.1-macOS-x64.dmg](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/APEX-0.2.1-macOS-x64.dmg) | [x64.zip](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/APEX-0.2.1-macOS-x64.zip) |
+| Windows x64 | [APEX-0.2.2-Windows-x64.exe](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/APEX-0.2.2-Windows-x64.exe) | — |
+| macOS Apple Silicon | [APEX-0.2.2-macOS-arm64.dmg](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/APEX-0.2.2-macOS-arm64.dmg) | [arm64.zip](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/APEX-0.2.2-macOS-arm64.zip) |
+| macOS Intel | [APEX-0.2.2-macOS-x64.dmg](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/APEX-0.2.2-macOS-x64.dmg) | [x64.zip](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/APEX-0.2.2-macOS-x64.zip) |
 
 - 설치 파일에는 Electron 앱과 로컬 Python 분석 런타임이 포함되어 **별도 Python·Node.js 설치가 필요하지 않습니다**. GitHub의 `Source code` 압축 파일은 개발용 소스입니다.
-- 파일 무결성은 [SHA256SUMS.txt](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/SHA256SUMS.txt), 빌드 소스와 CI 출처는 [build-provenance.json](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.1/build-provenance.json)에서 확인할 수 있습니다.
+- 파일 무결성은 [SHA256SUMS.txt](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/SHA256SUMS.txt), 빌드 소스와 CI 출처는 [build-provenance.json](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/releases/download/v0.2.2/build-provenance.json)에서 확인할 수 있습니다.
 - **macOS는 ad-hoc 서명을 적용한 인증서 없는 프리뷰**입니다. Apple Developer ID 서명·공증은 없으며, 최초 실행 시 시스템 설정 → 개인정보 보호 및 보안 → 해당 APEX의 **확인 없이 열기** 승인이 필요할 수 있습니다. Windows는 서명 없는 프리뷰로 SmartScreen 경고가 나타날 수 있습니다. 체크섬은 개발자 인증을 대신하지 않습니다.
 
-실제 DMG·ZIP 안의 앱 서명과 화면 → preload IPC → 분석 엔진 기동을 두 Mac 아키텍처에서 검사한 파일을 배포합니다. [v0.2.1 변경 내용](docs/releases/v0.2.1-preview.md)과 첨부된 아키텍처별 검증 보고서를 참고하세요. Apple 인증서가 준비되면 별도 [Developer ID·Apple 공증 절차](docs/desktop/MACOS_SIGNED_RELEASE.md)를 사용합니다.
+실제 DMG·ZIP 안의 앱 서명과 화면 → preload IPC → 분석 엔진 기동을 두 Mac 아키텍처에서 검사한 파일을 배포합니다. [v0.2.2 변경 내용](docs/releases/v0.2.2-preview.md)과 첨부된 아키텍처별 검증 보고서를 참고하세요. Apple 인증서가 준비되면 별도 [Developer ID·Apple 공증 절차](docs/desktop/MACOS_SIGNED_RELEASE.md)를 사용합니다.
 - 자동 업데이트는 제공하지 않습니다. 새 버전의 설치 파일로 직접 업데이트하세요.
 
 앱 실행 후 **사건 만들기 → 증거 파일/폴더 등록 → 분석 실행 → 파일·아티팩트 조회 → 보고서 검토·내보내기** 순으로 사용할 수 있습니다. 검색·타임라인은 해당 분석 작업을 실행한 뒤 조회합니다. 외부 AI는 제공자 설정과 사건 정책의 허용이 필요한 선택 기능입니다.
@@ -35,7 +35,7 @@ APEX는 다음 프로젝트의 장점을 참고하여 디지털 포렌식 분석
 
 APEX는 독립적인 Python 분석 엔진과 Electron·TypeScript 앱을 사용합니다. 성능에 민감한 영역과 외부 분석 라이브러리는 Native Adapter로 분리합니다.
 
-> **2026-11-13 기준:** 실제 디스크 이미지로 엔진과 화면을 끝까지 실행해 찾은 결함(빈 볼륨, exFAT 시각, 미할당 카빙 실패 등)을 고치고 AI 도우미 화면을 정리한 **v0.2.1 Preview**를 배포했습니다. Windows x64·macOS arm64/x64의 테스트, 런타임 확인과 설치 파일 생성이 통과했고, 실제 DMG·ZIP의 앱 서명과 화면·분석 엔진 기동까지 검사했습니다. 수정 사항은 macOS에서 직접 만든 디스크 이미지로 엔진과 화면을 실행해 확인했고 Windows에서는 자동 테스트와 빌드만 거쳤습니다. 파일 내용 검색과 APFS는 아직 지원하지 않습니다.
+> **2026-11-19 기준:** APEX 서버 로그인과 서버를 거친 Kimi AI 연결을 추가하고, 실제 엔진과 화면으로 다시 점검해 찾은 결함 36건을 고친 **v0.2.2 Preview**를 배포했습니다. Windows x64·macOS arm64/x64의 테스트, 런타임 확인과 설치 파일 생성이 통과했고, 실제 DMG·ZIP의 앱 서명과 화면·분석 엔진 기동까지 검사했습니다. 로그인과 서버 AI 연결은 macOS의 실제 앱에서 확인했고, 실제 Kimi 호출은 서버 단독으로 확인했습니다. Windows에서는 자동 테스트와 빌드만 거쳤습니다. 파일 내용 검색과 APFS는 아직 지원하지 않습니다.
 
 ---
 
@@ -43,7 +43,7 @@ APEX는 독립적인 Python 분석 엔진과 Electron·TypeScript 앱을 사용�
 
 | 영역 | 현재 상태 | 설명 |
 |---|---|---|
-| Desktop / Frontend | **v0.2.1 Preview 배포** | 한국어·영어 Electron·React·TypeScript 앱. 첫 실행 설정 창과 앱 안 AI 연결. 사건·증거·파일·아티팩트·검색·타임라인·후보 검토·보관 이력·보고서·AI 화면 연결. 증거 등록 확인·자동 해시, 보고서 검토 단계 표시 |
+| Desktop / Frontend | **v0.2.2 Preview 배포** | 한국어·영어 Electron·React·TypeScript 앱. 첫 실행 설정 창과 앱 안 AI 연결(APEX 서버 로그인 또는 직접 연결). 사건·증거·파일·아티팩트·검색·타임라인·후보 검토·보관 이력·보고서·AI 화면 연결. 증거 등록 확인·자동 해시, 보고서 검토 단계 표시 |
 | 로컬 API | **엔진 연결 및 회귀 검증** | 실행별 토큰을 사용하는 loopback FastAPI. 비로그인 로컬 분석, 비동기 작업·취소·기록 복구, 사건 범위와 입력 검증 |
 | Forensic Core Engine | **Phase 1~8 및 확장 기능 구현·연동** | RAW/DD/IMG/E01/VHD/VHDX 내부 파일 읽기, Windows 아티팩트, 검색·타임라인, 삭제 파일 복구·ADS·연속 시그니처 카빙, 원본 보호, 보고서 출처·승인·내보내기 |
 | 로컬 OCR / STT / 미디어 | **기본 실행기·모델 포함** | RapidOCR·한국어 모델, Faster Whisper·다국어 base 모델. Windows에는 FFmpeg/ffprobe 포함. 실제 정확도와 호스트별 지원 범위는 별도 검증 |
@@ -52,6 +52,16 @@ APEX는 독립적인 Python 분석 엔진과 Electron·TypeScript 앱을 사용�
 | 인증 백엔드 | **Identity / Approval 구현·연동** | JWT RS256·JWKS·세션·사건별 RBAC·DB confirmation grant. 서버 별도 실행. 앱의 자동 토큰 갱신·서버 로그아웃 연결 및 Billing은 후속 범위 |
 | 배포 / CI | **Windows x64·macOS arm64/x64 성공** | 런타임 빌드·기동 확인, 설치 파일·체크섬·빌드 출처 공개. 서명·공증·자동 업데이트는 미제공 |
 | KakaoTalk Windows 2.0.8.990 | **IMPLEMENTED_UNVERIFIED** | Offline Discovery·PE Version 검증·외부 Key 복호화·`chatLogs` 추출 구현, 자동 Key 획득과 실제 Fixture는 외부 근거 부족으로 차단 |
+
+### v0.2.2 주요 변경
+
+APEX 서버 로그인과 서버를 거친 Kimi AI 연결을 추가하고, 실제 엔진과 화면으로 다시 점검해 찾은 결함 36건을 고친 릴리스입니다. 상세 내용과 확인하지 못한 범위는 [v0.2.2 릴리스 노트](docs/releases/v0.2.2-preview.md)에 있습니다.
+
+- **APEX 서버 로그인:** 계정 패널에서 서버에 로그인하면 세션이 자동으로 갱신되고, 로그아웃하면 서버 세션도 폐기합니다. 토큰은 앱 메모리에만 있어 앱을 다시 켜면 다시 로그인합니다.
+- **'APEX 서버' AI 연결:** 키를 앱에 저장하지 않고 로그인만으로 서버를 거쳐 Kimi(기본 `kimi-k3.1-pro`)를 씁니다. 기존 직접 연결도 그대로 쓸 수 있습니다.
+- **엔진·앱 수명:** 종료 후 엔진이 남거나 두 개가 뜨던 문제, 창 없는 앱이 남던 문제, 300초에서 끊기던 AI 분석, 외부 도구로 새던 AI 키를 고쳤습니다.
+- **분석·증거:** 분할 이미지 세트 안내, 폴더 추가 분석 재시도, 인덱스 없음 경고, 확장자가 맞지 않는 음성 파일 STT를 고쳤습니다. STT 디코더는 선택한 증거 밖의 파일을 읽지 않습니다.
+- **보관 이력·보고서·화면:** 보관 이력 정정 진입과 순서 열, 동시 기록 시 EXPORTED 누락, 반려된 보고서의 새 버전 승인, 작업 완료 시 목록·선택 초기화를 고쳤습니다.
 
 ### v0.2.1 주요 변경
 
@@ -125,6 +135,9 @@ $env:APEX_AI_API_KEY = '<본인의 API 키>'
 
 | 대상 | 확인된 결과 / 근거 |
 |---|---|
+| v0.2.2 배포 소스 | [`6296722`](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/commit/629672254f347041e1cac510d96b2815f57f0638), [PR #112](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/pull/112)로 main에 병합. 포함 변경: #71, #74, #104, #106, #107, #109 |
+| v0.2.2 릴리스 CI | [실행 44468943093](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/44468943093) 성공 — 세 환경 native 빌드, DMG·ZIP 서명/기동 검사, 자산 해시 확인 후 게시 |
+| v0.2.2 PR 검사 | #112: [Desktop 44466911078](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/44466911078), [MCP 44466911123](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/44466911123) 성공. 로컬 Python 1118개, 프론트 354개 통과 |
 | v0.2.1 배포 소스 | [`8cbbf0d`](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/commit/8cbbf0d4c775a8fcf5f42f0b54b9cae73b1c9c72), [PR #45](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/pull/45)·[PR #46](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/pull/46)로 main에 병합 |
 | v0.2.1 릴리스 CI | [실행 43331462113](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/43331462113) 성공 — 세 환경 native 빌드, DMG·ZIP 서명/기동 검사, 자산 해시 확인 후 게시 |
 | v0.2.1 PR 검사 | #45: [Desktop 43330051392](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/43330051392), [MCP 43330051833](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/43330051833) 성공. #46: [Desktop 43331411217](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/43331411217), [MCP 43331411295](https://github.com/APEX-digital-forensic-tool/APEX_Digital_Forensic_Tool/actions/runs/43331411295) 성공. Python 914개, 프론트 240개, 릴리스 정책·자산 15개 검사 통과 |
