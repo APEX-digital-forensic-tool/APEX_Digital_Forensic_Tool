@@ -411,6 +411,38 @@ it("records a general custody event with the existing custody.add input", async 
   );
 });
 
+it("shows the engine's ledger revision in the custody sequence column", async () => {
+  const event = (revision: number, event_type: string, action: string) => ({
+    event_id: `0000000${revision}-0000-4000-8000-000000000000`,
+    case_id: core.cases[0].id,
+    evidence_id: core.evidence[0].id,
+    event_type,
+    action,
+    actor_name: "SYSTEM",
+    occurred_at_utc: "2026-11-17T01:00:00.000000Z",
+    immutable_revision: revision,
+    event_hash: `hash-${revision}`,
+  });
+  recording({
+    "custody.list": () => [
+      event(1, "RECEIVED", "Evidence registered"),
+      event(2, "CORRECTION", "fix"),
+    ],
+  });
+  await openRoute("증거 보관 이력");
+  const table = await screen.findByRole("table");
+  await within(table).findByText("Evidence registered");
+  const headers = within(table)
+    .getAllByRole("columnheader")
+    .map((cell) => cell.textContent);
+  const column = headers.indexOf("순서");
+  const sequence = within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) => within(row).getAllByRole("cell")[column].textContent);
+  expect(sequence).toEqual(["1", "2"]);
+});
+
 it("re-searches a history entry through search.query", async () => {
   const calls = recording({
     "search.history": () => [

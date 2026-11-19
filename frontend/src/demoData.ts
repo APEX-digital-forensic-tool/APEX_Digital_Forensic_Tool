@@ -493,7 +493,7 @@ export function createDemoData() {
             id: id(),
             case_id: c.id,
             evidence_id: ev.id,
-            sequence: i + 1,
+            immutable_revision: i + 1,
             event_type: ["ACQUISITION", "ANALYSIS", "REVIEW"][i],
             action,
             actor: { name: c.created_by },
