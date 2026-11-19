@@ -43,12 +43,17 @@ def index_state(
             " WHERE case_id = ? AND evidence_id = ? AND is_stale = 0",
             (case_id, eid),
         ).fetchone()[0]
+        search_state = {**state(item), "source_items": sources, "indexed_items": indexed}
+        timeline_state = {**state(timeline[eid]), "source_items": sources}
+        if sources == 0:
+            # Nothing was indexed to build from: an empty result proves nothing.
+            search_state["state"] = timeline_state["state"] = "NONE"
         result.append(
             {
                 "evidence_id": eid,
                 "display_name": item["display_name"],
-                "search": {**state(item), "source_items": sources, "indexed_items": indexed},
-                "timeline": {**state(timeline[eid]), "source_items": sources},
+                "search": search_state,
+                "timeline": timeline_state,
             }
         )
     return result

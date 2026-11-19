@@ -233,7 +233,7 @@ def invoke(
         if node.case_id != case_id:
             mismatch()
         if operation == "machine.run" and p["kind"] == "STT":
-            require_speech_source(node)
+            require_speech_source(node, s.evidence.get_evidence(node.evidence_id))
     if operation == "files.streams":
         return FileStreamService(s.repository, s.images).list(**p)
     if operation == "streams.read":

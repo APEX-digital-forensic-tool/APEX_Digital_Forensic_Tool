@@ -51,10 +51,18 @@ export function IndexWarning({
           ["PARTIAL", "FAILED", "CANCELLED", "NOT_STARTED"].includes(
             e[key].source_status,
           );
+        const failed = e[key].status === "FAILED";
+        // A failed build is reported as failed even when it had nothing to build from.
         const message =
           route === "SEARCH"
-            ? (none ? t.searchNone : t.searchPartial)(e.display_name)
-            : (none ? t.timelineNone : t.timelinePartial)(e.display_name);
+            ? (failed ? t.searchFailed : none ? t.searchNone : t.searchPartial)(
+                e.display_name,
+              )
+            : (failed
+                ? t.timelineFailed
+                : none
+                  ? t.timelineNone
+                  : t.timelinePartial)(e.display_name);
         const kind = needsFiles ? "FILES" : route;
         return (
           <div className="notice" role="status" key={e.evidence_id}>

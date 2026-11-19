@@ -94,6 +94,12 @@ class _RunState:
     run_started: float = field(default_factory=time.monotonic)
     indexed_this_run: int = 0
     sequence: int = 0
+    # Folders whose own listing reported an error; they are never marked complete.
+    failed_listings: set[str] = field(default_factory=set)
+    # Folders the analyst opened, by node id or path; they clear only when the job drains.
+    selected: frozenset[str] = frozenset()
+    # A root this job enqueued and has not finished listing; partial if the job stops first.
+    unlisted_root: str | None = None
 
 
 class FileSystemIndexService:
@@ -223,11 +229,17 @@ class FileSystemIndexService:
             progress_callback=progress_callback,
         )
         try:
-            root = self._repository.upsert_fs_node(
-                provider.get_root_node(evidence, index_revision=index_revision)
-            )
+            root = provider.get_root_node(evidence, index_revision=index_revision)
+            lists_root = root.is_directory_like and root.is_traversed and options.include_background
+            stored_root = self._repository.get_fs_node(root.node_id)
+            # Keep what earlier listings established (a failed one left it partial); only a
+            # listing clears it. Not marked at job start: the open tree reindexes partial roots.
+            # A new root this job does not list has never been read.
+            root.is_partial = stored_root.is_partial if stored_root else not lists_root
+            root = self._repository.upsert_fs_node(root)
             coverage.discovered_items = 1
-            if root.is_directory_like and root.is_traversed and options.include_background:
+            if lists_root:
+                state.unlisted_root = root.node_id
                 self._enqueue(
                     job.job_id, root.node_id, priority=10, depth=0, reason="ROOT", state_sequence=0
                 )
@@ -253,6 +265,7 @@ class FileSystemIndexService:
                 details={"exception_type": type(error).__name__},
             )
         )
+        self._mark_unlisted_root_partial(state)
         now = self._clock.now()
         state.job.status = JobStatus.FAILED
         state.job.finished_at = now
@@ -319,8 +332,44 @@ class FileSystemIndexService:
             cancellation_token=cancellation_token,
             pause_token=pause_token,
             progress_callback=progress_callback,
+            failed_listings=self._failed_listings(job_id),
         )
         return self._run(state)
+
+    def _failed_listings(self, job_id: str) -> set[str]:
+        """Folders whose listing failed in an earlier run of this job, from its scan events."""
+        failed: set[str] = set()
+        for event in self._repository.list_fs_scan_events(job_id):
+            node_id = event.get("node_id")
+            if node_id is None or node_id in failed:
+                continue
+            if event["severity"] != "WARNING":
+                failed.add(node_id)
+                continue
+            node = self._repository.get_fs_node(node_id)
+            if node is not None and event.get("path") == node.display_path:
+                failed.add(node_id)
+        return failed
+
+    def _selected_node_ids(self, state: _RunState) -> frozenset[str]:
+        """Selected folders this job lists; only these are cleared when the queue drains."""
+        nodes = [
+            self._repository.get_fs_node(node_id) for node_id in state.options.selected_node_ids
+        ]
+        nodes += [
+            self._repository.get_fs_node_by_relative_path(
+                state.evidence.evidence_id,
+                state.provider.provider_id,
+                state.provider.provider_version,
+                self._clean_relative_path(selected_path),
+            )
+            for selected_path in state.options.selected_paths
+        ]
+        return frozenset(
+            node.node_id
+            for node in nodes
+            if node is not None and node.is_directory_like and node.is_traversed
+        )
 
     def index_status(self, job_id: str) -> dict[str, Any]:
         """Return job, coverage, and scan events for a filesystem index job."""
@@ -463,6 +512,7 @@ class FileSystemIndexService:
         )
 
     def _run(self, state: _RunState) -> tuple[Job, IndexCoverage]:
+        state.selected = self._selected_node_ids(state)
         state.job.status = JobStatus.RUNNING
         state.job.started_at = state.job.started_at or self._clock.now()
         state.job.job_revision += 1
@@ -486,6 +536,10 @@ class FileSystemIndexService:
                     if final_status is IndexCoverageStatus.COMPLETE
                     else JobStatus.PARTIAL
                 )
+                # The queue drained: skipped items are recorded in the coverage, so
+                # the opened folder is not indexed again. Cancel, failure, pause and
+                # budget exhaustion return earlier and keep it partial.
+                self._clear_selected_partial(state)
                 return self._finish(state, final_job_status, final_status)
             node = self._repository.get_fs_node(str(item["node_id"]))
             if node is None:
@@ -520,6 +574,11 @@ class FileSystemIndexService:
                 self._record_issue(state, entry)
                 if entry.severity == "WARNING":
                     state.coverage.skipped_items += 1
+                # An error, or any issue on the folder itself such as a denied
+                # read, means its listing is not known to be complete.
+                if entry.severity != "WARNING" or entry.path == parent.display_path:
+                    state.failed_listings.add(parent.node_id)
+                    self._mark_partial(parent)
                 if self._budget_reached(state):
                     self._repository.update_fs_queue_cursor(
                         str(item["queue_id"]), item.get("cursor_key")
@@ -555,6 +614,9 @@ class FileSystemIndexService:
                     >= state.options.max_queue_size
                 ):
                     state.coverage.skipped_items += 1
+                    # Never listed in this job, so it must not look complete.
+                    stored.is_partial = True
+                    self._repository.upsert_fs_node(stored)
                     self._record_issue(
                         state,
                         ProviderScanIssue(
@@ -570,6 +632,10 @@ class FileSystemIndexService:
                         ),
                     )
                 else:
+                    # Not listed yet: stays partial until its own listing finishes,
+                    # so a cancelled or failed job does not leave it looking empty.
+                    stored.is_partial = True
+                    self._repository.upsert_fs_node(stored)
                     self._enqueue(
                         state.job.job_id,
                         stored.node_id,
@@ -593,10 +659,35 @@ class FileSystemIndexService:
             self._repository.save_fs_nodes(batch)
         self._repository.mark_fs_queue_done(str(item["queue_id"]))
         state.coverage.processed_items += 1
-        if parent.is_partial:
-            # A depth-limited folder that has now been listed completely.
+        if parent.node_id == state.unlisted_root:
+            state.unlisted_root = None
+        if (
+            parent.is_partial
+            and parent.node_id not in state.selected
+            and parent.node_id not in state.failed_listings
+        ):
+            # A depth-limited folder that has now been listed completely. A folder
+            # the analyst opened clears only when its job drains the queue.
             parent.is_partial = False
             self._repository.upsert_fs_node(parent)
+
+    def _mark_partial(self, node: FileSystemNode) -> None:
+        if not node.is_partial:
+            node.is_partial = True
+            self._repository.upsert_fs_node(node)
+
+    def _mark_unlisted_root_partial(self, state: _RunState) -> None:
+        if state.unlisted_root is not None:
+            root = self._repository.get_fs_node(state.unlisted_root)
+            if root is not None:
+                self._mark_partial(root)
+
+    def _clear_selected_partial(self, state: _RunState) -> None:
+        for node_id in state.selected:
+            node = self._repository.get_fs_node(node_id)
+            if node is not None and node.is_partial and node_id not in state.failed_listings:
+                node.is_partial = False
+                self._repository.upsert_fs_node(node)
 
     def _finish(
         self,
@@ -604,6 +695,7 @@ class FileSystemIndexService:
         job_status: JobStatus,
         coverage_status: IndexCoverageStatus,
     ) -> tuple[Job, IndexCoverage]:
+        self._mark_unlisted_root_partial(state)
         state.coverage.status = coverage_status
         state.coverage.updated_at = self._clock.now()
         state.job.status = job_status
@@ -648,9 +740,9 @@ class FileSystemIndexService:
                     ancestor,
                 )
                 if node is None:
-                    node = provider.get_metadata(
-                        evidence, ancestor, index_revision=index_revision
-                    )
+                    node = provider.get_metadata(evidence, ancestor, index_revision=index_revision)
+                    # Added only to reach the selection; its own entries were never listed.
+                    node.is_partial = node.is_directory_like
                     self._repository.upsert_fs_node(node)
                     inserted += 1
             node = self._repository.get_fs_node_by_relative_path(
@@ -660,6 +752,7 @@ class FileSystemIndexService:
                 relative_path,
             )
             if node is not None and node.is_directory_like and node.is_traversed:
+                self._mark_partial(node)
                 self._enqueue(
                     job_id,
                     node.node_id,
@@ -677,6 +770,7 @@ class FileSystemIndexService:
                     "Selected node belongs to another evidence source.", target="selected_node_ids"
                 )
             if node.is_directory_like and node.is_traversed:
+                self._mark_partial(node)
                 self._enqueue(
                     job_id,
                     node.node_id,

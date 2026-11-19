@@ -33,6 +33,10 @@ export const errors = {
     "텍스트로 읽을 수 없는 파일입니다. 이미지·음성은 OCR·STT를 실행하고 추출 후보에서 분석을 요청하세요.",
   ARCHIVE_REQUIRES_EXTRACTION:
     "이 파일은 압축 파일입니다. 원본을 보관하고 별도 폴더에 압축을 해제한 뒤 ‘폴더 추가’로 가져오세요. 압축 파일 내부의 파일시스템 분석은 지원하지 않습니다.",
+  SPLIT_IMAGE_UNVERIFIED:
+    "같은 이름에 번호만 다른 조각이 있는지 확인하지 못해 등록하지 않았습니다. 이 파일이 분할 이미지의 한 조각이면 모든 조각을 번호 순서대로 하나로 합친 뒤 추가하세요. 단독 이미지라면 폴더와 파일 권한을 확인한 뒤 다시 시도하세요.",
+  SPLIT_IMAGE_UNSUPPORTED:
+    "이 이미지는 번호가 붙은 여러 조각(.000 또는 .001부터 .002 …)으로 나뉘어 있어 아직 지원하지 않습니다. 수집 도구로, 또는 모든 조각을 빠짐없이 포함하는 명령(예: macOS·Linux는 cat image.[0-9][0-9][0-9] > image.dd, Windows는 copy /b image.001+image.002+image.003 image.dd처럼 모든 조각을 순서대로 나열)으로 번호 순서대로 하나로 합치세요. 합친 파일을 추가하기 전에 해시가 수집 기록과 같은지 확인하고, 원본 조각은 보관하세요.",
   MEDIA_LIMIT_EXCEEDED:
     "이미지 분석 한도를 초과했습니다. 최대 64 MiB·2,500만 픽셀을 지원합니다. 미리보기 크기를 줄여 다시 시도할 수 있습니다.",
   MEDIA_SOURCE_CHANGED:
@@ -40,12 +44,13 @@ export const errors = {
   MEDIA_SOURCE_UNAVAILABLE:
     "미디어 원본을 읽을 수 없습니다. 연결된 증거와 파일의 읽기 가능 상태를 확인해주세요. 링크와 삭제 파일은 직접 분석할 수 없습니다.",
   MEDIA_DECODE_FAILED:
-    "이미지를 디코딩하지 못했습니다. 파일 손상 또는 지원하지 않는 이미지 형식인지 확인해주세요.",
+    "파일 내용을 디코딩하지 못했습니다. 파일이 손상되었거나 지원하지 않는 형식인지 확인해주세요.",
   MEDIA_FORMAT_UNSUPPORTED:
     "PNG·JPEG·GIF·TIFF·BMP·WebP 이미지 파일을 선택해주세요.",
   CARVING_REQUIRES_IMAGE:
     "폴더 증거에는 카빙을 사용할 수 없습니다. 디스크 이미지 증거를 선택해주세요.",
-  MEDIA_AUDIO_FORMAT_UNSUPPORTED: "음성 또는 영상 파일을 선택해주세요.",
+  MEDIA_AUDIO_FORMAT_UNSUPPORTED:
+    "이 파일에서 음성을 찾지 못했습니다. 음성 또는 영상 파일을 선택해주세요.",
   MEDIA_OFFSET_OUT_OF_RANGE: "시작 픽셀이 이미지 범위를 벗어났습니다.",
   DESKTOP_REQUIRED:
     "실제 분석은 Windows 또는 macOS 데스크톱 앱에서 사용할 수 있습니다.",
@@ -100,6 +105,10 @@ export const errors = {
     "원본 읽기 또는 분석용 사본의 크기 제한을 초과했습니다. 범위를 줄이거나 해당 기능의 파일 크기 제한을 확인해주세요.",
   RAW_SOURCE_CHANGED:
     "인덱싱 이후 또는 읽는 중에 원본 파일이 변경되었습니다. 증거 무결성을 확인하고 다시 인덱싱해주세요.",
+  RAW_LOCATOR_UNSUPPORTED:
+    "이 항목은 내용을 읽을 수 없습니다. 링크이거나 삭제된 파일, 또는 이 증거 형식에서 내용을 읽을 수 없는 항목입니다.",
+  RAW_SOURCE_OUTSIDE_EVIDENCE:
+    "원본이 증거 범위 밖을 가리켜 읽지 않았습니다. 증거 경로를 확인해주세요.",
   RAW_SOURCE_UNAVAILABLE:
     "원본 파일을 읽을 수 없습니다. 증거 경로와 접근 권한을 확인해주세요.",
   RAW_RANGE_NOT_SATISFIABLE: "원본 데이터 범위를 벗어났습니다.",

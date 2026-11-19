@@ -15,6 +15,7 @@ import type { Reply, Row } from "./gateway";
 import { integritySummary, missingReaders } from "./EvidenceIntake";
 import core from "./__fixtures__/core.json";
 import { koKR } from "./locales/ko-KR";
+import { enUS } from "./locales/en-US";
 
 afterEach(() => {
   cleanup();
@@ -68,6 +69,47 @@ it("surfaces a mismatch ahead of other hashes", () => {
   expect(integritySummary({ hashes: [], status: "HASHING" }, koKR).label).toBe(
     "해시 계산 중",
   );
+});
+
+// The UI shows message text as typed, so Markdown backticks would appear literally.
+it("words the split image guidance without Markdown marks", () => {
+  for (const errors of [koKR.errors, enUS.errors])
+    expect(errors.SPLIT_IMAGE_UNSUPPORTED).not.toContain("`");
+});
+
+it("says when the other segments of a split image could not be checked", () => {
+  for (const errors of [koKR.errors, enUS.errors] as Record<string, string>[])
+    expect(errors.SPLIT_IMAGE_UNVERIFIED).toMatch(/\S/);
+});
+
+it("explains that a split image must be joined before it is added", async () => {
+  const bridge = createDemoBridge();
+  const original = bridge.invoke.bind(bridge);
+  bridge.invoke = async (op, payload) => {
+    if (op === "evidence.register")
+      return {
+        ok: false,
+        error: {
+          code: "SPLIT_IMAGE_UNSUPPORTED",
+          message_key: "error.split_image_unsupported",
+          retryable: false,
+          target: "source_path",
+        },
+      } as Reply<Row>;
+    return original(op, payload) as Promise<Reply<Row>>;
+  };
+  window.apex = bridge;
+  render(<App />);
+  await screen.findByText("데모 · 합성 데이터");
+  fireEvent.change(screen.getByLabelText("현재 사건"), {
+    target: { value: core.cases[0].id },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "이미지 추가" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "이미지 증거 등록",
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "증거 등록" }));
+  await waitFor(() => expect(dialog.textContent).toMatch(/여러 조각.*해시가 수집 기록과 같은지/));
 });
 
 it("confirms the source, registers it, then starts the chosen hash", async () => {

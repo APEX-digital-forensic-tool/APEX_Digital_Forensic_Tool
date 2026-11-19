@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -522,6 +523,43 @@ class EvidenceManager:
                 "error.archive_requires_extraction",
                 target="source_path",
             )
+        EvidenceManager._reject_split_segment(path)
+
+    @staticmethod
+    def _reject_split_segment(path: Path) -> None:
+        """Refuse any segment of a split image set, which the raw reader cannot join."""
+        if not _is_numbered_segment(path.name):
+            return
+        # x.7z.002 carries no archive signature; its name still says it is an archive part.
+        if Path(path.stem).suffix.lower() in {".zip", ".7z", ".rar", ".gz", ".tar"}:
+            raise ApexError(
+                "ARCHIVE_REQUIRES_EXTRACTION",
+                "error.archive_requires_extraction",
+                target="source_path",
+            )
+        # Any other numbered segment of the same name makes it a set, gaps included. Each
+        # sibling is checked by path, which works where the folder cannot be listed.
+        for number in range(1000):
+            sibling = path.with_suffix(f".{number:03d}")
+            if sibling.name == path.name:
+                continue
+            try:
+                is_segment = stat.S_ISREG(sibling.stat().st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as error:
+                # A sibling that cannot be checked is no evidence that this file stands alone.
+                raise ApexError(
+                    "SPLIT_IMAGE_UNVERIFIED",
+                    "error.split_image_unverified",
+                    target="source_path",
+                ) from error
+            if is_segment:
+                raise ApexError(
+                    "SPLIT_IMAGE_UNSUPPORTED",
+                    "error.split_image_unsupported",
+                    target="source_path",
+                )
 
     @staticmethod
     def _detect_evidence_format(path: Path) -> EvidenceFormat:
@@ -594,3 +632,8 @@ class EvidenceManager:
                 "container_hash_only": True,
             },
         )
+
+
+def _is_numbered_segment(name: str) -> bool:
+    suffix = Path(name).suffix
+    return len(suffix) == 4 and suffix[1:].isdigit()
