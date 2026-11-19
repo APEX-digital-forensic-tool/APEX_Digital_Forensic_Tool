@@ -149,6 +149,7 @@ def test_faster_whisper_stt_capability_unavailable_is_structured(tmp_path: Path)
 def test_whisper_adapter_records_model_metadata_and_cleans_temp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    valid_wav: bytes,
 ) -> None:
     executable = tmp_path / "whisper-cli"
     model = tmp_path / "ggml-synthetic.bin"
@@ -156,7 +157,7 @@ def test_whisper_adapter_records_model_metadata_and_cleans_temp(
     temp_record = tmp_path / "stt-temp.txt"
     _write_fake_whisper_cli(executable, temp_record=temp_record)
     model.write_bytes(b"synthetic model metadata only")
-    audio.write_bytes(b"RIFFsynthetic")
+    audio.write_bytes(valid_wav)
     provider = WhisperCppCliSttProvider(
         executable=str(executable),
         model_path=model,
@@ -186,13 +187,14 @@ def test_whisper_adapter_records_model_metadata_and_cleans_temp(
 def test_whisper_adapter_timeout_and_cancellation_are_structured(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    valid_wav: bytes,
 ) -> None:
     executable = tmp_path / "whisper-cli"
     model = tmp_path / "ggml-synthetic.bin"
     audio = tmp_path / "synthetic.wav"
     _write_fake_whisper_cli(executable, sleep_seconds=1)
     model.write_bytes(b"synthetic model metadata only")
-    audio.write_bytes(b"RIFFsynthetic")
+    audio.write_bytes(valid_wav)
     provider = WhisperCppCliSttProvider(
         executable=str(executable),
         model_path=model,
@@ -213,13 +215,14 @@ def test_stt_verifier_runs_configured_audio_path_with_segments(
     tmp_path: Path,
     project_root: Path,
     cli_env: dict[str, str],
+    valid_wav: bytes,
 ) -> None:
     executable = tmp_path / "whisper-cli"
     model = tmp_path / "ggml-synthetic.bin"
     audio = tmp_path / "synthetic.wav"
     _write_fake_whisper_cli(executable)
     model.write_bytes(b"synthetic model metadata only")
-    audio.write_bytes(b"RIFFsynthetic")
+    audio.write_bytes(valid_wav)
 
     completed = subprocess.run(
         [
