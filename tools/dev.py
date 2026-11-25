@@ -60,6 +60,7 @@ NODE_HINT = (
 )
 ARCH_HINT = "Use Python and Node.js of the same architecture (Apple Silicon: arm64, Intel: x64)."
 RUNTIME_HINT = "Only needed for installers; ./dev build creates it."
+BUILD_PLATFORMS = "Installers are built on Windows or macOS."
 
 
 @dataclass(frozen=True)
@@ -276,7 +277,117 @@ def _setup(env: Environment, runner: Runner) -> int:
     return code
 
 
-def _dispatch(command: str, env: Environment, runner: Runner) -> int:
+def check_steps(groups: Sequence[str]) -> list[Step]:
+    """The checks CI runs: "desktop" mirrors desktop-ci.yml, "server" mirrors mcp-ci.yml."""
+    python = ("uv", "run", "--no-sync")
+    checks = {
+        "desktop": [
+            Step(
+                "Desktop tests",
+                (
+                    *python,
+                    "pytest",
+                    "tests/desktop",
+                    "tests/unit/test_container_workflows.py",
+                    "tests/unit/test_advanced_runtime_decryption.py",
+                    "tests/unit/test_logical_content_integrity.py",
+                    "tests/unit/test_image_source_identity.py",
+                    "tests/unit/test_file_system_indexing.py",
+                ),
+                ROOT,
+            ),
+            Step(
+                "Desktop lint",
+                (
+                    *python,
+                    "ruff",
+                    "check",
+                    "src/apex_desktop",
+                    "tests/desktop",
+                    "tools/build_desktop_runtime.py",
+                    "tools/prepare_desktop_assets.py",
+                    "tools/verify_desktop_runtime.py",
+                    "tools/verify_macos_release.py",
+                    "tools/verify_macos_preview.py",
+                    "tools/dev.py",
+                ),
+                ROOT,
+            ),
+            Step("Desktop types", (*python, "mypy", "--strict", "src/apex_desktop"), ROOT),
+            Step("Frontend tests", ("npm", "test"), FRONTEND),
+        ],
+        "server": [
+            Step("MCP tests", (*python, "pytest", "-q", "tests/mcp"), ROOT),
+            Step("Backend tests", (*python, "pytest", "-q", "tests/backend"), ROOT),
+            Step(
+                "Server lint",
+                (
+                    *python,
+                    "ruff",
+                    "check",
+                    "src",
+                    "tests/mcp",
+                    "tools/verify_mcp_stdio.py",
+                    "tools/verify_mcp_package.py",
+                    "tools/verify_mcp_inspector.py",
+                ),
+                ROOT,
+            ),
+            Step("Server types", (*python, "mypy", "--strict", "src"), ROOT),
+            Step(
+                "MCP stdio smoke",
+                (*python, "python", "tools/verify_mcp_stdio.py", "--module", "--json"),
+                ROOT,
+            ),
+            Step(
+                "MCP release gate",
+                (*python, "python", "tools/verify_engine_release.py", "--mcp-only", "--json"),
+                ROOT,
+            ),
+        ],
+    }
+    return [step for group in groups for step in checks[group]]
+
+
+def build_steps(platform_name: str) -> list[Step]:
+    """The preview installer, in the order CI builds and verifies it."""
+    targets = {"darwin": "dist:mac", "win32": "dist:win"}
+    if platform_name not in targets:
+        raise ValueError(BUILD_PLATFORMS)
+    python = ("uv", "run", "--no-sync", "python")
+    steps = [
+        Step("Build engine runtime", (*python, "tools/build_desktop_runtime.py"), ROOT),
+        Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
+        Step("Package installer", ("npm", "run", targets[platform_name]), FRONTEND),
+    ]
+    if platform_name == "darwin":
+        steps.append(Step("Verify macOS preview", (*python, "tools/verify_macos_preview.py"), ROOT))
+    return steps
+
+
+def _check(group: str | None, runner: Runner) -> int:
+    groups = [group] if group else ["desktop", "server"]
+    results = run_steps(check_steps(groups), runner, keep_going=True)
+    print()
+    for step, code in results:
+        print(f"{'PASS' if code == 0 else 'FAIL'}  {step.name}")
+    return 1 if any(code != 0 for _, code in results) else 0
+
+
+def _build(env: Environment, runner: Runner) -> int:
+    if env.platform not in ("darwin", "win32"):
+        print(BUILD_PLATFORMS)
+        return 1
+    code = run_steps(build_steps(env.platform), runner)[-1][1]
+    if code == 0:
+        for pattern in ("APEX-*.dmg", "APEX-*.zip", "APEX-*.exe"):
+            for artifact in sorted((FRONTEND / "release").glob(pattern)):
+                print(artifact)
+    return code
+
+
+def _dispatch(args: argparse.Namespace, env: Environment, runner: Runner) -> int:
+    command = args.command
     findings = diagnose(env)
     if command == "doctor":
         report(findings)
@@ -290,6 +401,10 @@ def _dispatch(command: str, env: Environment, runner: Runner) -> int:
     if not (env.venv_python and env.node_modules):
         print(f"Run {_launcher(env.platform)} setup first.")
         return 1
+    if command == "check":
+        return _check(args.group, runner)
+    if command == "build":
+        return _build(env, runner)
     return runner(Step(START_APP, ("npm", "run", "dev"), FRONTEND))
 
 
@@ -303,10 +418,13 @@ def main(
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("setup", help="install everything needed to develop APEX")
     commands.add_parser("run", help="start the desktop app from source")
+    commands.add_parser("build", help="build and verify the preview installer for this machine")
+    check = commands.add_parser("check", help="run the tests, lint, and type checks CI runs")
+    check.add_argument("group", nargs="?", choices=("desktop", "server"), help="default: both")
     commands.add_parser("doctor", help="show what is installed and what is missing")
     args = parser.parse_args(argv)
     try:
-        return _dispatch(args.command, probe(), runner)
+        return _dispatch(args, probe(), runner)
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return 130

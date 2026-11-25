@@ -192,3 +192,89 @@ def test_real_runner_works_in_a_path_with_spaces_and_reports_missing_programs(tm
     code = "import sys; sys.exit(3)"
     assert dev.run_step(dev.Step("exit 3", (sys.executable, "-c", code), folder)) == 3
     assert dev.run_step(dev.Step("missing", ("apex-no-such-program",), folder)) == 127
+
+
+DESKTOP = ["Desktop tests", "Desktop lint", "Desktop types", "Frontend tests"]
+SERVER = [
+    "MCP tests",
+    "Backend tests",
+    "Server lint",
+    "Server types",
+    "MCP stdio smoke",
+    "MCP release gate",
+]
+
+
+def test_check_runs_everything_even_after_a_failure(frontend):
+    rec = Recorder(fail="Desktop tests")
+    assert dev.main(["check"], runner=rec, probe=lambda: READY) == 1
+    assert [s.name for s in rec.steps] == DESKTOP + SERVER
+
+
+def test_check_passes_when_every_step_passes(frontend):
+    assert dev.main(["check"], runner=Recorder(), probe=lambda: READY) == 0
+
+
+@pytest.mark.parametrize(("group", "names"), [("desktop", DESKTOP), ("server", SERVER)])
+def test_check_can_run_one_group(frontend, group, names):
+    rec = Recorder()
+    assert dev.main(["check", group], runner=rec, probe=lambda: READY) == 0
+    assert [s.name for s in rec.steps] == names
+
+
+def test_check_rejects_an_unknown_group(frontend):
+    with pytest.raises(SystemExit) as exit_info:
+        dev.main(["check", "everything"], runner=Recorder(), probe=lambda: READY)
+    assert exit_info.value.code == 2
+
+
+def test_desktop_tests_match_the_pull_request_workflow():
+    step = dev.check_steps(["desktop"])[0]
+    assert step.command == (
+        "uv", "run", "--no-sync", "pytest", "tests/desktop",
+        "tests/unit/test_container_workflows.py",
+        "tests/unit/test_advanced_runtime_decryption.py",
+        "tests/unit/test_logical_content_integrity.py",
+        "tests/unit/test_image_source_identity.py",
+        "tests/unit/test_file_system_indexing.py",
+    )  # fmt: skip
+
+
+def test_build_steps_follow_the_platform(frontend):
+    mac = dev.build_steps("darwin")
+    assert [s.name for s in mac] == [
+        "Build engine runtime",
+        "Verify engine runtime",
+        "Package installer",
+        "Verify macOS preview",
+    ]
+    assert mac[2] == dev.Step("Package installer", ("npm", "run", "dist:mac"), frontend)
+    windows = dev.build_steps("win32")
+    assert [s.name for s in windows] == [
+        "Build engine runtime",
+        "Verify engine runtime",
+        "Package installer",
+    ]
+    assert windows[2].command == ("npm", "run", "dist:win")
+
+
+def test_build_stops_at_the_first_failure(frontend):
+    rec = Recorder(fail="Verify engine runtime")
+    assert dev.main(["build"], runner=rec, probe=lambda: READY) == 1
+    assert [s.name for s in rec.steps] == ["Build engine runtime", "Verify engine runtime"]
+
+
+def test_build_refuses_other_platforms(frontend):
+    rec = Recorder()
+    assert dev.main(["build"], runner=rec, probe=lambda: replace(READY, platform="linux")) == 1
+    assert rec.steps == []
+
+
+def test_every_step_has_an_absolute_working_directory():
+    steps = (
+        dev.setup_steps(npm_current=False)
+        + dev.build_steps("darwin")
+        + dev.build_steps("win32")
+        + dev.check_steps(["desktop", "server"])
+    )
+    assert all(step.cwd.is_absolute() for step in steps)
