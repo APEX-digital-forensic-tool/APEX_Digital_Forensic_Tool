@@ -28,7 +28,7 @@ Windows x64 또는 macOS, Node.js 24, uv가 필요합니다. Python 3.12는 uv�
 
 실제로 실행되는 명령은 [`tools/dev.py`](../../tools/dev.py)에 있습니다. 2026-11-25 macOS arm64에서 새로 받은 저장소로 `setup`, `run`, `check`, `build`를 실행해 확인했습니다. Windows의 `dev.cmd`는 아직 실제 Windows에서 확인하지 않았습니다.
 
-저장소 경로에 공백이 있어도 `setup`, `run`, `build`는 동작합니다. 다만 macOS에서 `./dev check`의 데스크톱 테스트 5개(`test_stt_decoder_isolation.py`의 4개, `test_followup_index_tools.py`의 1개)가 실패합니다. 이 테스트들이 만드는 임시 실행 파일의 `#!` 줄이 공백이 든 Python 경로를 담지 못하기 때문이며, 공백 없는 경로에서는 통과합니다.
+macOS에서 확인한 범위에서는 저장소 경로에 공백이 있어도 `setup`, `run`, `build`가 동작합니다. 다만 macOS에서 `./dev check`의 데스크톱 테스트 5개(`test_stt_decoder_isolation.py`의 4개, `test_followup_index_tools.py`의 1개)가 실패합니다. 이 테스트들이 만드는 임시 실행 파일의 `#!` 줄이 공백이 든 Python 경로를 담지 못하기 때문이며, 공백 없는 경로에서는 통과합니다.
 
 Electron이 Windows에서는 `.venv/Scripts/python.exe`, macOS에서는 `.venv/bin/python`을 찾아 로컬 API를 자동 실행합니다. 다른 Python 환경을 써야 하는 경우에만 `APEX_PYTHON`을 해당 실행 파일의 절대 경로로 설정합니다. 개발 서버는 `127.0.0.1:5173`을 사용합니다.
 
@@ -108,6 +108,10 @@ Windows 호스트 API를 사용하는 이벤트 메시지 렌더링 등은 Mac�
 ```
 
 검사 하나가 실패해도 나머지를 끝까지 실행하고 마지막에 통과·실패를 모아 보여 줍니다. CI가 돌리지 않는 나머지 Python 테스트까지 모두 실행하려면 `uv run --no-sync pytest`를 사용합니다.
+
+`run`, `check`, `build`는 환경을 다시 맞추지 않습니다. `uv.lock`이나 `package-lock.json`이 바뀐 뒤처럼 환경이 lock과 다르면 먼저 알려 주고 그대로 실행하므로, 그때는 `./dev setup`을 다시 실행하세요.
+
+`check server`의 명령은 `mcp-ci.yml`과 같지만 환경은 다릅니다. CI는 `dev`, `mcp-server`, `backend` extra만 설치하고, 로컬은 `setup`이 만든 전체 환경에서 실행합니다. 서버 코드가 데스크톱 전용 패키지를 가져다 쓰면 로컬에서만 통과할 수 있습니다.
 
 로컬 API 테스트는 합성 증거로 사건/증거 격리, 컨텍스트 revision 충돌, 커서 조회, 읽기 한도, 검색·타임라인, 해시 일치/불일치, 보관 이력 및 보고서 승인·내보내기를 확인합니다. 경로 중첩 방지 테스트는 앱 데이터 자체·상위·하위 경로의 등록 차단과 유사한 이름의 외부 폴더 허용을 확인합니다. 프런트 회귀 테스트는 늦은 원본 응답·오류 무시, 연속 읽기 순서, 빠른 작업 완료와 다른 작업 진행 중의 목록 갱신, 보고서 충돌 후 입력 보존을 검증합니다. 프런트 테스트는 실제 Core에서 생성한 합성 DTO를 사용하며 로그인 없는 시작, 파일 탐색, 지원 상태, 컨텍스트 충돌 및 동적 코드 평가 없이 동작하는 계약 검증을 확인합니다.
 

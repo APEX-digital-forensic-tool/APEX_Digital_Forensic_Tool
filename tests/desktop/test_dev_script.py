@@ -228,16 +228,39 @@ def test_check_rejects_an_unknown_group(frontend):
     assert exit_info.value.code == 2
 
 
-def test_desktop_tests_match_the_pull_request_workflow():
-    step = dev.check_steps(["desktop"])[0]
-    assert step.command == (
-        "uv", "run", "--no-sync", "pytest", "tests/desktop",
-        "tests/unit/test_container_workflows.py",
-        "tests/unit/test_advanced_runtime_decryption.py",
-        "tests/unit/test_logical_content_integrity.py",
-        "tests/unit/test_image_source_identity.py",
-        "tests/unit/test_file_system_indexing.py",
-    )  # fmt: skip
+WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
+
+
+def workflow_commands(name):
+    lines = (WORKFLOWS / name).read_text(encoding="utf-8").splitlines()
+    return {line.strip().removeprefix("- ").removeprefix("run: ") for line in lines}
+
+
+# The workflows still keep their own copy of these commands. Until they call this script,
+# these tests are what notices the two drifting apart.
+def test_desktop_checks_are_the_commands_the_pull_request_workflow_runs():
+    ci = workflow_commands("desktop-ci.yml")
+    for step in dev.check_steps(["desktop"]):
+        # The script also lints itself; the workflow does not yet.
+        command = " ".join(step.command).removesuffix(" tools/dev.py")
+        assert command in ci, step.name
+
+
+def test_server_checks_are_the_commands_the_mcp_workflow_runs():
+    ci = workflow_commands("mcp-ci.yml")
+    for step in dev.check_steps(["server"]):
+        command = " ".join(step.command).replace("uv run --no-sync", "uv run --locked")
+        assert command in ci, step.name
+
+
+def test_setup_installs_every_extra_a_workflow_installs():
+    extras = set()
+    for name in ("desktop-ci.yml", "mcp-ci.yml"):
+        for command in workflow_commands(name):
+            if command.startswith("uv sync"):
+                words = command.split()
+                extras.update(words[i + 1] for i, word in enumerate(words) if word == "--extra")
+    assert extras == set(dev.EXTRAS)
 
 
 def test_build_steps_follow_the_platform(frontend):
@@ -278,3 +301,29 @@ def test_every_step_has_an_absolute_working_directory():
         + dev.check_steps(["desktop", "server"])
     )
     assert all(step.cwd.is_absolute() for step in steps)
+
+
+def test_children_get_the_utf8_mode_ci_uses(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    code = "import sys; sys.exit(0 if sys.flags.utf8_mode else 4)"
+    assert dev.run_step(dev.Step("utf8", (sys.executable, "-c", code), tmp_path)) == 0
+
+
+def test_probe_commands_survive_undecodable_output():
+    code = "import sys; sys.stdout.buffer.write(b'ok \\xff'); sys.stderr.buffer.write(b'\\xff')"
+    assert dev._output((sys.executable, "-c", code)).startswith("ok")
+
+
+@pytest.mark.parametrize("command", ["run", "check", "build"])
+def test_a_stale_environment_is_announced_but_does_not_block(frontend, capsys, command):
+    rec = Recorder()
+    stale = replace(READY, venv_synced=False)
+    assert dev.main([command], runner=rec, probe=lambda: stale) == 0
+    assert rec.steps
+    out = capsys.readouterr().out
+    assert "Python environment" in out and "dev setup" in out
+
+
+def test_a_current_environment_is_not_announced(frontend, capsys):
+    assert dev.main(["check", "desktop"], runner=Recorder(), probe=lambda: READY) == 0
+    assert "[fix]" not in capsys.readouterr().out

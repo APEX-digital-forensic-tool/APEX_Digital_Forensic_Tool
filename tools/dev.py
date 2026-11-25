@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -116,8 +117,16 @@ def _output(command: Sequence[str]) -> str | None:
     if program is None:
         return None
     try:
+        # uv and node write UTF-8 whatever the console code page is; a path under a
+        # non-ASCII user folder must not stop every command with a decode error.
         result = subprocess.run(
-            [program, *command[1:]], cwd=ROOT, capture_output=True, text=True, check=False
+            [program, *command[1:]],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
         )
     except OSError:
         return None
@@ -235,7 +244,10 @@ def run_step(step: Step) -> int:
     if program is None:
         print(f"{step.command[0]} was not found on PATH", file=sys.stderr)
         return 127
-    process = subprocess.Popen([program, *step.command[1:]], cwd=step.cwd)
+    # Every CI workflow sets PYTHONUTF8=1; without it Python on a non-UTF-8 Windows
+    # code page reads files differently from CI.
+    environment = {**os.environ, "PYTHONUTF8": "1"}
+    process = subprocess.Popen([program, *step.command[1:]], cwd=step.cwd, env=environment)
     try:
         return process.wait()
     except KeyboardInterrupt:
@@ -401,6 +413,11 @@ def _dispatch(args: argparse.Namespace, env: Environment, runner: Runner) -> int
     if not (env.venv_python and env.node_modules):
         print(f"Run {_launcher(env.platform)} setup first.")
         return 1
+    stale = [f for f in findings if not f.ok and f.severity == "setup"]
+    if stale:
+        # Every step runs with --no-sync, so say when the result may differ from CI.
+        report(stale)
+        print("Continuing with the environment as it is.\n", flush=True)
     if command == "check":
         return _check(args.group, runner)
     if command == "build":
