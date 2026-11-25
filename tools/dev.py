@@ -46,6 +46,7 @@ SYNC = (
 )
 STAMP_NAME = ".apex-lock-sha256"
 GROUPS = ("desktop", "engine", "server")
+BUILD_PARTS = ("runtime", "installer")
 
 SYNC_PYTHON = "Sync Python environment"
 PREPARE_ASSETS = "Prepare desktop assets"
@@ -63,6 +64,7 @@ NODE_HINT = (
 ARCH_HINT = "Use Python and Node.js of the same architecture (Apple Silicon: arm64, Intel: x64)."
 RUNTIME_HINT = "Only needed for installers; ./dev build creates it."
 BUILD_PLATFORMS = "Installers are built on Windows or macOS."
+RUNTIME_FIRST = "Build the engine runtime first: {launcher} build runtime"
 
 
 @dataclass(frozen=True)
@@ -366,19 +368,23 @@ def check_steps(groups: Sequence[str]) -> list[Step]:
     return [step for group in groups for step in checks[group]]
 
 
-def build_steps(platform_name: str) -> list[Step]:
+def build_steps(platform_name: str, parts: Sequence[str] = BUILD_PARTS) -> list[Step]:
     """The preview installer, in the order CI builds and verifies it."""
     targets = {"darwin": "dist:mac", "win32": "dist:win"}
     if platform_name not in targets:
         raise ValueError(BUILD_PLATFORMS)
     python = ("uv", "run", "--no-sync", "python")
-    steps = [
-        Step("Build engine runtime", (*python, "tools/build_desktop_runtime.py"), ROOT),
-        Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
-        Step("Package installer", ("npm", "run", targets[platform_name]), FRONTEND),
-    ]
-    if platform_name == "darwin":
-        steps.append(Step("Verify macOS preview", (*python, "tools/verify_macos_preview.py"), ROOT))
+    steps = []
+    if "runtime" in parts:
+        steps += [
+            Step("Build engine runtime", (*python, "tools/build_desktop_runtime.py"), ROOT),
+            Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
+        ]
+    if "installer" in parts:
+        steps.append(Step("Package installer", ("npm", "run", targets[platform_name]), FRONTEND))
+        if platform_name == "darwin":
+            verify = (*python, "tools/verify_macos_preview.py")
+            steps.append(Step("Verify macOS preview", verify, ROOT))
     return steps
 
 
@@ -398,12 +404,26 @@ def _check(groups: Sequence[str], runner: Runner) -> int:
     return 1 if any(code != 0 for _, code in results) else 0
 
 
-def _build(env: Environment, runner: Runner) -> int:
+def _runtime_fits(env: Environment) -> bool:
+    runtime = env.runtime
+    return (
+        runtime is not None
+        and runtime.get("platform") == env.platform
+        and runtime.get("arch") == env.python_arch
+    )
+
+
+def _build(env: Environment, runner: Runner, part: str | None) -> int:
     if env.platform not in ("darwin", "win32"):
         print(BUILD_PLATFORMS)
         return 1
-    code = run_steps(build_steps(env.platform), runner)[-1][1]
-    if code == 0:
+    parts = (part,) if part else BUILD_PARTS
+    if "runtime" not in parts and not _runtime_fits(env):
+        # Packaging reads desktop-runtime/ and fails with a Node stack trace without it.
+        print(RUNTIME_FIRST.format(launcher=_launcher(env.platform)))
+        return 1
+    code = run_steps(build_steps(env.platform, parts), runner)[-1][1]
+    if code == 0 and "installer" in parts:
         for pattern in ("APEX-*.dmg", "APEX-*.zip", "APEX-*.exe"):
             for artifact in sorted((FRONTEND / "release").glob(pattern)):
                 print(artifact)
@@ -433,7 +453,7 @@ def _dispatch(args: argparse.Namespace, env: Environment, runner: Runner) -> int
     if command == "check":
         return _check(args.groups, runner)
     if command == "build":
-        return _build(env, runner)
+        return _build(env, runner, args.part)
     return runner(Step(START_APP, ("npm", "run", "dev"), FRONTEND))
 
 
@@ -447,7 +467,10 @@ def main(
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("setup", help="install everything needed to develop APEX")
     commands.add_parser("run", help="start the desktop app from source")
-    commands.add_parser("build", help="build and verify the preview installer for this machine")
+    build = commands.add_parser(
+        "build", help="build and verify the preview installer for this machine"
+    )
+    build.add_argument("part", nargs="?", choices=BUILD_PARTS, help="default: both, in order")
     check = commands.add_parser("check", help="run the tests, lint, and type checks CI runs")
     # A type check instead of `choices`: with nargs="*" the handling of "no groups given"
     # by `choices` differs between Python versions.

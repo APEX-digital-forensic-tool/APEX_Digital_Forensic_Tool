@@ -309,6 +309,37 @@ def test_build_refuses_other_platforms(frontend):
     assert rec.steps == []
 
 
+BUILT = replace(READY, runtime={"platform": "darwin", "arch": "arm64"})
+
+
+@pytest.mark.parametrize(
+    ("part", "names"),
+    [
+        ("runtime", ["Build engine runtime", "Verify engine runtime"]),
+        ("installer", ["Package installer", "Verify macOS preview"]),
+    ],
+)
+def test_build_can_run_one_part(frontend, part, names):
+    rec = Recorder()
+    assert dev.main(["build", part], runner=rec, probe=lambda: BUILT) == 0
+    assert [s.name for s in rec.steps] == names
+
+
+@pytest.mark.parametrize(
+    "runtime", [None, {"platform": "win32", "arch": "x64"}, {"platform": "darwin", "arch": "x64"}]
+)
+def test_installer_alone_needs_a_runtime_for_this_machine(frontend, capsys, runtime):
+    rec = Recorder()
+    env = replace(READY, runtime=runtime)
+    assert dev.main(["build", "installer"], runner=rec, probe=lambda: env) == 1
+    assert rec.steps == []
+    assert "./dev build runtime" in capsys.readouterr().out
+
+
+def test_windows_installer_part_has_no_macos_verification(frontend):
+    assert [s.name for s in dev.build_steps("win32", ["installer"])] == ["Package installer"]
+
+
 def test_every_step_has_an_absolute_working_directory():
     steps = (
         dev.setup_steps(npm_current=False)
