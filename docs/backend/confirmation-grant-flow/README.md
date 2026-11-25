@@ -10,6 +10,9 @@
 
 - `POST /confirmations` — JWT 검증 후 `ConfirmationGrantRow` 생성 (5분, 1회)
 - `DbFrontendSecurityProvider` — sync SQLAlchemy로 grant 조회/소비
+- `POST /confirmations/lookup`, `POST /confirmations/{grant_id}/consume` +
+  `HttpFrontendSecurityProvider` — 분석가 PC의 MCP가 DB 없이 백엔드 API로 grant를
+  조회/소비 (#115)
 
 ## 만든/수정한 파일
 
@@ -17,6 +20,7 @@
 |---|---|
 | `src/apex_backend/auth/confirmation_router.py` | `POST /confirmations` FastAPI 라우터 |
 | `src/apex_backend/auth/db_confirmation.py` | `DbFrontendSecurityProvider` |
+| `src/apex_mcp/remote_confirmation.py` | `HttpFrontendSecurityProvider` (grant API 클라이언트) |
 | `src/apex_backend/auth/schemas.py` | `ConfirmationRequest`, `ConfirmationResponse` Pydantic 스키마 추가 |
 | `src/apex_backend/app.py` | confirmation 라우터 등록, `_get_db` 의존성 오버라이드 |
 | `tests/backend/test_confirmation_grant.py` | 테스트 13개 |
@@ -65,6 +69,25 @@ DbFrontendSecurityProvider.authorize(request)
     → 만료/소비횟수 초과/필드 불일치 → False
     → row.uses_count += 1 → DB commit → True
 ```
+
+## grant 소비 플로우 (로컬 MCP, API 모드)
+
+```
+MCP call_tool (Bearer = 분석가 access token, AuthContextMiddleware가 contextvar에 저장)
+  → HttpFrontendSecurityProvider.confirmation_for
+      POST /confirmations/lookup  {case_id, tool_name, request_fingerprint, target_ids}
+      → require_active_session(token)  (만료·로그아웃 세션은 401 → 거부)
+      → actor/session은 토큰에서, 나머지 조건 + 미사용 + 미만료 → {grant_id} 또는 null
+  → (budget 검사 등 통과 후) ConfirmationGate → HttpFrontendSecurityProvider.authorize
+      POST /confirmations/{grant_id}/consume  {같은 4개 필드}
+      → 소유자·조건 재확인 후 조건부 UPDATE (uses_count < max_uses) → {authorized}
+```
+
+- 조회와 소비를 나눈 이유: 조회 뒤 budget 검사에서 호출이 막히면 승인을 태우지 않기 위해.
+- 토큰이 없거나, 백엔드에 닿지 못하거나, 2xx가 아니거나, 응답이 이상하면 거부(fail closed).
+- 한계: MCP가 분석가 PC에 있으면 수정된 클라이언트는 확인 단계를 건너뛸 수 있다(엔진과
+  사건 DB를 그 PC가 쥐고 있으므로). 백엔드가 보장하는 것은 grant를 위조·재사용·타인 소비할 수
+  없다는 점과, 누가 무엇을 승인했는지 서버에 남는다는 점이다.
 
 ## DB 스키마 (ConfirmationGrantRow)
 
