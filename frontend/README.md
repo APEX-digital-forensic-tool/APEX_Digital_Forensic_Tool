@@ -6,16 +6,13 @@ Electron + React + TypeScript 데스크톱 앱입니다. 같은 저장소의 `ap
 
 디자인·데이터 거버넌스 요구사항의 구현 상태와 남은 기능은 [가이드 준수 검토](../docs/desktop/GUIDE_COMPLIANCE_REVIEW.md)에 정리했습니다. Astryx UI Icon과 Material 파일 아이콘의 버전·출처·라이선스는 [자산 고지](public/THIRD_PARTY_NOTICES.md)에 있습니다.
 
-```powershell
-# 저장소 루트, Python 3.12 / Node.js 24 / uv 필요
-uv sync --locked --extra desktop --extra desktop-build --extra report-renderer --extra browser-media --extra windows-artifacts --extra machine-extraction --extra advanced-secrets
-uv run --no-sync python tools/prepare_desktop_assets.py
-cd frontend
-npm ci
-npm run dev
+```sh
+# 저장소 루트에서 실행, Node.js 24 / uv 필요 (Windows에서는 .\dev)
+./dev setup
+./dev run
 ```
 
-macOS에서는 `.venv/bin/python`을 사용합니다. Apple Silicon은 arm64 Python/Node.js, Intel Mac은 x64 Python/Node.js를 같은 아키텍처로 설치하세요. Mac 설치 파일은 `npm run dist:mac`으로 생성하며, 먼저 안내 문서의 공통 런타임 빌드를 실행해야 합니다.
+macOS에서는 `.venv/bin/python`을 사용합니다. Apple Silicon은 arm64 Python/Node.js, Intel Mac은 x64 Python/Node.js를 같은 아키텍처로 설치하세요. 설치 파일은 저장소 루트에서 `./dev build`로 생성합니다.
 
 브라우저만 실행하는 `npm run dev:web`은 실제 파일 분석용 실행 방식이 아닙니다. `VITE_APEX_DEMO=1`을 개발 환경에서 명시한 경우에만 합성 테스트 자료를 표시하며, 제품 빌드에는 데모가 포함되지 않습니다.
 

@@ -1,2 +1,4 @@
 frontend/src/contracts/** linguist-generated=true
 frontend/src/__fixtures__/core.json linguist-generated=true
+/dev text eol=lf
+/dev.cmd text eol=crlf

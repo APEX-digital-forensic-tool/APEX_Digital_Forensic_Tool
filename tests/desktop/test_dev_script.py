@@ -1,0 +1,329 @@
+"""The dev script plans the same steps on every OS and never runs past a failed tool check."""
+
+import importlib.util
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+spec = importlib.util.spec_from_file_location(
+    "apex_dev", Path(__file__).resolve().parents[2] / "tools/dev.py"
+)
+assert spec is not None and spec.loader is not None
+dev = importlib.util.module_from_spec(spec)
+sys.modules["apex_dev"] = dev
+spec.loader.exec_module(dev)
+
+READY = dev.Environment(
+    platform="darwin",
+    python_arch="arm64",
+    uv_version="0.13.7",
+    node_version="24.21.0",
+    node_arch="arm64",
+    venv_python=True,
+    venv_synced=True,
+    node_modules=True,
+    npm_current=True,
+    assets=True,
+    runtime=None,
+)
+
+
+def problems(env):
+    return {f.name: f for f in dev.diagnose(env) if not f.ok}
+
+
+def test_ready_environment_only_notes_the_missing_runtime():
+    assert {n: f.severity for n, f in problems(READY).items()} == {"Desktop runtime": "note"}
+
+
+@pytest.mark.parametrize(
+    ("change", "name"),
+    [
+        ({"uv_version": None}, "uv"),
+        ({"node_version": None}, "Node.js"),
+        ({"node_version": "22.11.0"}, "Node.js"),
+        ({"node_version": "garbage"}, "Node.js"),
+        ({"python_arch": "x64"}, "Architecture"),
+    ],
+)
+def test_tool_problems_block_and_say_how_to_fix(change, name):
+    finding = problems(replace(READY, **change))[name]
+    assert finding.severity == "tool" and finding.fix
+
+
+def test_wrong_node_version_reports_what_was_found():
+    assert "22.11.0" in problems(replace(READY, node_version="22.11.0"))["Node.js"].detail
+
+
+def test_architecture_is_compared_on_macos_only():
+    assert "Architecture" not in problems(replace(READY, platform="win32", python_arch="x64"))
+
+
+@pytest.mark.parametrize(
+    ("change", "name"),
+    [
+        ({"venv_python": False, "venv_synced": False}, "Python environment"),
+        ({"venv_synced": False}, "Python environment"),
+        ({"node_modules": False, "npm_current": False}, "Frontend packages"),
+        ({"npm_current": False}, "Frontend packages"),
+        ({"assets": False}, "Desktop assets"),
+    ],
+)
+def test_stale_state_points_to_setup(change, name):
+    finding = problems(replace(READY, **change))[name]
+    assert finding.severity == "setup" and "dev setup" in finding.fix
+
+
+def test_runtime_shows_its_platform_and_architecture():
+    env = replace(READY, runtime={"platform": "darwin", "arch": "arm64"})
+    runtime = next(f for f in dev.diagnose(env) if f.name == "Desktop runtime")
+    assert runtime.ok and "darwin" in runtime.detail and "arm64" in runtime.detail
+
+
+@pytest.mark.parametrize(
+    ("machine", "arch"),
+    [("AMD64", "x64"), ("x86_64", "x64"), ("aarch64", "arm64"), ("arm64", "arm64")],
+)
+def test_normalize_arch(machine, arch):
+    assert dev.normalize_arch(machine) == arch
+
+
+def test_doctor_runs_nothing_and_fails_only_on_real_problems():
+    def runner(step):
+        raise AssertionError("doctor must not run anything")
+
+    assert dev.main(["doctor"], runner=runner, probe=lambda: READY) == 0
+    assert dev.main(["doctor"], runner=runner, probe=lambda: replace(READY, assets=False)) == 1
+
+
+class Recorder:
+    def __init__(self, fail=None):
+        self.steps, self.fail = [], fail
+
+    def __call__(self, step):
+        self.steps.append(step)
+        return 1 if step.name == self.fail else 0
+
+
+FRESH = replace(
+    READY, venv_python=False, venv_synced=False, node_modules=False, npm_current=False, assets=False
+)
+
+
+@pytest.fixture
+def frontend(tmp_path, monkeypatch):
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "package-lock.json").write_text('{"lockfileVersion": 3}')
+    monkeypatch.setattr(dev, "FRONTEND", tmp_path)
+    return tmp_path
+
+
+def test_setup_syncs_python_prepares_assets_then_installs_packages(frontend):
+    rec = Recorder()
+    assert dev.main(["setup"], runner=rec, probe=lambda: FRESH) == 0
+    assert [s.name for s in rec.steps] == [
+        "Sync Python environment",
+        "Prepare desktop assets",
+        "Install frontend packages",
+    ]
+    assert rec.steps[0].command == (
+        "uv", "sync", "--locked", "--python", "3.12",
+        "--extra", "desktop", "--extra", "desktop-build", "--extra", "report-renderer",
+        "--extra", "browser-media", "--extra", "windows-artifacts",
+        "--extra", "machine-extraction", "--extra", "advanced-secrets",
+        "--extra", "dev", "--extra", "backend", "--extra", "mcp-server",
+    )  # fmt: skip
+    assert rec.steps[1].command == (
+        "uv", "run", "--no-sync", "python", "tools/prepare_desktop_assets.py",
+    )  # fmt: skip
+    assert rec.steps[2].command == ("npm", "ci") and rec.steps[2].cwd == frontend
+    assert (frontend / "node_modules" / dev.STAMP_NAME).read_text() == dev.lock_digest()
+
+
+def test_setup_skips_packages_when_the_lock_is_unchanged(frontend):
+    rec = Recorder()
+    assert dev.main(["setup"], runner=rec, probe=lambda: READY) == 0
+    assert [s.name for s in rec.steps] == ["Sync Python environment", "Prepare desktop assets"]
+
+
+def test_setup_runs_nothing_when_a_tool_is_missing(frontend):
+    rec = Recorder()
+    assert dev.main(["setup"], runner=rec, probe=lambda: replace(FRESH, node_version=None)) == 1
+    assert rec.steps == []
+
+
+def test_failed_package_install_is_not_remembered(frontend):
+    rec = Recorder(fail="Install frontend packages")
+    assert dev.main(["setup"], runner=rec, probe=lambda: FRESH) == 1
+    assert not (frontend / "node_modules" / dev.STAMP_NAME).exists()
+
+
+def test_setup_stops_at_the_first_failure(frontend):
+    rec = Recorder(fail="Sync Python environment")
+    assert dev.main(["setup"], runner=rec, probe=lambda: FRESH) == 1
+    assert [s.name for s in rec.steps] == ["Sync Python environment"]
+
+
+def test_run_starts_the_dev_app(frontend):
+    rec = Recorder()
+    assert dev.main(["run"], runner=rec, probe=lambda: READY) == 0
+    assert rec.steps == [dev.Step("Start APEX", ("npm", "run", "dev"), frontend)]
+
+
+@pytest.mark.parametrize("change", [{"venv_python": False}, {"node_modules": False}])
+def test_run_refuses_before_setup(frontend, change):
+    rec = Recorder()
+    assert dev.main(["run"], runner=rec, probe=lambda: replace(READY, **change)) == 1
+    assert rec.steps == []
+
+
+def test_interrupt_ends_quietly_with_130(frontend):
+    def runner(step):
+        raise KeyboardInterrupt
+
+    assert dev.main(["run"], runner=runner, probe=lambda: READY) == 130
+
+
+def test_real_runner_works_in_a_path_with_spaces_and_reports_missing_programs(tmp_path):
+    folder = tmp_path / "a b"
+    folder.mkdir()
+    code = "import sys; sys.exit(3)"
+    assert dev.run_step(dev.Step("exit 3", (sys.executable, "-c", code), folder)) == 3
+    assert dev.run_step(dev.Step("missing", ("apex-no-such-program",), folder)) == 127
+
+
+DESKTOP = ["Desktop tests", "Desktop lint", "Desktop types", "Frontend tests"]
+SERVER = [
+    "MCP tests",
+    "Backend tests",
+    "Server lint",
+    "Server types",
+    "MCP stdio smoke",
+    "MCP release gate",
+]
+
+
+def test_check_runs_everything_even_after_a_failure(frontend):
+    rec = Recorder(fail="Desktop tests")
+    assert dev.main(["check"], runner=rec, probe=lambda: READY) == 1
+    assert [s.name for s in rec.steps] == DESKTOP + SERVER
+
+
+def test_check_passes_when_every_step_passes(frontend):
+    assert dev.main(["check"], runner=Recorder(), probe=lambda: READY) == 0
+
+
+@pytest.mark.parametrize(("group", "names"), [("desktop", DESKTOP), ("server", SERVER)])
+def test_check_can_run_one_group(frontend, group, names):
+    rec = Recorder()
+    assert dev.main(["check", group], runner=rec, probe=lambda: READY) == 0
+    assert [s.name for s in rec.steps] == names
+
+
+def test_check_rejects_an_unknown_group(frontend):
+    with pytest.raises(SystemExit) as exit_info:
+        dev.main(["check", "everything"], runner=Recorder(), probe=lambda: READY)
+    assert exit_info.value.code == 2
+
+
+WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
+
+
+def workflow_commands(name):
+    lines = (WORKFLOWS / name).read_text(encoding="utf-8").splitlines()
+    return {line.strip().removeprefix("- ").removeprefix("run: ") for line in lines}
+
+
+# The workflows still keep their own copy of these commands. Until they call this script,
+# these tests are what notices the two drifting apart.
+def test_desktop_checks_are_the_commands_the_pull_request_workflow_runs():
+    ci = workflow_commands("desktop-ci.yml")
+    for step in dev.check_steps(["desktop"]):
+        # The script also lints itself; the workflow does not yet.
+        command = " ".join(step.command).removesuffix(" tools/dev.py")
+        assert command in ci, step.name
+
+
+def test_server_checks_are_the_commands_the_mcp_workflow_runs():
+    ci = workflow_commands("mcp-ci.yml")
+    for step in dev.check_steps(["server"]):
+        command = " ".join(step.command).replace("uv run --no-sync", "uv run --locked")
+        assert command in ci, step.name
+
+
+def test_setup_installs_every_extra_a_workflow_installs():
+    extras = set()
+    for name in ("desktop-ci.yml", "mcp-ci.yml"):
+        for command in workflow_commands(name):
+            if command.startswith("uv sync"):
+                words = command.split()
+                extras.update(words[i + 1] for i, word in enumerate(words) if word == "--extra")
+    assert extras == set(dev.EXTRAS)
+
+
+def test_build_steps_follow_the_platform(frontend):
+    mac = dev.build_steps("darwin")
+    assert [s.name for s in mac] == [
+        "Build engine runtime",
+        "Verify engine runtime",
+        "Package installer",
+        "Verify macOS preview",
+    ]
+    assert mac[2] == dev.Step("Package installer", ("npm", "run", "dist:mac"), frontend)
+    windows = dev.build_steps("win32")
+    assert [s.name for s in windows] == [
+        "Build engine runtime",
+        "Verify engine runtime",
+        "Package installer",
+    ]
+    assert windows[2].command == ("npm", "run", "dist:win")
+
+
+def test_build_stops_at_the_first_failure(frontend):
+    rec = Recorder(fail="Verify engine runtime")
+    assert dev.main(["build"], runner=rec, probe=lambda: READY) == 1
+    assert [s.name for s in rec.steps] == ["Build engine runtime", "Verify engine runtime"]
+
+
+def test_build_refuses_other_platforms(frontend):
+    rec = Recorder()
+    assert dev.main(["build"], runner=rec, probe=lambda: replace(READY, platform="linux")) == 1
+    assert rec.steps == []
+
+
+def test_every_step_has_an_absolute_working_directory():
+    steps = (
+        dev.setup_steps(npm_current=False)
+        + dev.build_steps("darwin")
+        + dev.build_steps("win32")
+        + dev.check_steps(["desktop", "server"])
+    )
+    assert all(step.cwd.is_absolute() for step in steps)
+
+
+def test_children_get_the_utf8_mode_ci_uses(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    code = "import sys; sys.exit(0 if sys.flags.utf8_mode else 4)"
+    assert dev.run_step(dev.Step("utf8", (sys.executable, "-c", code), tmp_path)) == 0
+
+
+def test_probe_commands_survive_undecodable_output():
+    code = "import sys; sys.stdout.buffer.write(b'ok \\xff'); sys.stderr.buffer.write(b'\\xff')"
+    assert dev._output((sys.executable, "-c", code)).startswith("ok")
+
+
+@pytest.mark.parametrize("command", ["run", "check", "build"])
+def test_a_stale_environment_is_announced_but_does_not_block(frontend, capsys, command):
+    rec = Recorder()
+    stale = replace(READY, venv_synced=False)
+    assert dev.main([command], runner=rec, probe=lambda: stale) == 0
+    assert rec.steps
+    out = capsys.readouterr().out
+    assert "Python environment" in out and "dev setup" in out
+
+
+def test_a_current_environment_is_not_announced(frontend, capsys):
+    assert dev.main(["check", "desktop"], runner=Recorder(), probe=lambda: READY) == 0
+    assert "[fix]" not in capsys.readouterr().out

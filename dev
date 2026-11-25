@@ -1,0 +1,11 @@
+#!/bin/sh
+# Thin launcher. All logic lives in tools/dev.py.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is required. Install it, then run this again:" >&2
+  echo "  brew install uv" >&2
+  echo "  or: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  exit 1
+fi
+exec uv run --no-project --python 3.12 "$root/tools/dev.py" "$@"
