@@ -45,6 +45,11 @@ SYNC = (
 )
 STAMP_NAME = ".apex-lock-sha256"
 
+SYNC_PYTHON = "Sync Python environment"
+PREPARE_ASSETS = "Prepare desktop assets"
+INSTALL_PACKAGES = "Install frontend packages"
+START_APP = "Start APEX"
+
 UV_HINT = (
     "Install uv: https://docs.astral.sh/uv/getting-started/installation/ "
     "(macOS: brew install uv, Windows: winget install --id=astral-sh.uv -e)"
@@ -168,8 +173,12 @@ def _node(env: Environment) -> Finding:
     return _finding("Node.js", False, f"found {version}, need {NODE_MAJOR}.x", NODE_HINT, "tool")
 
 
+def _launcher(platform_name: str) -> str:
+    return ".\\dev" if platform_name == "win32" else "./dev"
+
+
 def diagnose(env: Environment) -> list[Finding]:
-    setup = "Run .\\dev setup" if env.platform == "win32" else "Run ./dev setup"
+    setup = f"Run {_launcher(env.platform)} setup"
     findings = [
         _finding("uv", env.uv_version is not None, env.uv_version or "not found", UV_HINT, "tool"),
         _node(env),
@@ -219,7 +228,69 @@ def report(findings: Sequence[Finding]) -> None:
 
 
 def run_step(step: Step) -> int:
-    raise NotImplementedError
+    print(f"==> {step.name}", flush=True)
+    print("    " + " ".join(step.command), flush=True)
+    program = shutil.which(step.command[0])
+    if program is None:
+        print(f"{step.command[0]} was not found on PATH", file=sys.stderr)
+        return 127
+    process = subprocess.Popen([program, *step.command[1:]], cwd=step.cwd)
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        # The child received the same Ctrl-C from the terminal: let it shut down by itself
+        # instead of killing it, so the app can stop its analysis engine.
+        process.wait()
+        raise
+
+
+def run_steps(
+    steps: Sequence[Step], runner: Runner, *, keep_going: bool = False
+) -> list[tuple[Step, int]]:
+    results = []
+    for step in steps:
+        code = runner(step)
+        results.append((step, code))
+        if code != 0 and not keep_going:
+            break
+    return results
+
+
+def setup_steps(*, npm_current: bool) -> list[Step]:
+    prepare = ("uv", "run", "--no-sync", "python", "tools/prepare_desktop_assets.py")
+    steps = [Step(SYNC_PYTHON, SYNC, ROOT), Step(PREPARE_ASSETS, prepare, ROOT)]
+    if not npm_current:
+        steps.append(Step(INSTALL_PACKAGES, ("npm", "ci"), FRONTEND))
+    return steps
+
+
+def _setup(env: Environment, runner: Runner) -> int:
+    results = run_steps(setup_steps(npm_current=env.npm_current), runner)
+    for step, code in results:
+        if step.name == INSTALL_PACKAGES and code == 0:
+            # Written only after a finished install, so an interrupted one is repeated.
+            (FRONTEND / "node_modules" / STAMP_NAME).write_text(lock_digest(), encoding="utf-8")
+    code = results[-1][1]
+    if code == 0:
+        print(f"Next: {_launcher(env.platform)} run")
+    return code
+
+
+def _dispatch(command: str, env: Environment, runner: Runner) -> int:
+    findings = diagnose(env)
+    if command == "doctor":
+        report(findings)
+        return 1 if any(not f.ok and f.severity != "note" for f in findings) else 0
+    blockers = [f for f in findings if not f.ok and f.severity == "tool"]
+    if blockers:
+        report(blockers)
+        return 1
+    if command == "setup":
+        return _setup(env, runner)
+    if not (env.venv_python and env.node_modules):
+        print(f"Run {_launcher(env.platform)} setup first.")
+        return 1
+    return runner(Step(START_APP, ("npm", "run", "dev"), FRONTEND))
 
 
 def main(
@@ -230,11 +301,15 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(prog="dev", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("setup", help="install everything needed to develop APEX")
+    commands.add_parser("run", help="start the desktop app from source")
     commands.add_parser("doctor", help="show what is installed and what is missing")
-    parser.parse_args(argv)
-    findings = diagnose(probe())
-    report(findings)
-    return 1 if any(not f.ok and f.severity != "note" for f in findings) else 0
+    args = parser.parse_args(argv)
+    try:
+        return _dispatch(args.command, probe(), runner)
+    except KeyboardInterrupt:
+        print("Interrupted.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
