@@ -195,6 +195,7 @@ def test_real_runner_works_in_a_path_with_spaces_and_reports_missing_programs(tm
 
 
 DESKTOP = ["Desktop tests", "Desktop lint", "Desktop types", "Frontend tests"]
+ENGINE = ["Engine tests"]
 SERVER = [
     "MCP tests",
     "Backend tests",
@@ -208,24 +209,39 @@ SERVER = [
 def test_check_runs_everything_even_after_a_failure(frontend):
     rec = Recorder(fail="Desktop tests")
     assert dev.main(["check"], runner=rec, probe=lambda: READY) == 1
-    assert [s.name for s in rec.steps] == DESKTOP + SERVER
+    assert [s.name for s in rec.steps] == DESKTOP + ENGINE + SERVER
 
 
 def test_check_passes_when_every_step_passes(frontend):
     assert dev.main(["check"], runner=Recorder(), probe=lambda: READY) == 0
 
 
-@pytest.mark.parametrize(("group", "names"), [("desktop", DESKTOP), ("server", SERVER)])
-def test_check_can_run_one_group(frontend, group, names):
+@pytest.mark.parametrize(
+    ("groups", "names"),
+    [
+        (["desktop"], DESKTOP),
+        (["engine"], ENGINE),
+        (["server"], SERVER),
+        (["desktop", "engine"], DESKTOP + ENGINE),
+        (["engine", "desktop", "engine"], ENGINE + DESKTOP),
+    ],
+)
+def test_check_runs_the_named_groups_once_in_the_given_order(frontend, groups, names):
     rec = Recorder()
-    assert dev.main(["check", group], runner=rec, probe=lambda: READY) == 0
+    assert dev.main(["check", *groups], runner=rec, probe=lambda: READY) == 0
     assert [s.name for s in rec.steps] == names
 
 
-def test_check_rejects_an_unknown_group(frontend):
+def test_engine_group_runs_the_unit_and_integration_suites():
+    (step,) = dev.check_steps(["engine"])
+    assert step.command == ("uv", "run", "--no-sync", "pytest", "tests/unit", "tests/integration")
+
+
+def test_check_rejects_an_unknown_group(frontend, capsys):
     with pytest.raises(SystemExit) as exit_info:
-        dev.main(["check", "everything"], runner=Recorder(), probe=lambda: READY)
+        dev.main(["check", "desktop", "everything"], runner=Recorder(), probe=lambda: READY)
     assert exit_info.value.code == 2
+    assert "desktop, engine, server" in capsys.readouterr().err
 
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -298,7 +314,7 @@ def test_every_step_has_an_absolute_working_directory():
         dev.setup_steps(npm_current=False)
         + dev.build_steps("darwin")
         + dev.build_steps("win32")
-        + dev.check_steps(["desktop", "server"])
+        + dev.check_steps(["desktop", "engine", "server"])
     )
     assert all(step.cwd.is_absolute() for step in steps)
 

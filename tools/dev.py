@@ -45,6 +45,7 @@ SYNC = (
     *(argument for extra in EXTRAS for argument in ("--extra", extra)),
 )
 STAMP_NAME = ".apex-lock-sha256"
+GROUPS = ("desktop", "engine", "server")
 
 SYNC_PYTHON = "Sync Python environment"
 PREPARE_ASSETS = "Prepare desktop assets"
@@ -290,7 +291,8 @@ def _setup(env: Environment, runner: Runner) -> int:
 
 
 def check_steps(groups: Sequence[str]) -> list[Step]:
-    """The checks CI runs: "desktop" mirrors desktop-ci.yml, "server" mirrors mcp-ci.yml."""
+    """The checks CI runs. "desktop" and "engine" are what the desktop workflows call;
+    "server" mirrors mcp-ci.yml."""
     python = ("uv", "run", "--no-sync")
     checks = {
         "desktop": [
@@ -327,6 +329,9 @@ def check_steps(groups: Sequence[str]) -> list[Step]:
             ),
             Step("Desktop types", (*python, "mypy", "--strict", "src/apex_desktop"), ROOT),
             Step("Frontend tests", ("npm", "test"), FRONTEND),
+        ],
+        "engine": [
+            Step("Engine tests", (*python, "pytest", "tests/unit", "tests/integration"), ROOT),
         ],
         "server": [
             Step("MCP tests", (*python, "pytest", "-q", "tests/mcp"), ROOT),
@@ -377,9 +382,16 @@ def build_steps(platform_name: str) -> list[Step]:
     return steps
 
 
-def _check(group: str | None, runner: Runner) -> int:
-    groups = [group] if group else ["desktop", "server"]
-    results = run_steps(check_steps(groups), runner, keep_going=True)
+def _group(name: str) -> str:
+    if name not in GROUPS:
+        raise argparse.ArgumentTypeError(f"choose from {', '.join(GROUPS)}")
+    return name
+
+
+def _check(groups: Sequence[str], runner: Runner) -> int:
+    # Named groups run once each, in the order given.
+    selected = list(dict.fromkeys(groups)) or list(GROUPS)
+    results = run_steps(check_steps(selected), runner, keep_going=True)
     print()
     for step, code in results:
         print(f"{'PASS' if code == 0 else 'FAIL'}  {step.name}")
@@ -419,7 +431,7 @@ def _dispatch(args: argparse.Namespace, env: Environment, runner: Runner) -> int
         report(stale)
         print("Continuing with the environment as it is.\n", flush=True)
     if command == "check":
-        return _check(args.group, runner)
+        return _check(args.groups, runner)
     if command == "build":
         return _build(env, runner)
     return runner(Step(START_APP, ("npm", "run", "dev"), FRONTEND))
@@ -437,7 +449,15 @@ def main(
     commands.add_parser("run", help="start the desktop app from source")
     commands.add_parser("build", help="build and verify the preview installer for this machine")
     check = commands.add_parser("check", help="run the tests, lint, and type checks CI runs")
-    check.add_argument("group", nargs="?", choices=("desktop", "server"), help="default: both")
+    # A type check instead of `choices`: with nargs="*" the handling of "no groups given"
+    # by `choices` differs between Python versions.
+    check.add_argument(
+        "groups",
+        nargs="*",
+        type=_group,
+        metavar="group",
+        help=f"{', '.join(GROUPS)} (default: all)",
+    )
     commands.add_parser("doctor", help="show what is installed and what is missing")
     args = parser.parse_args(argv)
     try:
