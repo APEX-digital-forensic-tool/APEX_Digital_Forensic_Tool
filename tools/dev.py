@@ -23,9 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 PYTHON_VERSION = "3.12"
 NODE_MAJOR = 24
-# One environment for desktop, server, and development work: `uv sync` removes whatever
-# is not listed, so a narrower list would uninstall the other side's packages.
-EXTRAS = (
+DESKTOP_EXTRAS = (
     "desktop",
     "desktop-build",
     "report-renderer",
@@ -34,19 +32,31 @@ EXTRAS = (
     "machine-extraction",
     "advanced-secrets",
     "dev",
-    "backend",
-    "mcp-server",
 )
-SYNC = (
+# One environment for desktop, server, and development work: `uv sync` removes whatever
+# is not listed, so a narrower list would uninstall the other side's packages.
+EXTRAS = (*DESKTOP_EXTRAS, "backend", "mcp-server")
+# Without --managed-python uv takes any Python 3.12 already on the machine (python.org,
+# Homebrew, a CI runner's own copy), and that interpreter is what the installers then bundle.
+PYTHON = ("--locked", "--managed-python", "--python", PYTHON_VERSION)
+
+
+def _extras(names: Sequence[str]) -> tuple[str, ...]:
+    return tuple(argument for name in names for argument in ("--extra", name))
+
+
+SYNC = ("uv", "sync", *PYTHON, *_extras(EXTRAS))
+# The engine runtime is what ships, so it is built in a throwaway environment holding the
+# desktop packages only. PyInstaller bundles any optional import that happens to be
+# installed: with the server packages present, cryptography pulls bcrypt into the app.
+BUILD_RUNTIME = (
     "uv",
-    "sync",
-    "--locked",
-    # Without this uv takes any Python 3.12 already on the machine (python.org, Homebrew, a
-    # CI runner's own copy), and that interpreter is what the installers then bundle.
-    "--managed-python",
-    "--python",
-    PYTHON_VERSION,
-    *(argument for extra in EXTRAS for argument in ("--extra", extra)),
+    "run",
+    "--isolated",
+    *PYTHON,
+    *_extras(DESKTOP_EXTRAS),
+    "python",
+    "tools/build_desktop_runtime.py",
 )
 STAMP_NAME = ".apex-lock-sha256"
 GROUPS = ("desktop", "engine", "server")
@@ -407,12 +417,7 @@ def build_steps(platform_name: str, parts: Sequence[str] = BUILD_PARTS) -> list[
     steps = []
     if "runtime" in parts:
         steps += [
-            Step(
-                "Build engine runtime",
-                (*python, "tools/build_desktop_runtime.py"),
-                ROOT,
-                attempts=3,
-            ),
+            Step("Build engine runtime", BUILD_RUNTIME, ROOT, attempts=3),
             Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
         ]
     if "installer" in parts:

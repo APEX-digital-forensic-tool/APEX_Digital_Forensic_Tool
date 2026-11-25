@@ -86,7 +86,7 @@ GUI 컨텍스트 수정은 revision 순서로 직렬화합니다. 충돌 시 최
 ./dev build installer    # 설치 파일 생성 → Mac에서는 실제 DMG·ZIP 검증
 ```
 
-이 명령은 Python 런타임 빌드 → 런타임 실행 확인 → 설치 파일 생성(Windows `dist:win`, Mac `dist:mac`) → Mac에서는 실제 DMG·ZIP 검증을 차례로 실행하고, 한 단계가 실패하면 멈춥니다. 내려받기가 들어 있는 런타임 빌드와 설치 파일 생성은 실패하면 5초 뒤 다시 시도하며 세 번까지 합니다. 끝에 단계별 소요 시간을 보여 줍니다. `installer`만 실행하려면 이 컴퓨터용 런타임이 먼저 빌드돼 있어야 합니다. 빌드 스크립트는 생성한 바이너리의 플랫폼·아키텍처를 기록하며, Electron 패키징 시 일치 여부를 검사합니다. 기존 `pwsh -File tools/build_desktop_runtime.ps1`도 공통 Python 빌더를 호출합니다.
+이 명령은 Python 런타임 빌드 → 런타임 실행 확인 → 설치 파일 생성(Windows `dist:win`, Mac `dist:mac`) → Mac에서는 실제 DMG·ZIP 검증을 차례로 실행하고, 한 단계가 실패하면 멈춥니다. 내려받기가 들어 있는 런타임 빌드와 설치 파일 생성은 실패하면 5초 뒤 다시 시도하며 세 번까지 합니다. 끝에 단계별 소요 시간을 보여 줍니다. `installer`만 실행하려면 이 컴퓨터용 런타임이 먼저 빌드돼 있어야 합니다. 런타임은 개발 환경(`.venv`)이 아니라 데스크톱 패키지만 든 임시 환경에서 빌드합니다. PyInstaller는 설치돼 있는 선택적 의존성까지 묶기 때문에, 서버 개발용 패키지가 설치 파일에 섞이지 않게 하기 위해서입니다. 빌드 스크립트는 생성한 바이너리의 플랫폼·아키텍처를 기록하며, Electron 패키징 시 일치 여부를 검사합니다. 기존 `pwsh -File tools/build_desktop_runtime.ps1`도 공통 Python 빌더를 호출합니다.
 
 빌드 시 고정 버전·SHA-256을 확인한 다국어 STT 모델과 Windows용 FFmpeg/ffprobe를 내려받습니다. 설치 후에는 모델 다운로드가 필요하지 않습니다. PyInstaller가 Core·로컬 API·파일시스템·보고서·OCR/STT 실행기·고급 DPAPI 의존성을 `desktop-runtime/`에 묶습니다. electron-builder는 Windows NSIS `.exe`, macOS `.dmg` 및 `.zip`을 `frontend/release/`에 만듭니다. Mac은 현재 호스트 아키텍처로 빌드하며, Intel과 Apple Silicon 패키지는 각각 해당 환경에서 생성합니다. Universal 바이너리나 다른 OS로의 교차 빌드는 제공하지 않습니다.
 

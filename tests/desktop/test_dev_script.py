@@ -372,6 +372,20 @@ def test_installer_alone_needs_a_runtime_for_this_machine(frontend, capsys, runt
     assert "./dev build runtime" in capsys.readouterr().out
 
 
+def test_the_runtime_is_built_from_the_desktop_packages_only(frontend):
+    """What is installed for server work must not reach the installers: PyInstaller bundles
+    any optional import that happens to be present (cryptography picks up bcrypt)."""
+    build = dev.build_steps("darwin", ["runtime"])[0]
+    assert build.command == (
+        "uv", "run", "--isolated", "--locked", "--managed-python", "--python", "3.12",
+        "--extra", "desktop", "--extra", "desktop-build", "--extra", "report-renderer",
+        "--extra", "browser-media", "--extra", "windows-artifacts",
+        "--extra", "machine-extraction", "--extra", "advanced-secrets", "--extra", "dev",
+        "python", "tools/build_desktop_runtime.py",
+    )  # fmt: skip
+    assert set(dev.EXTRAS) - set(dev.DESKTOP_EXTRAS) == {"backend", "mcp-server"}
+
+
 def test_windows_installer_part_has_no_macos_verification(frontend):
     assert [s.name for s in dev.build_steps("win32", ["installer"])] == ["Package installer"]
 
