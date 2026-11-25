@@ -129,8 +129,10 @@ def test_setup_syncs_python_prepares_assets_then_installs_packages(frontend):
         "Prepare desktop assets",
         "Install frontend packages",
     ]
+    # --managed-python: a Python 3.12 already on the machine (python.org, Homebrew, a CI
+    # runner's own copy) must not become the interpreter that gets bundled into installers.
     assert rec.steps[0].command == (
-        "uv", "sync", "--locked", "--python", "3.12",
+        "uv", "sync", "--locked", "--managed-python", "--python", "3.12",
         "--extra", "desktop", "--extra", "desktop-build", "--extra", "report-renderer",
         "--extra", "browser-media", "--extra", "windows-artifacts",
         "--extra", "machine-extraction", "--extra", "advanced-secrets",

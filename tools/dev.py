@@ -41,6 +41,9 @@ SYNC = (
     "uv",
     "sync",
     "--locked",
+    # Without this uv takes any Python 3.12 already on the machine (python.org, Homebrew, a
+    # CI runner's own copy), and that interpreter is what the installers then bundle.
+    "--managed-python",
     "--python",
     PYTHON_VERSION,
     *(argument for extra in EXTRAS for argument in ("--extra", extra)),
