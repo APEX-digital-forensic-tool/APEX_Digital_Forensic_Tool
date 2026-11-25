@@ -4,7 +4,7 @@
 
 v0.1.4는 명시적 ad-hoc 서명과 DMG·ZIP 실기동 검사를 적용한 인증서 없는 프리뷰다. Developer ID 서명이나 Apple 공증을 받은 버전은 아니다. 이 문서는 향후 Apple 인증서를 준비한 뒤 수행할 별도 배포 절차다. **Apple 인증서를 등록하고 `Signed desktop release`가 성공하기 전에는 Developer ID·공증 배포가 완료된 것이 아니다.**
 
-`Desktop Windows and macOS` PR CI와 `.github/workflows/desktop-preview-release.yml`은 Apple 자격 증명 없이 ad-hoc 프리뷰를 검증·배포한다. Developer ID·공증 배포는 별도 `.github/workflows/desktop-release.yml`을 main에서 수동 실행한다. fork/PR 코드에는 Apple 비밀값을 제공하지 않는다.
+`main` 병합 뒤의 `Desktop Windows and macOS` 실행과 `.github/workflows/desktop-preview-release.yml`은 Apple 자격 증명 없이 ad-hoc 프리뷰를 검증·배포한다(PR 검사는 설치 파일을 만들지 않는다). Developer ID·공증 배포는 별도 `.github/workflows/desktop-release.yml`을 main에서 수동 실행한다. 서명·공증 단계 자체는 세 워크플로가 함께 쓰는 `.github/workflows/desktop-build.yml`의 `installers` job에 있고 `signed: true`일 때만 실행된다. fork/PR 코드에는 Apple 비밀값을 제공하지 않는다.
 
 분석 엔진·로컬 API·사용자 데이터 형식과 앱 ID `org.apex.forensic`은 유지한다. Windows 설치 파일은 기존과 같은 **서명 없는 프리뷰**다. Windows 인증서와 자동 업데이트는 이 변경에 포함되지 않는다.
 

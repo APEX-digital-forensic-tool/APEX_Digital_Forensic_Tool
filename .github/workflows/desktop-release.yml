@@ -14,6 +14,9 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
     outputs:
       tag: ${{ steps.check.outputs.tag }}
       sha: ${{ steps.check.outputs.sha }}
@@ -60,96 +63,34 @@ jobs:
             }
             core.setOutput('tag', tag);
             core.setOutput('sha', context.sha);
+      # The merge that brought this commit to main started the same checks and builds in
+      # desktop-ci.yml. This run repeats them on the same commit, so it takes over rather than
+      # queue behind them for macOS runners. A failed cancel only costs time.
+      - name: Cancel the main check run for this commit
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow desktop-ci.yml --commit "$GITHUB_SHA" \
+            --json databaseId,status --jq '.[] | select(.status != "completed") | .databaseId' \
+            | xargs -r -n1 gh run cancel --repo "$GITHUB_REPOSITORY"
 
   build:
     needs: preflight
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            label: Windows-x64
-            package: dist:win:release
-          - os: macos-15
-            label: macOS-arm64
-            package: dist:mac:release
-          - os: macos-15-intel
-            label: macOS-x64
-            package: dist:mac:release
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    env:
-      PYTHONUTF8: '1'
-      ORT_DISABLE_TELEMETRY: '1'
-      HF_HUB_DISABLE_TELEMETRY: '1'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.preflight.outputs.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.12.11'
-      - run: uv python install 3.12
-      - run: uv python pin 3.12
-      - run: uv sync --locked --extra desktop --extra desktop-build --extra report-renderer --extra browser-media --extra windows-artifacts --extra machine-extraction --extra advanced-secrets --extra dev
-      - run: uv run --no-sync pytest tests/desktop tests/unit/test_container_workflows.py tests/unit/test_advanced_runtime_decryption.py tests/unit/test_logical_content_integrity.py tests/unit/test_image_source_identity.py
-      - run: uv run --no-sync ruff check src/apex_desktop tests/desktop tools/build_desktop_runtime.py tools/prepare_desktop_assets.py tools/verify_desktop_runtime.py tools/verify_macos_release.py
-      - run: uv run --no-sync mypy --strict src/apex_desktop
-      - run: npm ci
-        working-directory: frontend
-      - run: npm test
-        working-directory: frontend
-      - run: uv run --no-sync python tools/build_desktop_runtime.py
-      - run: uv run --no-sync python tools/verify_desktop_runtime.py
-      - name: Prepare temporary Apple API key
-        if: runner.os == 'macOS'
-        run: node frontend/scripts/prepare-macos-key.mjs
-        env:
-          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
-      - name: Package Windows preview
-        if: runner.os == 'Windows'
-        run: npm run dist:win:release
-        working-directory: frontend
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Sign and notarize macOS application
-        if: runner.os == 'macOS'
-        run: npm run dist:mac:release
-        working-directory: frontend
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'true'
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Notarize DMG and verify shipped DMG/ZIP payloads
-        if: runner.os == 'macOS'
-        run: uv run --no-sync python tools/verify_macos_release.py
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Remove temporary notarization key
-        if: always() && runner.os == 'macOS'
-        shell: bash
-        run: rm -f "$RUNNER_TEMP/apex-notary.p8"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.label }}
-          path: |
-            frontend/release/APEX-*.exe
-            frontend/release/APEX-*.dmg
-            frontend/release/APEX-*.zip
-            frontend/release/verification-macOS-*.json
-          if-no-files-found: error
-          retention-days: 14
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      full: true
+      ref: ${{ needs.preflight.outputs.sha }}
+      signed: true
+      artifact-prefix: release
+      retention-days: 14
+    secrets:
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   publish:
     needs: [preflight, build]

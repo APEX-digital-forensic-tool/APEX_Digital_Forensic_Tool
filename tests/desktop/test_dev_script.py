@@ -266,7 +266,10 @@ DIRECT = (
 )
 
 
-@pytest.mark.parametrize("name", ["desktop-build.yml", "desktop-ci.yml"])
+@pytest.mark.parametrize(
+    "name",
+    ["desktop-build.yml", "desktop-ci.yml", "desktop-preview-release.yml", "desktop-release.yml"],
+)
 def test_desktop_workflows_leave_the_commands_to_the_dev_script(name):
     assert [c for c in workflow_commands(name) if c.startswith(DIRECT)] == []
 
