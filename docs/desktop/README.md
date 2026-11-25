@@ -26,7 +26,9 @@ Windows x64 또는 macOS, Node.js 24, uv가 필요합니다. Python 3.12는 uv�
 
 `setup`은 Python 3.12와 의존성, 음성 인식 모델, 프런트 패키지를 설치합니다. 데스크톱·MCP·인증 백엔드 개발에 필요한 패키지를 한 환경에 모두 넣습니다. 다시 실행해도 되고, 이미 끝난 단계는 빠르게 지나갑니다. 무엇이 빠졌는지는 `./dev doctor`로 확인합니다. uv와 Node.js는 스크립트가 설치하지 않으므로 직접 설치하세요.
 
-실제로 실행되는 명령은 [`tools/dev.py`](../../tools/dev.py)에 있습니다. Windows의 `dev.cmd`는 아직 실제 Windows에서 확인하지 않았습니다.
+실제로 실행되는 명령은 [`tools/dev.py`](../../tools/dev.py)에 있습니다. 2026-11-25 macOS arm64에서 새로 받은 저장소로 `setup`, `run`, `check`, `build`를 실행해 확인했습니다. Windows의 `dev.cmd`는 아직 실제 Windows에서 확인하지 않았습니다.
+
+저장소 경로에 공백이 있어도 `setup`, `run`, `build`는 동작합니다. 다만 macOS에서 `./dev check`의 데스크톱 테스트 5개(`test_stt_decoder_isolation.py`의 4개, `test_followup_index_tools.py`의 1개)가 실패합니다. 이 테스트들이 만드는 임시 실행 파일의 `#!` 줄이 공백이 든 Python 경로를 담지 못하기 때문이며, 공백 없는 경로에서는 통과합니다.
 
 Electron이 Windows에서는 `.venv/Scripts/python.exe`, macOS에서는 `.venv/bin/python`을 찾아 로컬 API를 자동 실행합니다. 다른 Python 환경을 써야 하는 경우에만 `APEX_PYTHON`을 해당 실행 파일의 절대 경로로 설정합니다. 개발 서버는 `127.0.0.1:5173`을 사용합니다.
 
