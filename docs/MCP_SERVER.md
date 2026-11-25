@@ -214,6 +214,7 @@ MCP 전용 테스트는 49건 통과했다. 최종 wheel의 clean install과 실
 - `PersistentFrontendSecurityProvider`: JWT 클레임에서 `FrontendSession` 추출 (DB 불필요)
 - `DbFrontendSecurityProvider`: sync SQLAlchemy로 `ConfirmationGrantRow` 조회/소비
 - `POST /confirmations`: JWT 검증 후 1회용 5분 grant 발급
+- `POST /confirmations/lookup`, `POST /confirmations/{grant_id}/consume` + `HttpFrontendSecurityProvider` (`--http-confirmation-url`): 분석가 PC의 MCP가 DB 접속 없이, 호출 중인 사용자 토큰으로 grant를 조회·1회 소비 (#115)
 - E2E 테스트 4건: JWT → MCP tool (정상), 위조 토큰 → 401, 허용되지 않은 case → TENANT_SCOPE_VIOLATION, InMemory 경로 유지
 
 **보안 체인:**
@@ -225,7 +226,8 @@ MCP HTTP (Bearer <token>) → JwtTokenVerifier → PersistentFrontendSecurityPro
      ↓
 POST /confirmations (Bearer <token>) → ConfirmationGrantRow (DB)
      ↓
-MCP confirm tool → DbFrontendSecurityProvider.confirmation_for/authorize → 1회 소비
+MCP confirm tool → HttpFrontendSecurityProvider (로컬 MCP, grant API)
+                 또는 DbFrontendSecurityProvider (서버 안 MCP, DB 직접) → 1회 소비
 ```
 
 배포 가이드: [`docs/backend/deployment/README.md`](backend/deployment/README.md)

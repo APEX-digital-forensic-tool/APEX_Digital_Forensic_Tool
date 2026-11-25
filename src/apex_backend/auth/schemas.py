@@ -49,7 +49,21 @@ class ConfirmationResponse(BaseModel):
     grant_id: str
 
 
+class ConfirmationLookupResponse(BaseModel):
+    """POST /confirmations/lookup response: a usable grant, or none."""
+
+    grant_id: str | None = None
+
+
+class ConfirmationConsumeResponse(BaseModel):
+    """POST /confirmations/{grant_id}/consume response."""
+
+    authorized: bool
+
+
 __all__ = [
+    "ConfirmationConsumeResponse",
+    "ConfirmationLookupResponse",
     "ConfirmationRequest",
     "ConfirmationResponse",
     "LoginRequest",

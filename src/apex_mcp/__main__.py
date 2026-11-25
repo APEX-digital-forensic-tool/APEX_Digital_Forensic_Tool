@@ -50,6 +50,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--http-db-url", default=os.environ.get("APEX_CONFIRMATION_DB_URL")
     )
+    # Grants through the backend API: for an MCP server on the analyst's machine.
+    parser.add_argument(
+        "--http-confirmation-url", default=os.environ.get("APEX_CONFIRMATION_API_URL")
+    )
     parser.add_argument(
         "--http-jwks-cache-ttl",
         type=int,
@@ -151,21 +155,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     verifier: TokenVerifier
     frontend_security: InMemoryFrontendSecurityProvider | PersistentFrontendSecurityProvider
     if args.http_jwks_uri:
-        # JWT / production mode: JwtTokenVerifier + DbFrontendSecurityProvider
-        if not args.http_db_url:
+        # JWT / production mode: grants through the backend API or its database.
+        if bool(args.http_db_url) == bool(args.http_confirmation_url):
             parser.error(
-                "--http-db-url (or APEX_CONFIRMATION_DB_URL) is required "
-                "when --http-jwks-uri (or APEX_JWKS_URI) is set"
+                "JWT mode (--http-jwks-uri / APEX_JWKS_URI) needs exactly one of "
+                "--http-confirmation-url (APEX_CONFIRMATION_API_URL) or "
+                "--http-db-url (APEX_CONFIRMATION_DB_URL)"
             )
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import sessionmaker
-
-        from apex_backend.auth.db_confirmation import DbFrontendSecurityProvider
         from apex_backend.auth.jwt_verifier import JwtTokenVerifier
 
-        sync_engine = create_engine(args.http_db_url)
-        sync_factory = sessionmaker(sync_engine, expire_on_commit=False)
-        frontend_security = DbFrontendSecurityProvider(sync_factory)
+        if args.http_confirmation_url:
+            from apex_mcp.remote_confirmation import HttpFrontendSecurityProvider
+
+            try:
+                frontend_security = HttpFrontendSecurityProvider(args.http_confirmation_url)
+            except ValueError as exc:
+                parser.error(str(exc))
+        else:
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+
+            from apex_backend.auth.db_confirmation import DbFrontendSecurityProvider
+
+            sync_engine = create_engine(args.http_db_url)
+            sync_factory = sessionmaker(sync_engine, expire_on_commit=False)
+            frontend_security = DbFrontendSecurityProvider(sync_factory)
         verifier = JwtTokenVerifier(
             jwks_uri=args.http_jwks_uri,
             issuer=issuer_url,

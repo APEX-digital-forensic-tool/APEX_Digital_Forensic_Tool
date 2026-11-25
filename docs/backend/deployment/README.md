@@ -7,8 +7,16 @@
 | 컴포넌트 | 역할 |
 |---|---|
 | `apex_backend` | FastAPI 앱 — 인증 API + confirmation grant 발급 |
-| `apex_mcp` (HTTP 모드) | MCP Streamable HTTP 서버 — `JwtTokenVerifier` 사용 |
-| PostgreSQL | 사용자/세션 + confirmation grant 영속 저장소 |
+| `apex_mcp` (HTTP 모드) | MCP Streamable HTTP 서버 — `JwtTokenVerifier` 사용. 보통 분석가 PC에서 실행하고, grant는 백엔드 API로 확인한다 |
+| PostgreSQL | 사용자/세션 + confirmation grant 영속 저장소. 백엔드 서버 안에서만 접속 |
+
+### 권장 배치: MCP는 분석가 PC, 서버는 로그인·grant·LLM
+
+사건 DB(`forensics.db`)와 증거는 분석가 PC에 있으므로 MCP 서버도 거기서 돌린다.
+서버(EC2 등)에는 `apex_backend`, PostgreSQL, 다운로드 페이지만 둔다. 로컬 MCP는
+`--http-confirmation-url`로 백엔드의 grant API를 부르므로 **PostgreSQL을 외부에 열거나
+DB 비밀번호를 PC에 배포하지 않는다.** `--http-db-url`(DB 직접 접속)은 MCP를 백엔드와
+같은 서버 안에서 돌릴 때만 쓴다.
 
 ## 환경 변수
 
@@ -29,7 +37,8 @@
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `APEX_JWKS_URI` | (필수) | `https://<backend-host>/.well-known/jwks.json` (`--http-jwks-uri`로도 설정 가능) |
-| `APEX_CONFIRMATION_DB_URL` | (필수) | `postgresql+psycopg2://user:pass@host:5432/db` — confirmation grant 조회용 sync 커넥션 (`--http-db-url`로도 설정 가능) |
+| `APEX_CONFIRMATION_API_URL` | 둘 중 하나 필수 | `https://<backend-host>` — 백엔드 grant API 주소 (`--http-confirmation-url`로도 설정 가능). 루프백이 아니면 HTTPS만 허용. **로컬 MCP는 이것을 쓴다** |
+| `APEX_CONFIRMATION_DB_URL` | 둘 중 하나 필수 | `postgresql+psycopg2://user:pass@host:5432/db` — grant 조회용 sync DB 커넥션 (`--http-db-url`로도 설정 가능). MCP가 백엔드와 같은 서버 안에 있을 때만 |
 | `APEX_JWKS_CACHE_TTL` | `300` | JWKS 캐시 TTL (초) (`--http-jwks-cache-ttl`로도 설정 가능) |
 
 ## 실행 방법
@@ -64,6 +73,27 @@ uv run python -c 'import os, uvicorn; from apex_backend.app import create_app; u
 
 ### 4. apex_mcp (HTTP 모드) 실행
 
+분석가 PC에서 (권장):
+
+```bash
+APEX_JWKS_URI="https://apex.example.com/.well-known/jwks.json" \
+APEX_CONFIRMATION_API_URL="https://apex.example.com" \
+uv run apex-mcp \
+  --database /path/to/forensics.db \
+  --schema-dir /path/to/schemas/v1 \
+  --transport http \
+  --http-port 8765 \
+  --http-issuer-url "https://apex.example.com" \
+  --http-resource-url "https://apex.example.com/mcp"
+```
+
+`--http-resource-url`은 백엔드의 `APEX_MCP_RESOURCE`와 **글자 하나까지 같은 값**이어야 한다
+(토큰 `aud`). 서버 전체에 하나뿐인 식별자라서, MCP가 각 PC의 `127.0.0.1:8765`에서
+돌더라도 모든 PC가 같은 값(`https://apex.example.com/mcp`)을 쓴다. 실제로 접속하는
+주소가 아니어도 된다.
+
+백엔드와 같은 서버 안에서 (DB 직접 접속):
+
 ```bash
 APEX_JWKS_URI="https://apex.example.com/.well-known/jwks.json" \
 APEX_CONFIRMATION_DB_URL="postgresql+psycopg2://apex:secret@localhost:5432/apex" \
@@ -76,8 +106,9 @@ uv run apex-mcp \
   --http-resource-url "https://apex.example.com/mcp"
 ```
 
-> `APEX_JWKS_URI`가 설정되면 JWT 프로덕션 모드로 동작한다
-> (`JwtTokenVerifier` + `DbFrontendSecurityProvider`). 설정하지 않으면
+> `APEX_JWKS_URI`가 설정되면 JWT 프로덕션 모드로 동작한다. grant 출처는
+> `APEX_CONFIRMATION_API_URL`(`HttpFrontendSecurityProvider`)과
+> `APEX_CONFIRMATION_DB_URL`(`DbFrontendSecurityProvider`) 중 정확히 하나여야 한다. 설정하지 않으면
 > `--http-actor-id`/`--http-session-id`/`--http-tenant-id`/`--http-case-id` +
 > `APEX_MCP_HTTP_TOKEN`을 요구하는 개발용 스텁 모드로 동작한다.
 
@@ -106,8 +137,14 @@ Frontend                apex_backend              apex_mcp
 
 1. Frontend가 `POST /confirmations`를 호출 (Bearer access token 필요)
 2. apex_backend가 JWT 검증 후 `ConfirmationGrantRow` 생성 (5분 유효, 1회 사용)
-3. MCP 서버가 confirmation 필요 Tool 실행 시 `DbFrontendSecurityProvider.confirmation_for`로 DB 조회
-4. `authorize(request)` 호출 시 `uses_count` 증가 → 재사용 차단
+3. MCP 서버가 confirmation 필요 Tool 실행 시 grant를 찾는다. API 모드는 호출 중인
+   사용자의 Bearer 토큰으로 `POST /confirmations/lookup`을 부르고(소비하지 않음),
+   DB 모드는 `DbFrontendSecurityProvider.confirmation_for`로 직접 조회한다.
+4. 실행 직전 `authorize(request)`가 grant를 1회 소비한다. API 모드는
+   `POST /confirmations/{grant_id}/consume`, DB 모드는 DB 조건부 UPDATE. 둘 다
+   `uses_count < max_uses` 조건으로 원자적으로 증가시켜 재사용·동시 사용을 막는다.
+5. API 모드에서 actor·session은 항상 토큰에서 정해진다. 다른 사용자의 토큰으로는
+   grant를 찾거나 소비할 수 없고, 백엔드에 닿지 못하거나 2xx가 아니면 거부한다.
 
 ## 로컬 개발 (in-memory)
 
@@ -149,7 +186,9 @@ SQLite(테스트용)는 추가 드라이버 불필요.
 
 `POST /auth/logout`에 Bearer access token을 보내면 해당 세션이 즉시 무효화된다.
 이후 동일 세션의 refresh token은 `401 Session revoked or not found`로 거부되고,
-`POST /confirmations`도 DB 세션 상태를 확인하므로 즉시 401로 막힌다.
+`POST /confirmations`와 grant API(`/confirmations/lookup`, `/confirmations/{id}/consume`)도
+DB 세션 상태를 확인하므로 즉시 401로 막힌다. 따라서 API 모드의 MCP에서는 로그아웃 즉시
+확인이 필요한 도구가 모두 거부된다(아래 제약은 읽기 도구 등 나머지 호출에 해당).
 
 **MCP 경로(`apex_mcp`, Case/Evidence/Search/Report/AI 등 실제 도구 호출)는 JWT
 서명만 검증하고 DB에 세션 revoked 여부를 확인하지 않는다** (Option A 설계 —
@@ -189,6 +228,7 @@ Phase 12 배포 후 기존 세션(`current_refresh_jti IS NULL`)은 다음 refre
       재사용탐지 후에도 최대 1시간까지 MCP 도구 호출이 통과될 수 있음 — "세션 관리
       운영 참고" 참고)
 - [ ] TLS 종단 (reverse proxy 또는 `--ssl-keyfile/--ssl-certfile`)
-- [ ] `psycopg2-binary` (또는 `psycopg2`) 설치 확인
+- [ ] PostgreSQL 포트는 외부에 열지 않음 (로컬 MCP는 `APEX_CONFIRMATION_API_URL` 사용)
+- [ ] `psycopg2-binary` (또는 `psycopg2`) 설치 확인 — DB 모드 MCP를 서버에서 돌릴 때만
 - [ ] DB 마이그레이션 (`alembic upgrade head`) CI/CD에 포함
 - [ ] `ConfirmationGrantRow` 만료 레코드 정기 삭제 배치 설정 (선택)
