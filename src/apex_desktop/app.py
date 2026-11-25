@@ -1,5 +1,6 @@
 """Per-launch authenticated loopback API independent of cloud account login."""
 
+import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,6 +20,8 @@ from apex_forensic.domain.errors import ApexError
 
 from .operations import MODELS, invoke
 from .tasks import Tasks, encode, public_error
+
+_logger = logging.getLogger(__name__)
 
 
 def create_app(data_dir: Path, token: str, *, host: str = "127.0.0.1") -> FastAPI:
@@ -120,6 +123,9 @@ def create_app(data_dir: Path, token: str, *, host: str = "127.0.0.1") -> FastAP
         try:
             return JSONResponse(await run_in_threadpool(execute))
         except Exception as error:
+            if not isinstance(error, ApexError):
+                # The reply hides the cause on purpose; without this line nothing records it.
+                _logger.exception("Operation %s failed unexpectedly", operation)
             return JSONResponse(
                 {"ok": False, "error": public_error(error)},
                 409 if isinstance(error, ApexError) else 500,
