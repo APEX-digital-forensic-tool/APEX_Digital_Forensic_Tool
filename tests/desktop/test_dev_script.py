@@ -1,6 +1,7 @@
 """The dev script plans the same steps on every OS and never runs past a failed tool check."""
 
 import importlib.util
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -287,7 +288,7 @@ def test_build_steps_follow_the_platform(frontend):
         "Package installer",
         "Verify macOS preview",
     ]
-    assert mac[2] == dev.Step("Package installer", ("npm", "run", "dist:mac"), frontend)
+    assert mac[2] == dev.Step("Package installer", ("npm", "run", "dist:mac"), frontend, attempts=3)
     windows = dev.build_steps("win32")
     assert [s.name for s in windows] == [
         "Build engine runtime",
@@ -338,6 +339,69 @@ def test_installer_alone_needs_a_runtime_for_this_machine(frontend, capsys, runt
 
 def test_windows_installer_part_has_no_macos_verification(frontend):
     assert [s.name for s in dev.build_steps("win32", ["installer"])] == ["Package installer"]
+
+
+class Flaky:
+    """Fails each named step a fixed number of times, then succeeds."""
+
+    def __init__(self, failures):
+        self.failures, self.calls = dict(failures), []
+
+    def __call__(self, step):
+        self.calls.append(step.name)
+        left = self.failures.get(step.name, 0)
+        self.failures[step.name] = left - 1
+        return 7 if left > 0 else 0
+
+
+@pytest.fixture
+def no_delay(monkeypatch):
+    monkeypatch.setattr(dev, "RETRY_DELAY", 0)
+
+
+def test_only_the_download_steps_are_retried(frontend):
+    attempts = {s.name: s.attempts for s in dev.build_steps("darwin")}
+    assert attempts == {
+        "Build engine runtime": 3,
+        "Verify engine runtime": 1,
+        "Package installer": 3,
+        "Verify macOS preview": 1,
+    }
+    assert all(s.attempts == 1 for s in dev.check_steps(list(dev.GROUPS)))
+    assert all(s.attempts == 1 for s in dev.setup_steps(npm_current=False))
+
+
+def test_a_step_that_recovers_is_retried_and_the_build_goes_on(frontend, no_delay, capsys):
+    runner = Flaky({"Build engine runtime": 2})
+    assert dev.main(["build", "runtime"], runner=runner, probe=lambda: READY) == 0
+    assert runner.calls == ["Build engine runtime"] * 3 + ["Verify engine runtime"]
+    assert "Attempt 2 of 3 failed" in capsys.readouterr().out
+
+
+def test_a_step_that_keeps_failing_stops_the_build_with_its_exit_code(frontend, no_delay):
+    runner = Flaky({"Build engine runtime": 9})
+    assert dev.main(["build"], runner=runner, probe=lambda: READY) == 7
+    assert runner.calls == ["Build engine runtime"] * 3
+
+
+def test_interrupt_while_waiting_to_retry_ends_with_130(frontend, monkeypatch):
+    def interrupted(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(dev.time, "sleep", interrupted)
+    runner = Flaky({"Build engine runtime": 9})
+    assert dev.main(["build"], runner=runner, probe=lambda: READY) == 130
+    assert runner.calls == ["Build engine runtime"]
+
+
+def test_summaries_show_how_long_each_step_took(frontend, capsys):
+    assert dev.main(["check", "engine"], runner=Recorder(), probe=lambda: READY) == 0
+    assert re.search(r"^PASS  Engine tests  \d+s$", capsys.readouterr().out, re.M)
+    failing = Recorder(fail="Verify engine runtime")
+    assert dev.main(["build", "runtime"], runner=failing, probe=lambda: READY) == 1
+    out = capsys.readouterr().out
+    assert re.search(r"^PASS  Build engine runtime  \d+s$", out, re.M)
+    assert re.search(r"^FAIL  Verify engine runtime  \d+s$", out, re.M)
 
 
 def test_every_step_has_an_absolute_working_directory():

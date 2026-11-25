@@ -14,6 +14,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,7 @@ SYNC = (
 STAMP_NAME = ".apex-lock-sha256"
 GROUPS = ("desktop", "engine", "server")
 BUILD_PARTS = ("runtime", "installer")
+RETRY_DELAY = 5.0
 
 SYNC_PYTHON = "Sync Python environment"
 PREPARE_ASSETS = "Prepare desktop assets"
@@ -100,6 +102,15 @@ class Step:
     name: str
     command: tuple[str, ...]
     cwd: Path
+    # More than 1 only for steps that download: one dropped connection should not cost a build.
+    attempts: int = 1
+
+
+@dataclass(frozen=True)
+class Outcome:
+    step: Step
+    code: int
+    seconds: float
 
 
 Runner = Callable[[Step], int]
@@ -260,16 +271,32 @@ def run_step(step: Step) -> int:
         raise
 
 
-def run_steps(
-    steps: Sequence[Step], runner: Runner, *, keep_going: bool = False
-) -> list[tuple[Step, int]]:
-    results = []
+def run_steps(steps: Sequence[Step], runner: Runner, *, keep_going: bool = False) -> list[Outcome]:
+    outcomes = []
     for step in steps:
+        started = time.monotonic()
         code = runner(step)
-        results.append((step, code))
+        for attempt in range(1, step.attempts):
+            if code == 0:
+                break
+            print(
+                f"Attempt {attempt} of {step.attempts} failed; "
+                f"retrying in {RETRY_DELAY:g} seconds.",
+                flush=True,
+            )
+            time.sleep(RETRY_DELAY)
+            code = runner(step)
+        outcomes.append(Outcome(step, code, time.monotonic() - started))
         if code != 0 and not keep_going:
             break
-    return results
+    return outcomes
+
+
+def summarize(outcomes: Sequence[Outcome]) -> None:
+    print()
+    for outcome in outcomes:
+        verdict = "PASS" if outcome.code == 0 else "FAIL"
+        print(f"{verdict}  {outcome.step.name}  {outcome.seconds:.0f}s")
 
 
 def setup_steps(*, npm_current: bool) -> list[Step]:
@@ -281,12 +308,12 @@ def setup_steps(*, npm_current: bool) -> list[Step]:
 
 
 def _setup(env: Environment, runner: Runner) -> int:
-    results = run_steps(setup_steps(npm_current=env.npm_current), runner)
-    for step, code in results:
-        if step.name == INSTALL_PACKAGES and code == 0:
+    outcomes = run_steps(setup_steps(npm_current=env.npm_current), runner)
+    for outcome in outcomes:
+        if outcome.step.name == INSTALL_PACKAGES and outcome.code == 0:
             # Written only after a finished install, so an interrupted one is repeated.
             (FRONTEND / "node_modules" / STAMP_NAME).write_text(lock_digest(), encoding="utf-8")
-    code = results[-1][1]
+    code = outcomes[-1].code
     if code == 0:
         print(f"Next: {_launcher(env.platform)} run")
     return code
@@ -377,11 +404,17 @@ def build_steps(platform_name: str, parts: Sequence[str] = BUILD_PARTS) -> list[
     steps = []
     if "runtime" in parts:
         steps += [
-            Step("Build engine runtime", (*python, "tools/build_desktop_runtime.py"), ROOT),
+            Step(
+                "Build engine runtime",
+                (*python, "tools/build_desktop_runtime.py"),
+                ROOT,
+                attempts=3,
+            ),
             Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
         ]
     if "installer" in parts:
-        steps.append(Step("Package installer", ("npm", "run", targets[platform_name]), FRONTEND))
+        package = ("npm", "run", targets[platform_name])
+        steps.append(Step("Package installer", package, FRONTEND, attempts=3))
         if platform_name == "darwin":
             verify = (*python, "tools/verify_macos_preview.py")
             steps.append(Step("Verify macOS preview", verify, ROOT))
@@ -397,11 +430,9 @@ def _group(name: str) -> str:
 def _check(groups: Sequence[str], runner: Runner) -> int:
     # Named groups run once each, in the order given.
     selected = list(dict.fromkeys(groups)) or list(GROUPS)
-    results = run_steps(check_steps(selected), runner, keep_going=True)
-    print()
-    for step, code in results:
-        print(f"{'PASS' if code == 0 else 'FAIL'}  {step.name}")
-    return 1 if any(code != 0 for _, code in results) else 0
+    outcomes = run_steps(check_steps(selected), runner, keep_going=True)
+    summarize(outcomes)
+    return 1 if any(outcome.code != 0 for outcome in outcomes) else 0
 
 
 def _runtime_fits(env: Environment) -> bool:
@@ -422,7 +453,9 @@ def _build(env: Environment, runner: Runner, part: str | None) -> int:
         # Packaging reads desktop-runtime/ and fails with a Node stack trace without it.
         print(RUNTIME_FIRST.format(launcher=_launcher(env.platform)))
         return 1
-    code = run_steps(build_steps(env.platform, parts), runner)[-1][1]
+    outcomes = run_steps(build_steps(env.platform, parts), runner)
+    summarize(outcomes)
+    code = outcomes[-1].code
     if code == 0 and "installer" in parts:
         for pattern in ("APEX-*.dmg", "APEX-*.zip", "APEX-*.exe"):
             for artifact in sorted((FRONTEND / "release").glob(pattern)):
