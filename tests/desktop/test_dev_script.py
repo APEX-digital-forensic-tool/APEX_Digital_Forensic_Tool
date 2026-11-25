@@ -253,16 +253,47 @@ def workflow_commands(name):
     return {line.strip().removeprefix("- ").removeprefix("run: ") for line in lines}
 
 
-# The workflows still keep their own copy of these commands. Until they call this script,
-# these tests are what notices the two drifting apart.
-def test_desktop_checks_are_the_commands_the_pull_request_workflow_runs():
-    ci = workflow_commands("desktop-ci.yml")
-    for step in dev.check_steps(["desktop"]):
-        # The script also lints itself; the workflow does not yet.
-        command = " ".join(step.command).removesuffix(" tools/dev.py")
-        assert command in ci, step.name
+# The desktop workflows call this script, so its lists are the only copy. These tests keep
+# a second copy from growing back, and keep the script's own files in the path filter.
+DIRECT = (
+    "uv sync",
+    "uv run --no-sync pytest",
+    "uv run --no-sync ruff",
+    "uv run --no-sync mypy",
+    "uv run --no-sync python tools/build_desktop_runtime.py",
+    "npm ci",
+    "npm test",
+)
 
 
+@pytest.mark.parametrize("name", ["desktop-build.yml", "desktop-ci.yml"])
+def test_desktop_workflows_leave_the_commands_to_the_dev_script(name):
+    assert [c for c in workflow_commands(name) if c.startswith(DIRECT)] == []
+
+
+def test_the_shared_workflow_calls_the_dev_script():
+    assert {
+        "./dev setup",
+        "./dev check ${{ matrix.groups }}",
+        "./dev build runtime",
+        "./dev build installer",
+    } <= workflow_commands("desktop-build.yml")
+
+
+def test_dev_script_changes_trigger_the_desktop_check():
+    text = (WORKFLOWS / "desktop-ci.yml").read_text(encoding="utf-8")
+    for path in (
+        "'tools/dev.py'",
+        "'dev'",
+        "'dev.cmd'",
+        "'tests/unit/**'",
+        "'tests/integration/**'",
+        "'.github/workflows/desktop-build.yml'",
+    ):
+        assert text.count(path) == 2, path  # once for pull_request, once for push
+
+
+# mcp-ci.yml still keeps its own copy of the server commands.
 def test_server_checks_are_the_commands_the_mcp_workflow_runs():
     ci = workflow_commands("mcp-ci.yml")
     for step in dev.check_steps(["server"]):
@@ -270,14 +301,13 @@ def test_server_checks_are_the_commands_the_mcp_workflow_runs():
         assert command in ci, step.name
 
 
-def test_setup_installs_every_extra_a_workflow_installs():
+def test_setup_installs_every_extra_the_mcp_workflow_installs():
     extras = set()
-    for name in ("desktop-ci.yml", "mcp-ci.yml"):
-        for command in workflow_commands(name):
-            if command.startswith("uv sync"):
-                words = command.split()
-                extras.update(words[i + 1] for i, word in enumerate(words) if word == "--extra")
-    assert extras == set(dev.EXTRAS)
+    for command in workflow_commands("mcp-ci.yml"):
+        if command.startswith("uv sync"):
+            words = command.split()
+            extras.update(words[i + 1] for i, word in enumerate(words) if word == "--extra")
+    assert extras and extras <= set(dev.EXTRAS)
 
 
 def test_build_steps_follow_the_platform(frontend):

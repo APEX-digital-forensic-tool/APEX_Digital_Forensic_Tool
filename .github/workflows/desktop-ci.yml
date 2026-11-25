@@ -1,82 +1,20 @@
 name: Desktop Windows and macOS
+# Pull requests: checks on Windows and macOS arm64 only.
+# Pushes to main and manual runs: checks on all three platforms plus the installers.
 on:
   pull_request:
-    paths: ['frontend/**', 'src/apex_desktop/**', 'src/apex_forensic/**', 'schemas/**', 'tests/desktop/**', 'tests/unit/test_logical_content_integrity.py', 'tests/unit/test_image_source_identity.py', 'tests/unit/test_file_system_indexing.py', 'tools/*desktop*', 'tools/verify_macos_release.py', 'tools/verify_macos_preview.py', 'docs/desktop/third-party/**', 'pyproject.toml', 'uv.lock', '.github/workflows/desktop-ci.yml', '.github/workflows/desktop-release.yml', '.github/workflows/desktop-preview-release.yml']
+    paths: ['frontend/**', 'src/apex_desktop/**', 'src/apex_forensic/**', 'schemas/**', 'tests/desktop/**', 'tests/unit/**', 'tests/integration/**', 'tools/*desktop*', 'tools/dev.py', 'tools/verify_macos_release.py', 'tools/verify_macos_preview.py', 'dev', 'dev.cmd', 'docs/desktop/third-party/**', 'pyproject.toml', 'uv.lock', '.github/workflows/desktop-ci.yml', '.github/workflows/desktop-build.yml', '.github/workflows/desktop-release.yml', '.github/workflows/desktop-preview-release.yml']
+  push:
+    branches: [main]
+    paths: ['frontend/**', 'src/apex_desktop/**', 'src/apex_forensic/**', 'schemas/**', 'tests/desktop/**', 'tests/unit/**', 'tests/integration/**', 'tools/*desktop*', 'tools/dev.py', 'tools/verify_macos_release.py', 'tools/verify_macos_preview.py', 'dev', 'dev.cmd', 'docs/desktop/third-party/**', 'pyproject.toml', 'uv.lock', '.github/workflows/desktop-ci.yml', '.github/workflows/desktop-build.yml', '.github/workflows/desktop-release.yml', '.github/workflows/desktop-preview-release.yml']
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   desktop:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            label: Windows-x64
-            package: dist:win
-          - os: macos-15
-            label: macOS-arm64
-            package: dist:mac
-          - os: macos-15-intel
-            label: macOS-x64
-            package: dist:mac
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    env:
-      PYTHONUTF8: '1'
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      ORT_DISABLE_TELEMETRY: '1'
-      HF_HUB_DISABLE_TELEMETRY: '1'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.12.11'
-      - run: uv python install 3.12
-      - run: uv python pin 3.12
-      - run: uv sync --locked --extra desktop --extra desktop-build --extra report-renderer --extra browser-media --extra windows-artifacts --extra machine-extraction --extra advanced-secrets --extra dev
-      - run: uv run --no-sync pytest tests/desktop tests/unit/test_container_workflows.py tests/unit/test_advanced_runtime_decryption.py tests/unit/test_logical_content_integrity.py tests/unit/test_image_source_identity.py tests/unit/test_file_system_indexing.py
-      - run: uv run --no-sync ruff check src/apex_desktop tests/desktop tools/build_desktop_runtime.py tools/prepare_desktop_assets.py tools/verify_desktop_runtime.py tools/verify_macos_release.py tools/verify_macos_preview.py
-      - run: uv run --no-sync mypy --strict src/apex_desktop
-      - run: npm ci
-        working-directory: frontend
-      - run: npm test
-        working-directory: frontend
-      - name: Build runtime with bounded download retries
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            uv run --no-sync python tools/build_desktop_runtime.py && exit 0
-            if [ "$attempt" -eq 3 ]; then exit 1; fi
-            echo "Build attempt $attempt failed; retrying after a short delay."
-            sleep 5
-          done
-      - run: uv run --no-sync python tools/verify_desktop_runtime.py
-      - name: Package with bounded download retries
-        shell: bash
-        working-directory: frontend
-        run: |
-          for attempt in 1 2 3; do
-            npm run ${{ matrix.package }} && exit 0
-            if [ "$attempt" -eq 3 ]; then exit 1; fi
-            echo "Build attempt $attempt failed; retrying after a short delay."
-            sleep 5
-          done
-      - name: Verify actual macOS preview DMG and ZIP
-        if: runner.os == 'macOS'
-        run: uv run --no-sync python tools/verify_macos_preview.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: APEX-${{ matrix.label }}
-          path: |
-            frontend/release/*.exe
-            frontend/release/*.dmg
-            frontend/release/*.zip
-            frontend/release/verification-macOS-*.json
-          if-no-files-found: error
-
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      full: ${{ github.event_name != 'pull_request' }}
