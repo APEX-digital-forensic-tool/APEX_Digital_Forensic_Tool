@@ -84,10 +84,13 @@ uv run apex-mcp \
   --transport http \
   --http-port 8765 \
   --http-issuer-url "https://apex.example.com" \
-  --http-resource-url "http://127.0.0.1:8765/mcp"
+  --http-resource-url "https://apex.example.com/mcp"
 ```
 
-`--http-resource-url`은 백엔드의 `APEX_MCP_RESOURCE`와 같아야 한다(토큰 `aud`).
+`--http-resource-url`은 백엔드의 `APEX_MCP_RESOURCE`와 **글자 하나까지 같은 값**이어야 한다
+(토큰 `aud`). 서버 전체에 하나뿐인 식별자라서, MCP가 각 PC의 `127.0.0.1:8765`에서
+돌더라도 모든 PC가 같은 값(`https://apex.example.com/mcp`)을 쓴다. 실제로 접속하는
+주소가 아니어도 된다.
 
 백엔드와 같은 서버 안에서 (DB 직접 접속):
 

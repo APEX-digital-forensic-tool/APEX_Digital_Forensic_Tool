@@ -3,6 +3,9 @@
 Two real processes: the backend under uvicorn (login, grant API, JWKS) and apex-mcp
 started with --http-confirmation-url. The analyst logs in, approves one raw read of
 real evidence bytes, and the MCP server lets that read through exactly once.
+
+The backend uses SQLite by default; set APEX_TEST_POSTGRES_URL to a
+``postgresql+asyncpg://`` URL of a scratch database to run it on PostgreSQL.
 """
 
 from __future__ import annotations
@@ -23,8 +26,8 @@ import httpx2
 from cryptography.hazmat.primitives import serialization
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from apex_backend.auth.keys import load_private_key
 from apex_backend.auth.service import hash_password
@@ -38,6 +41,8 @@ EVIDENCE_BYTES = b"APEX-REMOTE-GRANT" * 32
 TENANT = "tenant-e2e"
 EMAIL = "analyst@e2e.local"
 PASSWORD = "correct horse battery staple"
+# One audience for every token the backend issues, whatever port each local MCP uses.
+SHARED_AUDIENCE = "https://apex.example.com/mcp"
 
 
 def _free_port() -> int:
@@ -95,10 +100,12 @@ def _seed_engine(tmp_path: Path) -> dict[str, Any]:
         services.close()
 
 
-def _seed_backend(db_path: Path, case_id: str) -> None:
-    engine = create_engine(f"sqlite:///{db_path}")
-    Base.metadata.create_all(engine)
-    with sessionmaker(engine)() as db:
+async def _seed_backend(database_url: str, case_id: str) -> None:
+    engine = create_async_engine(database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    async with async_sessionmaker(engine)() as db:
         actor_id = str(uuid.uuid4())
         db.add(User(
             id=actor_id,
@@ -109,19 +116,21 @@ def _seed_backend(db_path: Path, case_id: str) -> None:
             created_at=datetime.now(UTC),
             is_active=True,
         ))
+        await db.flush()
         # Raw reads need apex:raw, which only ADMIN carries.
         db.add(CaseTenancy(
             actor_id=actor_id, case_id=case_id, role="ADMIN", granted_at=datetime.now(UTC)
         ))
-        db.commit()
-    engine.dispose()
+        await db.commit()
+    await engine.dispose()
 
 
-def _uses_count(db_path: Path) -> list[int]:
-    engine = create_engine(f"sqlite:///{db_path}")
-    with sessionmaker(engine)() as db:
-        counts = [row.uses_count for row in db.query(ConfirmationGrantRow).all()]
-    engine.dispose()
+async def _uses_count(database_url: str) -> list[int]:
+    engine = create_async_engine(database_url)
+    async with async_sessionmaker(engine)() as db:
+        rows = (await db.execute(select(ConfirmationGrantRow))).scalars().all()
+        counts = [row.uses_count for row in rows]
+    await engine.dispose()
     return counts
 
 
@@ -135,8 +144,10 @@ def test_local_mcp_uses_backend_grant_api_once(
     project_root: Path, tmp_path: Path, cli_env: dict[str, str]
 ) -> None:
     seeded = _seed_engine(tmp_path)
-    backend_db = tmp_path / "backend.db"
-    _seed_backend(backend_db, seeded["case_id"])
+    backend_db_url = os.environ.get("APEX_TEST_POSTGRES_URL") or (
+        f"sqlite+aiosqlite:///{tmp_path / 'backend.db'}"
+    )
+    asyncio.run(_seed_backend(backend_db_url, seeded["case_id"]))
 
     backend_port, mcp_port = _free_port(), _free_port()
     backend_url = f"http://127.0.0.1:{backend_port}"
@@ -152,8 +163,8 @@ def test_local_mcp_uses_backend_grant_api_once(
         "APEX_RS256_PRIVATE_KEY_PEM": pem,
         "APEX_RS256_KID": kid,
         "APEX_ISSUER": backend_url,
-        "APEX_MCP_RESOURCE": f"{mcp_url}/mcp",
-        "APEX_DATABASE_URL": f"sqlite+aiosqlite:///{backend_db}",
+        "APEX_MCP_RESOURCE": SHARED_AUDIENCE,
+        "APEX_DATABASE_URL": backend_db_url,
     }
     for leaked in ("APEX_CONFIRMATION_DB_URL", "APEX_JWKS_URI", "APEX_LLM_UPSTREAM_API_KEY"):
         env.pop(leaked, None)
@@ -183,7 +194,7 @@ def test_local_mcp_uses_backend_grant_api_once(
                 "--http-jwks-uri", f"{backend_url}/.well-known/jwks.json",
                 "--http-confirmation-url", backend_url,
                 "--http-issuer-url", backend_url,
-                "--http-resource-url", f"{mcp_url}/mcp",
+                "--http-resource-url", SHARED_AUDIENCE,
             ],
             env={k: v for k, v in env.items() if k != "APEX_DATABASE_URL"},
             cwd=str(project_root),
@@ -240,7 +251,7 @@ def test_local_mcp_uses_backend_grant_api_once(
         preview = bytes.fromhex(raw["hex_preview"])
         assert preview and EVIDENCE_BYTES.startswith(preview)
         assert _code(reused) == "HUMAN_CONFIRMATION_REQUIRED"
-        assert _uses_count(backend_db) == [1]
+        assert asyncio.run(_uses_count(backend_db_url)) == [1]
     finally:
         if mcp is not None:
             _stop(mcp)

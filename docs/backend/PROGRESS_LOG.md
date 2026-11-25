@@ -11,9 +11,29 @@
 Phase: 1~16 전부 완료 (PR #14~#20 전부 머지 완료, main 기준 CI green).
 Phase 12는 완료됐지만 알려진 트레이드오프 있음 — 아래 "마지막 진행 상황"과
 `00_MASTER_PLAN.md` 6-6절 참고.
-마지막 업데이트: 2026-09-16
+이후 추가: 로컬 MCP용 grant 조회·소비 API (#115, 2026-11-25).
+마지막 업데이트: 2026-11-25
 
 ## 마지막 진행 상황
+
+**#115 — 로컬 MCP가 grant를 백엔드 API로 확인 (2026-11-25, 브랜치
+`feat/confirmation-api-for-local-mcp`):**
+배포 방침이 "MCP는 분석가 PC, EC2에는 로그인·LLM·다운로드 페이지"로 정해짐(사람 확정).
+기존 JWT 모드 MCP는 `APEX_CONFIRMATION_DB_URL`로 PostgreSQL에 직접 붙어야 해서 이 배치에선
+DB를 외부에 열고 비밀번호를 PC마다 배포해야 했음.
+- `src/apex_backend/auth/confirmation_router.py`: `POST /confirmations/lookup`(소비 안 함),
+  `POST /confirmations/{grant_id}/consume`(조건부 UPDATE로 1회 소비). actor/session은 토큰에서만,
+  `require_active_session`으로 로그아웃 세션 즉시 거부. 스키마는 `auth/schemas.py`.
+- `src/apex_mcp/remote_confirmation.py`: `HttpFrontendSecurityProvider` — 호출 중인 사용자 토큰
+  (`get_access_token()`)을 그대로 백엔드에 전달, 실패·비2xx·토큰 없음은 거부. Protocol 시그니처
+  변경 없음(규칙 2절). 루프백 외에는 HTTPS URL만 허용.
+- `src/apex_mcp/__main__.py`: `--http-confirmation-url`/`APEX_CONFIRMATION_API_URL`. JWT 모드는
+  API·DB 중 정확히 하나 필요. DB 모드(`DbFrontendSecurityProvider`)는 그대로.
+- 테스트: `tests/backend/test_confirmation_remote_api.py` 20개(실제 FastAPI 앱 대상),
+  `tests/mcp/test_cli_remote_confirmation_subprocess.py` 1개(uvicorn 백엔드 + apex-mcp 서브프로세스,
+  실제 증거 바이트 raw_read 1회 승인·재사용 거부). 백엔드+MCP 전체 275개 통과, ruff/mypy --strict 클린.
+- 실제 PostgreSQL 17(asyncpg)로도 E2E 통과(`APEX_TEST_POSTGRES_URL`), 동시 소비 16건 중 1건만 승인 확인.
+- 문서: `deployment/README.md`, `confirmation-grant-flow/README.md`, `docs/MCP_SERVER.md`.
 
 **Phase 12 관련 결정 — MCP 경로 즉각 차단 범위 (2026-09-16, 사람 확정):**
 Phase 12 구현 검토 중, `PersistentFrontendSecurityProvider.resolve_session`/
@@ -131,6 +151,9 @@ Phase 16 완료 (README.md 상태표·체크리스트 동기화, PR #19 머지 �
 
 ## 다음 작업
 
+- #115 PR 머지 후: 분석가 PC에서 JWT 모드 MCP를 돌리려면 지금은 `backend`+`mcp-server` extra가
+  깔린 Python 환경이 필요함(데스크톱 런타임에 `apex_mcp` 미포함). MCP를 로컬로 쓰는 방침이면
+  번들링 여부를 사람과 정할 것.
 계획된 백엔드 Phase(1~16, Phase 12 포함) 전부 완료. 새로 시작할 스펙 없음.
 
 보류 중인 항목(착수 금지, 사람 지시 있을 때까지 대기):
@@ -155,6 +178,8 @@ Phase 16 완료 (README.md 상태표·체크리스트 동기화, PR #19 머지 �
 - 테스트 DB: 단위=SQLite/aiosqlite in-memory, 통합=실제 PostgreSQL
 - bcrypt: `>=4.0,<4.1` 고정 (passlib 비호환 버그, Phase 7)
 - refresh token 재사용 탐지 시 세션 전체 강제 로그아웃 (Phase 12, 2026-09-15)
+- 배포: MCP는 분석가 PC, 서버는 로그인·grant·LLM·다운로드 페이지. 로컬 MCP는 grant를 DB가
+  아니라 백엔드 API로 확인 (#115, 2026-11-25)
 - MCP 도구 호출 경로의 revoked-session 즉각 차단은 DB 체크 추가 대신
   `APEX_ACCESS_TOKEN_TTL=300` 운영 권장값으로 완화 (Phase 12, 2026-09-16,
   근거는 `00_MASTER_PLAN.md` 6-6절)
@@ -273,3 +298,10 @@ Phase 16 완료 (README.md 상태표·체크리스트 동기화, PR #19 머지 �
   수정해뒀던 게 원인). Phase 11 상태 정정, 6-3절 자기모순(표는 "범위
   확정됨"인데 본문은 "확인 필요"로 남아있던 것) 정리, 6-4(Phase 13~15)·
   6-5(Phase 16)·6-6(Phase 12 TTL 결정)절 복구 및 신규 작성.
+
+### 2026-11-25
+- #115: 로컬 MCP용 grant 조회·소비 API(`/confirmations/lookup`, `/confirmations/{id}/consume`)와
+  `HttpFrontendSecurityProvider`, `--http-confirmation-url` 추가. 배경은 "마지막 진행 상황" 참고.
+  확정된 결정 중 "Option A (공유 PostgreSQL for confirmation_grant)"는 서버 안 MCP에만 해당하게
+  됨 — 로컬 MCP는 DB를 공유하지 않고 API를 거침. 조회와 소비를 나눈 이유: 조회 뒤 budget 검사에서
+  호출이 막히면 승인을 태우지 않기 위해.
