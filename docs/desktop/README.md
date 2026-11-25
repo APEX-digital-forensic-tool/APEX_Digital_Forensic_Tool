@@ -16,16 +16,17 @@ Windows x64와 macOS Apple Silicon/Intel을 대상으로 하는 Electron + React
 
 ## 개발 실행
 
-Windows x64 또는 macOS, Python 3.12, Node.js 24, uv가 필요합니다. 아래 명령은 Windows PowerShell과 macOS 터미널에서 공통으로 실행합니다. Mac에서는 Python과 Node.js의 아키텍처를 일치시키세요(Apple Silicon: arm64, Intel: x64).
+Windows x64 또는 macOS, Node.js 24, uv가 필요합니다. Python 3.12는 uv가 받습니다. Mac에서는 Python과 Node.js의 아키텍처를 일치시키세요(Apple Silicon: arm64, Intel: x64).
 
-```powershell
-uv python install 3.12
-uv sync --locked --python 3.12 --extra desktop --extra desktop-build --extra report-renderer --extra browser-media --extra windows-artifacts --extra machine-extraction --extra advanced-secrets
-uv run --no-sync python tools/prepare_desktop_assets.py
-cd frontend
-npm ci
-npm run dev
+```sh
+# 저장소 루트. Windows에서는 .\dev setup, .\dev run
+./dev setup
+./dev run
 ```
+
+`setup`은 Python 3.12와 의존성, 음성 인식 모델, 프런트 패키지를 설치합니다. 데스크톱·MCP·인증 백엔드 개발에 필요한 패키지를 한 환경에 모두 넣습니다. 다시 실행해도 되고, 이미 끝난 단계는 빠르게 지나갑니다. 무엇이 빠졌는지는 `./dev doctor`로 확인합니다. uv와 Node.js는 스크립트가 설치하지 않으므로 직접 설치하세요.
+
+실제로 실행되는 명령은 [`tools/dev.py`](../../tools/dev.py)에 있습니다. Windows의 `dev.cmd`는 아직 실제 Windows에서 확인하지 않았습니다.
 
 Electron이 Windows에서는 `.venv/Scripts/python.exe`, macOS에서는 `.venv/bin/python`을 찾아 로컬 API를 자동 실행합니다. 다른 Python 환경을 써야 하는 경우에만 `APEX_PYTHON`을 해당 실행 파일의 절대 경로로 설정합니다. 개발 서버는 `127.0.0.1:5173`을 사용합니다.
 
@@ -74,18 +75,14 @@ GUI 컨텍스트 수정은 revision 순서로 직렬화합니다. 충돌 시 최
 
 ## 설치 파일 빌드
 
-해당 OS와 아키텍처에서 먼저 Python 런타임을 빌드합니다. 빌드 스크립트는 생성한 바이너리의 플랫폼·아키텍처를 기록하며, Electron 패키징 시 일치 여부를 검사합니다.
+해당 OS와 아키텍처에서 빌드합니다. `./dev setup`을 마친 뒤 실행하세요.
 
 ```sh
-# 저장소 루트, Windows/macOS 공통
-uv sync --locked --python 3.12 --extra desktop --extra desktop-build --extra report-renderer --extra browser-media --extra windows-artifacts --extra machine-extraction --extra advanced-secrets
-uv run --no-sync python tools/build_desktop_runtime.py
-uv run --no-sync python tools/verify_desktop_runtime.py
-cd frontend
-npm ci
+# 저장소 루트. Windows에서는 .\dev build
+./dev build
 ```
 
-Windows에서는 `npm run dist:win`, Mac에서는 `npm run dist:mac`을 실행합니다. 기존 `pwsh -File tools/build_desktop_runtime.ps1`도 공통 Python 빌더를 호출합니다.
+이 명령은 Python 런타임 빌드 → 런타임 실행 확인 → 설치 파일 생성(Windows `dist:win`, Mac `dist:mac`) → Mac에서는 실제 DMG·ZIP 검증을 차례로 실행하고, 한 단계가 실패하면 멈춥니다. 빌드 스크립트는 생성한 바이너리의 플랫폼·아키텍처를 기록하며, Electron 패키징 시 일치 여부를 검사합니다. 기존 `pwsh -File tools/build_desktop_runtime.ps1`도 공통 Python 빌더를 호출합니다.
 
 빌드 시 고정 버전·SHA-256을 확인한 다국어 STT 모델과 Windows용 FFmpeg/ffprobe를 내려받습니다. 설치 후에는 모델 다운로드가 필요하지 않습니다. PyInstaller가 Core·로컬 API·파일시스템·보고서·OCR/STT 실행기·고급 DPAPI 의존성을 `desktop-runtime/`에 묶습니다. electron-builder는 Windows NSIS `.exe`, macOS `.dmg` 및 `.zip`을 `frontend/release/`에 만듭니다. Mac은 현재 호스트 아키텍처로 빌드하며, Intel과 Apple Silicon 패키지는 각각 해당 환경에서 생성합니다. Universal 바이너리나 다른 OS로의 교차 빌드는 제공하지 않습니다.
 
@@ -101,16 +98,14 @@ Windows 호스트 API를 사용하는 이벤트 메시지 렌더링 등은 Mac�
 
 ## 검증
 
-```powershell
-# 저장소 루트
-uv sync --locked --extra desktop --extra report-renderer --extra dev
-uv run --no-sync pytest tests/desktop tests/unit/test_phase6_context_views.py tests/unit/test_phase8_report_contract.py tests/unit/test_ai_data_governance.py
-uv run --no-sync ruff check src/apex_desktop tests/desktop tools/desktop_entry.py tools/build_desktop_runtime.py tools/verify_desktop_runtime.py tools/generate_desktop_fixtures.py
-uv run --no-sync mypy --strict src/apex_desktop
-cd frontend
-npm test
-npm run build
+```sh
+# 저장소 루트. Windows에서는 .\dev check
+./dev check            # CI의 데스크톱·서버 검사 전부
+./dev check desktop    # 데스크톱만 (desktop-ci.yml과 같은 테스트·린트·타입 검사, 프런트 테스트)
+./dev check server     # MCP·인증 백엔드만 (mcp-ci.yml과 같은 검사)
 ```
+
+검사 하나가 실패해도 나머지를 끝까지 실행하고 마지막에 통과·실패를 모아 보여 줍니다. CI가 돌리지 않는 나머지 Python 테스트까지 모두 실행하려면 `uv run --no-sync pytest`를 사용합니다.
 
 로컬 API 테스트는 합성 증거로 사건/증거 격리, 컨텍스트 revision 충돌, 커서 조회, 읽기 한도, 검색·타임라인, 해시 일치/불일치, 보관 이력 및 보고서 승인·내보내기를 확인합니다. 경로 중첩 방지 테스트는 앱 데이터 자체·상위·하위 경로의 등록 차단과 유사한 이름의 외부 폴더 허용을 확인합니다. 프런트 회귀 테스트는 늦은 원본 응답·오류 무시, 연속 읽기 순서, 빠른 작업 완료와 다른 작업 진행 중의 목록 갱신, 보고서 충돌 후 입력 보존을 검증합니다. 프런트 테스트는 실제 Core에서 생성한 합성 DTO를 사용하며 로그인 없는 시작, 파일 탐색, 지원 상태, 컨텍스트 충돌 및 동적 코드 평가 없이 동작하는 계약 검증을 확인합니다.
 
