@@ -1,0 +1,163 @@
+name: Desktop build
+# The one definition of the desktop jobs. desktop-ci.yml and the two release workflows call it;
+# the commands themselves live in tools/dev.py.
+on:
+  workflow_call:
+    inputs:
+      full:
+        description: Check all three platforms and build installers. Otherwise check Windows and macOS arm64 only.
+        type: boolean
+        default: false
+      ref:
+        description: Commit to check out. Empty means the ref that started the caller.
+        type: string
+        default: ''
+      signed:
+        description: Sign and notarize instead of building the certificate-free preview.
+        type: boolean
+        default: false
+      artifact-prefix:
+        description: Uploaded artifacts are named <prefix>-<platform label>.
+        type: string
+        default: APEX
+      retention-days:
+        description: 0 keeps the repository default.
+        type: number
+        default: 0
+    secrets:
+      MAC_CSC_LINK:
+        required: false
+      MAC_CSC_KEY_PASSWORD:
+        required: false
+      APPLE_API_KEY_BASE64:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+permissions:
+  contents: read
+env:
+  PYTHONUTF8: '1'
+  ORT_DISABLE_TELEMETRY: '1'
+  HF_HUB_DISABLE_TELEMETRY: '1'
+jobs:
+  checks:
+    name: checks (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pull requests skip Intel, and Windows skips the engine suites there to stay fast.
+        include: >-
+          ${{ fromJSON(inputs.full
+          && '[{"os":"windows-latest","label":"Windows-x64","groups":"desktop engine"},{"os":"macos-15","label":"macOS-arm64","groups":"desktop engine"},{"os":"macos-15-intel","label":"macOS-x64","groups":"desktop engine"}]'
+          || '[{"os":"windows-latest","label":"Windows-x64","groups":"desktop"},{"os":"macos-15","label":"macOS-arm64","groups":"desktop engine"}]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.11'
+      - uses: actions/cache@v4
+        with:
+          path: build/desktop-downloads
+          key: desktop-downloads-${{ runner.os }}-${{ hashFiles('tools/desktop-assets.lock.json') }}
+      # No `shell:` on the dev steps: Windows must find dev.cmd from PowerShell, as developers do.
+      - run: ./dev setup
+      - run: ./dev check ${{ matrix.groups }}
+  installers:
+    if: inputs.full
+    name: installers (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows-x64
+          - os: macos-15
+            label: macOS-arm64
+          - os: macos-15-intel
+            label: macOS-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.signed && 120 || 45 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.11'
+      - uses: actions/cache@v4
+        with:
+          path: build/desktop-downloads
+          key: desktop-downloads-${{ runner.os }}-${{ hashFiles('tools/desktop-assets.lock.json') }}
+      - run: ./dev setup
+      - run: ./dev build runtime
+      - name: Build preview installer
+        if: ${{ !inputs.signed }}
+        run: ./dev build installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # The five signed steps are kept exactly as desktop-release.yml had them; only `inputs.signed` was
+      # added to their conditions. They have not run yet: no Apple credentials exist.
+      - name: Prepare temporary Apple API key
+        if: inputs.signed && runner.os == 'macOS'
+        run: node frontend/scripts/prepare-macos-key.mjs
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      - name: Package Windows preview
+        if: inputs.signed && runner.os == 'Windows'
+        run: npm run dist:win:release
+        working-directory: frontend
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Sign and notarize macOS application
+        if: inputs.signed && runner.os == 'macOS'
+        run: npm run dist:mac:release
+        working-directory: frontend
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'true'
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Notarize DMG and verify shipped DMG/ZIP payloads
+        if: inputs.signed && runner.os == 'macOS'
+        run: uv run --no-sync python tools/verify_macos_release.py
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Remove temporary notarization key
+        if: always() && inputs.signed && runner.os == 'macOS'
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/apex-notary.p8"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-prefix }}-${{ matrix.label }}
+          path: |
+            frontend/release/APEX-*.exe
+            frontend/release/APEX-*.dmg
+            frontend/release/APEX-*.zip
+            frontend/release/verification-macOS-*.json
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+          compression-level: 0

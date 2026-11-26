@@ -14,6 +14,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,9 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 PYTHON_VERSION = "3.12"
 NODE_MAJOR = 24
-# One environment for desktop, server, and development work: `uv sync` removes whatever
-# is not listed, so a narrower list would uninstall the other side's packages.
-EXTRAS = (
+DESKTOP_EXTRAS = (
     "desktop",
     "desktop-build",
     "report-renderer",
@@ -33,18 +32,36 @@ EXTRAS = (
     "machine-extraction",
     "advanced-secrets",
     "dev",
-    "backend",
-    "mcp-server",
 )
-SYNC = (
+# One environment for desktop, server, and development work: `uv sync` removes whatever
+# is not listed, so a narrower list would uninstall the other side's packages.
+EXTRAS = (*DESKTOP_EXTRAS, "backend", "mcp-server")
+# Without --managed-python uv takes any Python 3.12 already on the machine (python.org,
+# Homebrew, a CI runner's own copy), and that interpreter is what the installers then bundle.
+PYTHON = ("--locked", "--managed-python", "--python", PYTHON_VERSION)
+
+
+def _extras(names: Sequence[str]) -> tuple[str, ...]:
+    return tuple(argument for name in names for argument in ("--extra", name))
+
+
+SYNC = ("uv", "sync", *PYTHON, *_extras(EXTRAS))
+# The engine runtime is what ships, so it is built in a throwaway environment holding the
+# desktop packages only. PyInstaller bundles any optional import that happens to be
+# installed: with the server packages present, cryptography pulls bcrypt into the app.
+BUILD_RUNTIME = (
     "uv",
-    "sync",
-    "--locked",
-    "--python",
-    PYTHON_VERSION,
-    *(argument for extra in EXTRAS for argument in ("--extra", extra)),
+    "run",
+    "--isolated",
+    *PYTHON,
+    *_extras(DESKTOP_EXTRAS),
+    "python",
+    "tools/build_desktop_runtime.py",
 )
 STAMP_NAME = ".apex-lock-sha256"
+GROUPS = ("desktop", "engine", "server")
+BUILD_PARTS = ("runtime", "installer")
+RETRY_DELAY = 5.0
 
 SYNC_PYTHON = "Sync Python environment"
 PREPARE_ASSETS = "Prepare desktop assets"
@@ -62,6 +79,7 @@ NODE_HINT = (
 ARCH_HINT = "Use Python and Node.js of the same architecture (Apple Silicon: arm64, Intel: x64)."
 RUNTIME_HINT = "Only needed for installers; ./dev build creates it."
 BUILD_PLATFORMS = "Installers are built on Windows or macOS."
+RUNTIME_FIRST = "Build the engine runtime first: {launcher} build runtime"
 
 
 @dataclass(frozen=True)
@@ -97,6 +115,15 @@ class Step:
     name: str
     command: tuple[str, ...]
     cwd: Path
+    # More than 1 only for steps that download: one dropped connection should not cost a build.
+    attempts: int = 1
+
+
+@dataclass(frozen=True)
+class Outcome:
+    step: Step
+    code: int
+    seconds: float
 
 
 Runner = Callable[[Step], int]
@@ -257,16 +284,32 @@ def run_step(step: Step) -> int:
         raise
 
 
-def run_steps(
-    steps: Sequence[Step], runner: Runner, *, keep_going: bool = False
-) -> list[tuple[Step, int]]:
-    results = []
+def run_steps(steps: Sequence[Step], runner: Runner, *, keep_going: bool = False) -> list[Outcome]:
+    outcomes = []
     for step in steps:
+        started = time.monotonic()
         code = runner(step)
-        results.append((step, code))
+        for attempt in range(1, step.attempts):
+            if code == 0:
+                break
+            print(
+                f"Attempt {attempt} of {step.attempts} failed; "
+                f"retrying in {RETRY_DELAY:g} seconds.",
+                flush=True,
+            )
+            time.sleep(RETRY_DELAY)
+            code = runner(step)
+        outcomes.append(Outcome(step, code, time.monotonic() - started))
         if code != 0 and not keep_going:
             break
-    return results
+    return outcomes
+
+
+def summarize(outcomes: Sequence[Outcome]) -> None:
+    print()
+    for outcome in outcomes:
+        verdict = "PASS" if outcome.code == 0 else "FAIL"
+        print(f"{verdict}  {outcome.step.name}  {outcome.seconds:.0f}s")
 
 
 def setup_steps(*, npm_current: bool) -> list[Step]:
@@ -278,19 +321,20 @@ def setup_steps(*, npm_current: bool) -> list[Step]:
 
 
 def _setup(env: Environment, runner: Runner) -> int:
-    results = run_steps(setup_steps(npm_current=env.npm_current), runner)
-    for step, code in results:
-        if step.name == INSTALL_PACKAGES and code == 0:
+    outcomes = run_steps(setup_steps(npm_current=env.npm_current), runner)
+    for outcome in outcomes:
+        if outcome.step.name == INSTALL_PACKAGES and outcome.code == 0:
             # Written only after a finished install, so an interrupted one is repeated.
             (FRONTEND / "node_modules" / STAMP_NAME).write_text(lock_digest(), encoding="utf-8")
-    code = results[-1][1]
+    code = outcomes[-1].code
     if code == 0:
         print(f"Next: {_launcher(env.platform)} run")
     return code
 
 
 def check_steps(groups: Sequence[str]) -> list[Step]:
-    """The checks CI runs: "desktop" mirrors desktop-ci.yml, "server" mirrors mcp-ci.yml."""
+    """The checks CI runs. "desktop" and "engine" are what the desktop workflows call;
+    "server" mirrors mcp-ci.yml."""
     python = ("uv", "run", "--no-sync")
     checks = {
         "desktop": [
@@ -328,6 +372,9 @@ def check_steps(groups: Sequence[str]) -> list[Step]:
             Step("Desktop types", (*python, "mypy", "--strict", "src/apex_desktop"), ROOT),
             Step("Frontend tests", ("npm", "test"), FRONTEND),
         ],
+        "engine": [
+            Step("Engine tests", (*python, "pytest", "tests/unit", "tests/integration"), ROOT),
+        ],
         "server": [
             Step("MCP tests", (*python, "pytest", "-q", "tests/mcp"), ROOT),
             Step("Backend tests", (*python, "pytest", "-q", "tests/backend"), ROOT),
@@ -361,37 +408,63 @@ def check_steps(groups: Sequence[str]) -> list[Step]:
     return [step for group in groups for step in checks[group]]
 
 
-def build_steps(platform_name: str) -> list[Step]:
+def build_steps(platform_name: str, parts: Sequence[str] = BUILD_PARTS) -> list[Step]:
     """The preview installer, in the order CI builds and verifies it."""
     targets = {"darwin": "dist:mac", "win32": "dist:win"}
     if platform_name not in targets:
         raise ValueError(BUILD_PLATFORMS)
     python = ("uv", "run", "--no-sync", "python")
-    steps = [
-        Step("Build engine runtime", (*python, "tools/build_desktop_runtime.py"), ROOT),
-        Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
-        Step("Package installer", ("npm", "run", targets[platform_name]), FRONTEND),
-    ]
-    if platform_name == "darwin":
-        steps.append(Step("Verify macOS preview", (*python, "tools/verify_macos_preview.py"), ROOT))
+    steps = []
+    if "runtime" in parts:
+        steps += [
+            Step("Build engine runtime", BUILD_RUNTIME, ROOT, attempts=3),
+            Step("Verify engine runtime", (*python, "tools/verify_desktop_runtime.py"), ROOT),
+        ]
+    if "installer" in parts:
+        package = ("npm", "run", targets[platform_name])
+        steps.append(Step("Package installer", package, FRONTEND, attempts=3))
+        if platform_name == "darwin":
+            verify = (*python, "tools/verify_macos_preview.py")
+            steps.append(Step("Verify macOS preview", verify, ROOT))
     return steps
 
 
-def _check(group: str | None, runner: Runner) -> int:
-    groups = [group] if group else ["desktop", "server"]
-    results = run_steps(check_steps(groups), runner, keep_going=True)
-    print()
-    for step, code in results:
-        print(f"{'PASS' if code == 0 else 'FAIL'}  {step.name}")
-    return 1 if any(code != 0 for _, code in results) else 0
+def _group(name: str) -> str:
+    if name not in GROUPS:
+        raise argparse.ArgumentTypeError(f"choose from {', '.join(GROUPS)}")
+    return name
 
 
-def _build(env: Environment, runner: Runner) -> int:
+def _check(groups: Sequence[str], runner: Runner) -> int:
+    # Named groups run once each, in the order given.
+    selected = list(dict.fromkeys(groups)) or list(GROUPS)
+    outcomes = run_steps(check_steps(selected), runner, keep_going=True)
+    summarize(outcomes)
+    return 1 if any(outcome.code != 0 for outcome in outcomes) else 0
+
+
+def _runtime_fits(env: Environment) -> bool:
+    runtime = env.runtime
+    return (
+        runtime is not None
+        and runtime.get("platform") == env.platform
+        and runtime.get("arch") == env.python_arch
+    )
+
+
+def _build(env: Environment, runner: Runner, part: str | None) -> int:
     if env.platform not in ("darwin", "win32"):
         print(BUILD_PLATFORMS)
         return 1
-    code = run_steps(build_steps(env.platform), runner)[-1][1]
-    if code == 0:
+    parts = (part,) if part else BUILD_PARTS
+    if "runtime" not in parts and not _runtime_fits(env):
+        # Packaging reads desktop-runtime/ and fails with a Node stack trace without it.
+        print(RUNTIME_FIRST.format(launcher=_launcher(env.platform)))
+        return 1
+    outcomes = run_steps(build_steps(env.platform, parts), runner)
+    summarize(outcomes)
+    code = outcomes[-1].code
+    if code == 0 and "installer" in parts:
         for pattern in ("APEX-*.dmg", "APEX-*.zip", "APEX-*.exe"):
             for artifact in sorted((FRONTEND / "release").glob(pattern)):
                 print(artifact)
@@ -419,9 +492,9 @@ def _dispatch(args: argparse.Namespace, env: Environment, runner: Runner) -> int
         report(stale)
         print("Continuing with the environment as it is.\n", flush=True)
     if command == "check":
-        return _check(args.group, runner)
+        return _check(args.groups, runner)
     if command == "build":
-        return _build(env, runner)
+        return _build(env, runner, args.part)
     return runner(Step(START_APP, ("npm", "run", "dev"), FRONTEND))
 
 
@@ -435,9 +508,20 @@ def main(
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("setup", help="install everything needed to develop APEX")
     commands.add_parser("run", help="start the desktop app from source")
-    commands.add_parser("build", help="build and verify the preview installer for this machine")
+    build = commands.add_parser(
+        "build", help="build and verify the preview installer for this machine"
+    )
+    build.add_argument("part", nargs="?", choices=BUILD_PARTS, help="default: both, in order")
     check = commands.add_parser("check", help="run the tests, lint, and type checks CI runs")
-    check.add_argument("group", nargs="?", choices=("desktop", "server"), help="default: both")
+    # A type check instead of `choices`: with nargs="*" the handling of "no groups given"
+    # by `choices` differs between Python versions.
+    check.add_argument(
+        "groups",
+        nargs="*",
+        type=_group,
+        metavar="group",
+        help=f"{', '.join(GROUPS)} (default: all)",
+    )
     commands.add_parser("doctor", help="show what is installed and what is missing")
     args = parser.parse_args(argv)
     try:

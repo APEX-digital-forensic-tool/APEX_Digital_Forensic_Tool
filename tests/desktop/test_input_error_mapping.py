@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 import apex_desktop.app as desktop_app
 from apex_desktop.app import create_app
+from apex_forensic.domain.errors import ValidationError
 
 TOKEN = "a" * 48
 
@@ -27,6 +28,31 @@ def test_service_internal_errors_are_not_reported_as_input_errors(client, monkey
     response = client.post("/v1/operations/cases.list", json={})
     assert response.status_code == 500, response.text
     assert response.json()["error"]["code"] == "DESKTOP_OPERATION_FAILED"
+
+
+def test_unexpected_operation_errors_are_logged_with_their_traceback(client, monkeypatch, caplog):
+    """The reply hides the cause on purpose, so the log is the only place it can be found."""
+
+    def broken(*args, **kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(desktop_app, "invoke", broken)
+    with caplog.at_level("ERROR", logger="apex_desktop.app"):
+        client.post("/v1/operations/cases.list", json={})
+    (record,) = [r for r in caplog.records if r.name == "apex_desktop.app"]
+    assert "cases.list" in record.getMessage()
+    assert record.exc_info is not None and str(record.exc_info[1]) == "boom"
+
+
+def test_expected_operation_errors_are_not_logged_as_failures(client, monkeypatch, caplog):
+    def refused(*args, **kwargs):
+        raise ValidationError("Selected source is outside this case.", target="node_id")
+
+    monkeypatch.setattr(desktop_app, "invoke", refused)
+    with caplog.at_level("ERROR", logger="apex_desktop.app"):
+        response = client.post("/v1/operations/cases.list", json={})
+    assert response.status_code == 409, response.text
+    assert [r for r in caplog.records if r.name == "apex_desktop.app"] == []
 
 
 def test_request_body_that_fails_input_validation_is_still_422(client):

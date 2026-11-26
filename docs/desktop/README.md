@@ -81,16 +81,18 @@ GUI 컨텍스트 수정은 revision 순서로 직렬화합니다. 충돌 시 최
 
 ```sh
 # 저장소 루트. Windows에서는 .\dev build
-./dev build
+./dev build              # 아래 두 부분을 차례로
+./dev build runtime      # Python 런타임 빌드 → 런타임 실행 확인
+./dev build installer    # 설치 파일 생성 → Mac에서는 실제 DMG·ZIP 검증
 ```
 
-이 명령은 Python 런타임 빌드 → 런타임 실행 확인 → 설치 파일 생성(Windows `dist:win`, Mac `dist:mac`) → Mac에서는 실제 DMG·ZIP 검증을 차례로 실행하고, 한 단계가 실패하면 멈춥니다. 빌드 스크립트는 생성한 바이너리의 플랫폼·아키텍처를 기록하며, Electron 패키징 시 일치 여부를 검사합니다. 기존 `pwsh -File tools/build_desktop_runtime.ps1`도 공통 Python 빌더를 호출합니다.
+이 명령은 Python 런타임 빌드 → 런타임 실행 확인 → 설치 파일 생성(Windows `dist:win`, Mac `dist:mac`) → Mac에서는 실제 DMG·ZIP 검증을 차례로 실행하고, 한 단계가 실패하면 멈춥니다. 내려받기가 들어 있는 런타임 빌드와 설치 파일 생성은 실패하면 5초 뒤 다시 시도하며 세 번까지 합니다. 끝에 단계별 소요 시간을 보여 줍니다. `installer`만 실행하려면 이 컴퓨터용 런타임이 먼저 빌드돼 있어야 합니다. 런타임은 개발 환경(`.venv`)이 아니라 데스크톱 패키지만 든 임시 환경에서 빌드합니다. PyInstaller는 설치돼 있는 선택적 의존성까지 묶기 때문에, 서버 개발용 패키지가 설치 파일에 섞이지 않게 하기 위해서입니다. 빌드 스크립트는 생성한 바이너리의 플랫폼·아키텍처를 기록하며, Electron 패키징 시 일치 여부를 검사합니다. 기존 `pwsh -File tools/build_desktop_runtime.ps1`도 공통 Python 빌더를 호출합니다.
 
 빌드 시 고정 버전·SHA-256을 확인한 다국어 STT 모델과 Windows용 FFmpeg/ffprobe를 내려받습니다. 설치 후에는 모델 다운로드가 필요하지 않습니다. PyInstaller가 Core·로컬 API·파일시스템·보고서·OCR/STT 실행기·고급 DPAPI 의존성을 `desktop-runtime/`에 묶습니다. electron-builder는 Windows NSIS `.exe`, macOS `.dmg` 및 `.zip`을 `frontend/release/`에 만듭니다. Mac은 현재 호스트 아키텍처로 빌드하며, Intel과 Apple Silicon 패키지는 각각 해당 환경에서 생성합니다. Universal 바이너리나 다른 OS로의 교차 빌드는 제공하지 않습니다.
 
 개인 Mac에서 서명 인증서를 사용하지 않고 로컬 빌드를 확인하려면 `CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac`을 사용합니다. 공개 배포는 [Developer ID 서명·Apple 공증 절차](MACOS_SIGNED_RELEASE.md)에 따라 별도 release workflow로 진행합니다. 인증 정보 등록과 실제 공증 검증이 필요하며, 로컬 빌드 성공은 배포용 서명 검증을 뜻하지 않습니다. 자동 업데이트는 제공하지 않습니다.
 
-`.github/workflows/desktop-ci.yml`은 Windows x64·macOS arm64·macOS x64에서 테스트, 타입 검사, 런타임 빌드·실행 확인 및 패키징을 수행하도록 구성했습니다. CI 결과물은 서명하지 않은 검증용입니다. Mac runner 선택은 [GitHub 공식 runner 목록](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)을 기준으로 합니다.
+`.github/workflows/desktop-ci.yml`은 PR에서 Windows x64·macOS arm64의 테스트·린트·타입 검사만 수행합니다. Windows x64·macOS arm64·macOS x64 세 플랫폼의 런타임 빌드·실행 확인·패키징은 `main`에 병합된 뒤와 릴리스 때 수행합니다. PR에서 설치 파일까지 미리 확인하려면 `gh workflow run "Desktop Windows and macOS" --ref <브랜치>`로 수동 실행합니다. job 구성은 `.github/workflows/desktop-build.yml` 한 곳에 있고, PR 검사와 릴리스 워크플로 두 개가 이 파일을 호출해 `./dev setup`·`./dev check`·`./dev build`를 실행합니다. CI 결과물은 서명하지 않은 검증용입니다. Mac runner 선택은 [GitHub 공식 runner 목록](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)을 기준으로 합니다.
 
 ## macOS 지원 범위
 
@@ -102,12 +104,13 @@ Windows 호스트 API를 사용하는 이벤트 메시지 렌더링 등은 Mac�
 
 ```sh
 # 저장소 루트. Windows에서는 .\dev check
-./dev check            # CI의 데스크톱·서버 검사 전부
-./dev check desktop    # 데스크톱만 (desktop-ci.yml과 같은 테스트·린트·타입 검사, 프런트 테스트)
-./dev check server     # MCP·인증 백엔드만 (mcp-ci.yml과 같은 검사)
+./dev check            # 아래 세 묶음 전부
+./dev check desktop    # 데스크톱 (테스트·린트·타입 검사, 프런트 테스트)
+./dev check engine     # 분석 엔진 (tests/unit, tests/integration 전체)
+./dev check server     # MCP·인증 백엔드 (mcp-ci.yml과 같은 검사)
 ```
 
-검사 하나가 실패해도 나머지를 끝까지 실행하고 마지막에 통과·실패를 모아 보여 줍니다. CI가 돌리지 않는 나머지 Python 테스트까지 모두 실행하려면 `uv run --no-sync pytest`를 사용합니다.
+묶음은 여러 개를 함께 줄 수 있습니다(`./dev check desktop engine`). 데스크톱 CI는 PR에서 Windows는 `desktop`, macOS arm64는 `desktop engine`을 실행하고, `main`·릴리스·수동 실행에서는 세 플랫폼 모두 `desktop engine`을 실행합니다. 검사 하나가 실패해도 나머지를 끝까지 실행하고 마지막에 통과·실패와 소요 시간을 모아 보여 줍니다. 세 묶음을 합치면 `tests/` 아래 Python 테스트 전부입니다.
 
 `run`, `check`, `build`는 환경을 다시 맞추지 않습니다. `uv.lock`이나 `package-lock.json`이 바뀐 뒤처럼 환경이 lock과 다르면 먼저 알려 주고 그대로 실행하므로, 그때는 `./dev setup`을 다시 실행하세요.
 

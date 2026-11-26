@@ -1,6 +1,7 @@
 """The dev script plans the same steps on every OS and never runs past a failed tool check."""
 
 import importlib.util
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -128,8 +129,10 @@ def test_setup_syncs_python_prepares_assets_then_installs_packages(frontend):
         "Prepare desktop assets",
         "Install frontend packages",
     ]
+    # --managed-python: a Python 3.12 already on the machine (python.org, Homebrew, a CI
+    # runner's own copy) must not become the interpreter that gets bundled into installers.
     assert rec.steps[0].command == (
-        "uv", "sync", "--locked", "--python", "3.12",
+        "uv", "sync", "--locked", "--managed-python", "--python", "3.12",
         "--extra", "desktop", "--extra", "desktop-build", "--extra", "report-renderer",
         "--extra", "browser-media", "--extra", "windows-artifacts",
         "--extra", "machine-extraction", "--extra", "advanced-secrets",
@@ -195,6 +198,7 @@ def test_real_runner_works_in_a_path_with_spaces_and_reports_missing_programs(tm
 
 
 DESKTOP = ["Desktop tests", "Desktop lint", "Desktop types", "Frontend tests"]
+ENGINE = ["Engine tests"]
 SERVER = [
     "MCP tests",
     "Backend tests",
@@ -208,24 +212,39 @@ SERVER = [
 def test_check_runs_everything_even_after_a_failure(frontend):
     rec = Recorder(fail="Desktop tests")
     assert dev.main(["check"], runner=rec, probe=lambda: READY) == 1
-    assert [s.name for s in rec.steps] == DESKTOP + SERVER
+    assert [s.name for s in rec.steps] == DESKTOP + ENGINE + SERVER
 
 
 def test_check_passes_when_every_step_passes(frontend):
     assert dev.main(["check"], runner=Recorder(), probe=lambda: READY) == 0
 
 
-@pytest.mark.parametrize(("group", "names"), [("desktop", DESKTOP), ("server", SERVER)])
-def test_check_can_run_one_group(frontend, group, names):
+@pytest.mark.parametrize(
+    ("groups", "names"),
+    [
+        (["desktop"], DESKTOP),
+        (["engine"], ENGINE),
+        (["server"], SERVER),
+        (["desktop", "engine"], DESKTOP + ENGINE),
+        (["engine", "desktop", "engine"], ENGINE + DESKTOP),
+    ],
+)
+def test_check_runs_the_named_groups_once_in_the_given_order(frontend, groups, names):
     rec = Recorder()
-    assert dev.main(["check", group], runner=rec, probe=lambda: READY) == 0
+    assert dev.main(["check", *groups], runner=rec, probe=lambda: READY) == 0
     assert [s.name for s in rec.steps] == names
 
 
-def test_check_rejects_an_unknown_group(frontend):
+def test_engine_group_runs_the_unit_and_integration_suites():
+    (step,) = dev.check_steps(["engine"])
+    assert step.command == ("uv", "run", "--no-sync", "pytest", "tests/unit", "tests/integration")
+
+
+def test_check_rejects_an_unknown_group(frontend, capsys):
     with pytest.raises(SystemExit) as exit_info:
-        dev.main(["check", "everything"], runner=Recorder(), probe=lambda: READY)
+        dev.main(["check", "desktop", "everything"], runner=Recorder(), probe=lambda: READY)
     assert exit_info.value.code == 2
+    assert "desktop, engine, server" in capsys.readouterr().err
 
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -236,16 +255,50 @@ def workflow_commands(name):
     return {line.strip().removeprefix("- ").removeprefix("run: ") for line in lines}
 
 
-# The workflows still keep their own copy of these commands. Until they call this script,
-# these tests are what notices the two drifting apart.
-def test_desktop_checks_are_the_commands_the_pull_request_workflow_runs():
-    ci = workflow_commands("desktop-ci.yml")
-    for step in dev.check_steps(["desktop"]):
-        # The script also lints itself; the workflow does not yet.
-        command = " ".join(step.command).removesuffix(" tools/dev.py")
-        assert command in ci, step.name
+# The desktop workflows call this script, so its lists are the only copy. These tests keep
+# a second copy from growing back, and keep the script's own files in the path filter.
+DIRECT = (
+    "uv sync",
+    "uv run --no-sync pytest",
+    "uv run --no-sync ruff",
+    "uv run --no-sync mypy",
+    "uv run --no-sync python tools/build_desktop_runtime.py",
+    "npm ci",
+    "npm test",
+)
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["desktop-build.yml", "desktop-ci.yml", "desktop-preview-release.yml", "desktop-release.yml"],
+)
+def test_desktop_workflows_leave_the_commands_to_the_dev_script(name):
+    assert [c for c in workflow_commands(name) if c.startswith(DIRECT)] == []
+
+
+def test_the_shared_workflow_calls_the_dev_script():
+    assert {
+        "./dev setup",
+        "./dev check ${{ matrix.groups }}",
+        "./dev build runtime",
+        "./dev build installer",
+    } <= workflow_commands("desktop-build.yml")
+
+
+def test_dev_script_changes_trigger_the_desktop_check():
+    text = (WORKFLOWS / "desktop-ci.yml").read_text(encoding="utf-8")
+    for path in (
+        "'tools/dev.py'",
+        "'dev'",
+        "'dev.cmd'",
+        "'tests/unit/**'",
+        "'tests/integration/**'",
+        "'.github/workflows/desktop-build.yml'",
+    ):
+        assert text.count(path) == 2, path  # once for pull_request, once for push
+
+
+# mcp-ci.yml still keeps its own copy of the server commands.
 def test_server_checks_are_the_commands_the_mcp_workflow_runs():
     ci = workflow_commands("mcp-ci.yml")
     for step in dev.check_steps(["server"]):
@@ -253,14 +306,13 @@ def test_server_checks_are_the_commands_the_mcp_workflow_runs():
         assert command in ci, step.name
 
 
-def test_setup_installs_every_extra_a_workflow_installs():
+def test_setup_installs_every_extra_the_mcp_workflow_installs():
     extras = set()
-    for name in ("desktop-ci.yml", "mcp-ci.yml"):
-        for command in workflow_commands(name):
-            if command.startswith("uv sync"):
-                words = command.split()
-                extras.update(words[i + 1] for i, word in enumerate(words) if word == "--extra")
-    assert extras == set(dev.EXTRAS)
+    for command in workflow_commands("mcp-ci.yml"):
+        if command.startswith("uv sync"):
+            words = command.split()
+            extras.update(words[i + 1] for i, word in enumerate(words) if word == "--extra")
+    assert extras and extras <= set(dev.EXTRAS)
 
 
 def test_build_steps_follow_the_platform(frontend):
@@ -271,7 +323,7 @@ def test_build_steps_follow_the_platform(frontend):
         "Package installer",
         "Verify macOS preview",
     ]
-    assert mac[2] == dev.Step("Package installer", ("npm", "run", "dist:mac"), frontend)
+    assert mac[2] == dev.Step("Package installer", ("npm", "run", "dist:mac"), frontend, attempts=3)
     windows = dev.build_steps("win32")
     assert [s.name for s in windows] == [
         "Build engine runtime",
@@ -293,12 +345,120 @@ def test_build_refuses_other_platforms(frontend):
     assert rec.steps == []
 
 
+BUILT = replace(READY, runtime={"platform": "darwin", "arch": "arm64"})
+
+
+@pytest.mark.parametrize(
+    ("part", "names"),
+    [
+        ("runtime", ["Build engine runtime", "Verify engine runtime"]),
+        ("installer", ["Package installer", "Verify macOS preview"]),
+    ],
+)
+def test_build_can_run_one_part(frontend, part, names):
+    rec = Recorder()
+    assert dev.main(["build", part], runner=rec, probe=lambda: BUILT) == 0
+    assert [s.name for s in rec.steps] == names
+
+
+@pytest.mark.parametrize(
+    "runtime", [None, {"platform": "win32", "arch": "x64"}, {"platform": "darwin", "arch": "x64"}]
+)
+def test_installer_alone_needs_a_runtime_for_this_machine(frontend, capsys, runtime):
+    rec = Recorder()
+    env = replace(READY, runtime=runtime)
+    assert dev.main(["build", "installer"], runner=rec, probe=lambda: env) == 1
+    assert rec.steps == []
+    assert "./dev build runtime" in capsys.readouterr().out
+
+
+def test_the_runtime_is_built_from_the_desktop_packages_only(frontend):
+    """What is installed for server work must not reach the installers: PyInstaller bundles
+    any optional import that happens to be present (cryptography picks up bcrypt)."""
+    build = dev.build_steps("darwin", ["runtime"])[0]
+    assert build.command == (
+        "uv", "run", "--isolated", "--locked", "--managed-python", "--python", "3.12",
+        "--extra", "desktop", "--extra", "desktop-build", "--extra", "report-renderer",
+        "--extra", "browser-media", "--extra", "windows-artifacts",
+        "--extra", "machine-extraction", "--extra", "advanced-secrets", "--extra", "dev",
+        "python", "tools/build_desktop_runtime.py",
+    )  # fmt: skip
+    assert set(dev.EXTRAS) - set(dev.DESKTOP_EXTRAS) == {"backend", "mcp-server"}
+
+
+def test_windows_installer_part_has_no_macos_verification(frontend):
+    assert [s.name for s in dev.build_steps("win32", ["installer"])] == ["Package installer"]
+
+
+class Flaky:
+    """Fails each named step a fixed number of times, then succeeds."""
+
+    def __init__(self, failures):
+        self.failures, self.calls = dict(failures), []
+
+    def __call__(self, step):
+        self.calls.append(step.name)
+        left = self.failures.get(step.name, 0)
+        self.failures[step.name] = left - 1
+        return 7 if left > 0 else 0
+
+
+@pytest.fixture
+def no_delay(monkeypatch):
+    monkeypatch.setattr(dev, "RETRY_DELAY", 0)
+
+
+def test_only_the_download_steps_are_retried(frontend):
+    attempts = {s.name: s.attempts for s in dev.build_steps("darwin")}
+    assert attempts == {
+        "Build engine runtime": 3,
+        "Verify engine runtime": 1,
+        "Package installer": 3,
+        "Verify macOS preview": 1,
+    }
+    assert all(s.attempts == 1 for s in dev.check_steps(list(dev.GROUPS)))
+    assert all(s.attempts == 1 for s in dev.setup_steps(npm_current=False))
+
+
+def test_a_step_that_recovers_is_retried_and_the_build_goes_on(frontend, no_delay, capsys):
+    runner = Flaky({"Build engine runtime": 2})
+    assert dev.main(["build", "runtime"], runner=runner, probe=lambda: READY) == 0
+    assert runner.calls == ["Build engine runtime"] * 3 + ["Verify engine runtime"]
+    assert "Attempt 2 of 3 failed" in capsys.readouterr().out
+
+
+def test_a_step_that_keeps_failing_stops_the_build_with_its_exit_code(frontend, no_delay):
+    runner = Flaky({"Build engine runtime": 9})
+    assert dev.main(["build"], runner=runner, probe=lambda: READY) == 7
+    assert runner.calls == ["Build engine runtime"] * 3
+
+
+def test_interrupt_while_waiting_to_retry_ends_with_130(frontend, monkeypatch):
+    def interrupted(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(dev.time, "sleep", interrupted)
+    runner = Flaky({"Build engine runtime": 9})
+    assert dev.main(["build"], runner=runner, probe=lambda: READY) == 130
+    assert runner.calls == ["Build engine runtime"]
+
+
+def test_summaries_show_how_long_each_step_took(frontend, capsys):
+    assert dev.main(["check", "engine"], runner=Recorder(), probe=lambda: READY) == 0
+    assert re.search(r"^PASS  Engine tests  \d+s$", capsys.readouterr().out, re.M)
+    failing = Recorder(fail="Verify engine runtime")
+    assert dev.main(["build", "runtime"], runner=failing, probe=lambda: READY) == 1
+    out = capsys.readouterr().out
+    assert re.search(r"^PASS  Build engine runtime  \d+s$", out, re.M)
+    assert re.search(r"^FAIL  Verify engine runtime  \d+s$", out, re.M)
+
+
 def test_every_step_has_an_absolute_working_directory():
     steps = (
         dev.setup_steps(npm_current=False)
         + dev.build_steps("darwin")
         + dev.build_steps("win32")
-        + dev.check_steps(["desktop", "server"])
+        + dev.check_steps(["desktop", "engine", "server"])
     )
     assert all(step.cwd.is_absolute() for step in steps)
 
